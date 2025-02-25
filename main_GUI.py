@@ -77,6 +77,12 @@ class RAFTDICGUI:
         self.current_image = None
         self.displacement_results = []
         
+        # 添加缩放相关变量
+        self.zoom_factor = 1.0
+        self.pan_start_x = 0
+        self.pan_start_y = 0
+        self.current_photo = None  # 保存当前显示的PhotoImage
+        
     def create_control_panel(self, parent):
         """创建控制面板"""
         # 使用LabelFrame包装控制面板
@@ -174,9 +180,21 @@ class RAFTDICGUI:
         
         self.roi_canvas.configure(xscrollcommand=x_scrollbar.set, yscrollcommand=y_scrollbar.set)
         
+        # 绑定鼠标滚轮事件
+        self.roi_canvas.bind('<MouseWheel>', self.on_mousewheel)  # Windows
+        self.roi_canvas.bind('<Button-4>', self.on_mousewheel)    # Linux上滚
+        self.roi_canvas.bind('<Button-5>', self.on_mousewheel)    # Linux下滚
+        
+        # 添加缩放控制按钮
+        zoom_frame = ttk.Frame(roi_frame)
+        zoom_frame.grid(row=2, column=0, columnspan=2, pady=5)
+        ttk.Button(zoom_frame, text="放大", command=lambda: self.zoom(1.2)).grid(row=0, column=0, padx=2)
+        ttk.Button(zoom_frame, text="缩小", command=lambda: self.zoom(0.8)).grid(row=0, column=1, padx=2)
+        ttk.Button(zoom_frame, text="重置缩放", command=self.reset_zoom).grid(row=0, column=2, padx=2)
+        
         # ROI控制按钮
         self.roi_controls = ttk.Frame(roi_frame)
-        self.roi_controls.grid(row=2, column=0, columnspan=2, pady=5)
+        self.roi_controls.grid(row=3, column=0, columnspan=2, pady=5)
         
         ttk.Button(self.roi_controls, text="Draw ROI", 
                    command=self.start_roi_drawing).grid(row=0, column=0, padx=2)
@@ -250,7 +268,7 @@ class RAFTDICGUI:
         try:
             # 获取图像文件列表
             image_files = sorted([f for f in os.listdir(directory) 
-                                if f.lower().endswith(('.png', '.jpg', '.jpeg', '.tif', '.tiff'))])
+                                if f.lower().endswith(('.png', '.jpg', '.jpeg', '.tif', '.tiff', '.bmp'))])
             
             if not image_files:
                 messagebox.showerror("Error", "No valid image files found in the directory")
@@ -380,7 +398,7 @@ class RAFTDICGUI:
         """处理所有图像"""
         # 获取图像文件列表
         image_files = sorted([f for f in os.listdir(args.img_dir) 
-                          if f.endswith(('.tif', '.tiff', '.png', '.jpg', '.jpeg'))])
+                          if f.endswith(('.tif', '.tiff', '.png', '.jpg', '.jpeg', '.bmp'))])
 
         if len(image_files) < 2:
             raise Exception("至少需要2张图片")
@@ -640,26 +658,33 @@ class RAFTDICGUI:
         if not self.drawing_roi:
             return
         
-        # 将画布坐标转换为图像坐标
-        x = event.x / self.roi_scale_factor
-        y = event.y / self.roi_scale_factor
+        # 获取画布上的实际坐标（考虑滚动位置）
+        canvas_x = self.roi_canvas.canvasx(event.x)
+        canvas_y = self.roi_canvas.canvasy(event.y)
+        
+        # 将画布坐标转换为图像坐标（考虑缩放）
+        x = canvas_x / self.zoom_factor
+        y = canvas_y / self.zoom_factor
         
         # 添加点到列表
         self.roi_points.append((x, y))
         
-        # 如果是第一个点，直接画点
-        if len(self.roi_points) == 1:
-            self.roi_canvas.create_oval(event.x-2, event.y-2, event.x+2, event.y+2, 
-                                      fill='red')
-        else:
-            # 画点
-            self.roi_canvas.create_oval(event.x-2, event.y-2, event.x+2, event.y+2, 
-                                      fill='red')
-            # 连接线段
-            prev_x = int(self.roi_points[-2][0] * self.roi_scale_factor)
-            prev_y = int(self.roi_points[-2][1] * self.roi_scale_factor)
-            self.roi_canvas.create_line(prev_x, prev_y, event.x, event.y, 
-                                      fill='green', width=2)
+        # 在画布上绘制点
+        self.roi_canvas.create_oval(
+            canvas_x-2, canvas_y-2,
+            canvas_x+2, canvas_y+2,
+            fill='red'
+        )
+        
+        # 如果不是第一个点，绘制连接线
+        if len(self.roi_points) > 1:
+            prev_x = self.roi_points[-2][0] * self.zoom_factor
+            prev_y = self.roi_points[-2][1] * self.zoom_factor
+            self.roi_canvas.create_line(
+                prev_x, prev_y,
+                canvas_x, canvas_y,
+                fill='green', width=2
+            )
 
     def update_roi_preview(self, event):
         """更新ROI预览"""
@@ -810,36 +835,127 @@ class RAFTDICGUI:
         if image is None:
             return
         
-        # 计算缩放比例
+        # 获取原始图像尺寸
         h, w = image.shape[:2]
-        scale = min(400/w, 400/h)
+        
+        # 计算显示尺寸
+        display_w = int(w * self.zoom_factor)
+        display_h = int(h * self.zoom_factor)
         
         # 调整图像大小
-        display_size = (int(w * scale), int(h * scale))
-        resized = cv2.resize(image, display_size, interpolation=cv2.INTER_AREA)
+        resized = cv2.resize(image, (display_w, display_h), interpolation=cv2.INTER_AREA)
         
-        # 转换为PhotoImage
+        # 转换为RGB格式
         if len(resized.shape) == 2:
-            # 如果是灰度图像，转换为RGB
             resized = cv2.cvtColor(resized, cv2.COLOR_GRAY2RGB)
         elif resized.shape[2] == 4:
-            # 如果是RGBA图像，转换为RGB
             resized = cv2.cvtColor(resized, cv2.COLOR_RGBA2RGB)
-        
-        # 更新画布大小
-        self.roi_canvas.config(width=display_size[0], height=display_size[1])
+        elif resized.shape[2] == 3:
+            resized = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
         
         # 创建PhotoImage
         image_pil = Image.fromarray(resized)
-        photo = ImageTk.PhotoImage(image_pil)
+        self.current_photo = ImageTk.PhotoImage(image_pil)
         
         # 清除画布并显示新图像
         self.roi_canvas.delete("all")
-        self.roi_canvas.create_image(0, 0, anchor=tk.NW, image=photo)
-        self.roi_canvas.image = photo  # 保持引用
+        self.roi_canvas.create_image(0, 0, anchor=tk.NW, image=self.current_photo)
         
+        # 重新绘制已有的ROI点和线
+        if self.roi_points:
+            for i, point in enumerate(self.roi_points):
+                x, y = point
+                canvas_x = x * self.zoom_factor
+                canvas_y = y * self.zoom_factor
+                
+                # 绘制点
+                self.roi_canvas.create_oval(
+                    canvas_x-2, canvas_y-2,
+                    canvas_x+2, canvas_y+2,
+                    fill='red'
+                )
+                
+                # 绘制线
+                if i > 0:
+                    prev_x = self.roi_points[i-1][0] * self.zoom_factor
+                    prev_y = self.roi_points[i-1][1] * self.zoom_factor
+                    self.roi_canvas.create_line(
+                        prev_x, prev_y,
+                        canvas_x, canvas_y,
+                        fill='green', width=2
+                    )
+        
+        # 更新滚动区域
+        self.roi_canvas.configure(scrollregion=(0, 0, display_w, display_h))
+
+    def on_mousewheel(self, event):
+        """处理鼠标滚轮事件"""
+        if self.current_image is None:
+            return
+            
+        # 获取当前鼠标位置（相对于画布）
+        x = self.roi_canvas.canvasx(event.x)
+        y = self.roi_canvas.canvasy(event.y)
+        
+        # Windows平台
+        if event.delta:
+            if event.delta > 0:
+                self.zoom(1.1, x, y)
+            else:
+                self.zoom(0.9, x, y)
+        # Linux/Mac平台
+        else:
+            if event.num == 4:
+                self.zoom(1.1, x, y)
+            elif event.num == 5:
+                self.zoom(0.9, x, y)
+
+    def zoom(self, factor, x=None, y=None):
+        """缩放图像"""
+        if self.current_image is None:
+            return
+            
         # 更新缩放因子
-        self.roi_scale_factor = scale
+        old_zoom = self.zoom_factor
+        self.zoom_factor *= factor
+        
+        # 限制缩放范围
+        min_zoom = 0.1
+        max_zoom = 5.0
+        self.zoom_factor = max(min_zoom, min(max_zoom, self.zoom_factor))
+        
+        # 如果缩放因子没有改变，直接返回
+        if self.zoom_factor == old_zoom:
+            return
+        
+        # 保存当前的滚动位置
+        old_x = self.roi_canvas.canvasx(0)
+        old_y = self.roi_canvas.canvasy(0)
+        
+        # 更新显示
+        self.update_roi_label(self.current_image)
+        
+        # 如果提供了鼠标位置，调整滚动位置以保持鼠标指向的点不变
+        if x is not None and y is not None:
+            # 计算新的滚动位置
+            new_x = x * (self.zoom_factor / old_zoom) - event.x
+            new_y = y * (self.zoom_factor / old_zoom) - event.y
+            
+            # 设置新的滚动位置
+            self.roi_canvas.xview_moveto(new_x / self.roi_canvas.winfo_width())
+            self.roi_canvas.yview_moveto(new_y / self.roi_canvas.winfo_height())
+
+    def reset_zoom(self):
+        """重置缩放"""
+        if self.current_image is None:
+            return
+            
+        self.zoom_factor = 1.0
+        self.update_roi_label(self.current_image)
+        
+        # 重置滚动条位置
+        self.roi_canvas.xview_moveto(0)
+        self.roi_canvas.yview_moveto(0)
 
 if __name__ == '__main__':
     root = tk.Tk()
