@@ -83,6 +83,11 @@ class RAFTDICGUI:
         self.pan_start_y = 0
         self.current_photo = None  # 保存当前显示的PhotoImage
         
+        # 添加播放相关变量
+        self.is_playing = False
+        self.play_after_id = None
+        self.play_interval = 100  # 播放间隔(ms)
+        
     def create_control_panel(self, parent):
         """创建控制面板"""
         # 使用LabelFrame包装控制面板
@@ -188,9 +193,9 @@ class RAFTDICGUI:
         # 添加缩放控制按钮
         zoom_frame = ttk.Frame(roi_frame)
         zoom_frame.grid(row=2, column=0, columnspan=2, pady=5)
-        ttk.Button(zoom_frame, text="放大", command=lambda: self.zoom(1.2)).grid(row=0, column=0, padx=2)
-        ttk.Button(zoom_frame, text="缩小", command=lambda: self.zoom(0.8)).grid(row=0, column=1, padx=2)
-        ttk.Button(zoom_frame, text="重置缩放", command=self.reset_zoom).grid(row=0, column=2, padx=2)
+        ttk.Button(zoom_frame, text="Zoom in", command=lambda: self.zoom(1.2)).grid(row=0, column=0, padx=2)
+        ttk.Button(zoom_frame, text="Zomm out", command=lambda: self.zoom(0.8)).grid(row=0, column=1, padx=2)
+        ttk.Button(zoom_frame, text="Reset", command=self.reset_zoom).grid(row=0, column=2, padx=2)
         
         # ROI控制按钮
         self.roi_controls = ttk.Frame(roi_frame)
@@ -231,28 +236,77 @@ class RAFTDICGUI:
         self.displacement_label = ttk.Label(disp_frame)
         self.displacement_label.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
-        # 创建帧选择滑动条
+        # 修改帧选择控制区域
         slider_frame = ttk.Frame(disp_frame)
         slider_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=5)
         
-        ttk.Label(slider_frame, text="Frame:").grid(row=0, column=0, padx=5)
+        # 添加播放控制按钮
+        control_frame = ttk.Frame(slider_frame)
+        control_frame.grid(row=0, column=0, padx=5)
+        
+        # 添加播放/暂停按钮
+        self.play_icon = "▶"  # 播放图标
+        self.pause_icon = "⏸"  # 暂停图标
+        self.is_playing = False
+        self.play_button = ttk.Button(control_frame, 
+                                     text=self.play_icon,
+                                     width=3,
+                                     command=self.toggle_play)
+        self.play_button.grid(row=0, column=0, padx=2)
+        
+        # 添加帧数显示和输入
+        frame_control = ttk.Frame(slider_frame)
+        frame_control.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5)
+        
+        ttk.Label(frame_control, text="Frame:").grid(row=0, column=0, padx=5)
+        
+        # 添加帧数输入框
+        self.frame_entry = ttk.Entry(frame_control, width=5)
+        self.frame_entry.grid(row=0, column=1, padx=2)
+        
+        # 添加总帧数显示
+        self.total_frames_label = ttk.Label(frame_control, text="/1")
+        self.total_frames_label.grid(row=0, column=2, padx=2)
+        
+        # 添加跳转按钮
+        ttk.Button(frame_control, text="Go", command=self.jump_to_frame).grid(row=0, column=3, padx=5)
+        
+        # 添加当前图片名称显示
+        self.current_image_name = ttk.Label(frame_control, text="")
+        self.current_image_name.grid(row=0, column=4, padx=5)
+        
+        # 滑动条
         self.frame_slider = ttk.Scale(slider_frame, 
-                                     from_=1, 
-                                     to=1,
-                                     orient=tk.HORIZONTAL,
-                                     command=self.update_displacement_preview)
-        self.frame_slider.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5)
+                                    from_=1, 
+                                    to=1,
+                                    orient=tk.HORIZONTAL,
+                                    command=self.update_displacement_preview)
+        self.frame_slider.grid(row=1, column=1, sticky=(tk.W, tk.E), padx=5)
         slider_frame.grid_columnconfigure(1, weight=1)
         
         # 图像信息显示
         self.image_info = ttk.Label(preview_frame, text="")
         self.image_info.grid(row=1, column=0, columnspan=3, sticky=tk.W, pady=5)
         
+        # 添加播放速度控制
+        speed_frame = ttk.Frame(control_frame)
+        speed_frame.grid(row=0, column=1, padx=5)
+        
+        ttk.Label(speed_frame, text="Speed:").grid(row=0, column=0)
+        self.speed_var = tk.StringVar(value="1x")
+        speed_menu = ttk.OptionMenu(speed_frame, self.speed_var, "1x",
+                                   "0.25x", "0.5x", "1x", "2x", "4x",
+                                   command=self.change_play_speed)
+        speed_menu.grid(row=0, column=1)
+        
     def browse_input(self):
         """浏览输入目录"""
         directory = filedialog.askdirectory()
         if directory:
             self.input_path.set(directory)
+            # 获取图像文件列表
+            self.image_files = sorted([f for f in os.listdir(directory) 
+                                    if f.lower().endswith(('.png', '.jpg', '.jpeg', '.tif', '.tiff', '.bmp'))])
             # 清除之前的ROI和预览
             self.clear_roi()
             # 更新图像信息
@@ -466,6 +520,9 @@ class RAFTDICGUI:
         if self.displacement_results:
             self.frame_slider.configure(to=len(self.displacement_results))
             self.frame_slider.set(1)
+            self.total_frames_label.configure(text=f"/{len(self.displacement_results)}")
+            self.frame_entry.delete(0, tk.END)
+            self.frame_entry.insert(0, "1")
             self.update_displacement_preview()
 
     def update_displacement_preview(self, *args):
@@ -479,7 +536,15 @@ class RAFTDICGUI:
             if current_frame < 0 or current_frame >= len(self.displacement_results):
                 return
             
-            # 直接从文件加载位移场
+            # 更新帧数输入框
+            self.frame_entry.delete(0, tk.END)
+            self.frame_entry.insert(0, str(current_frame + 1))
+            
+            # 更新当前图片名称显示
+            if hasattr(self, 'image_files') and len(self.image_files) > current_frame + 1:
+                self.current_image_name.configure(text=self.image_files[current_frame + 1])
+            
+            # 加载并显示位移场
             displacement = np.load(self.displacement_results[current_frame])
             
             # 创建位移场可视化
@@ -524,6 +589,10 @@ class RAFTDICGUI:
             photo = ImageTk.PhotoImage(preview)
             self.displacement_label.configure(image=photo)
             self.displacement_label.image = photo
+            
+            # 如果是最后一帧且正在播放，重置到第一帧
+            if self.is_playing and current_frame == len(self.displacement_results) - 1:
+                self.frame_slider.set(1)
             
         except Exception as e:
             print(f"Error in update_displacement_preview: {str(e)}")
@@ -582,6 +651,15 @@ class RAFTDICGUI:
             
             # 运行处理
             self.process_images(args)
+            
+            # 更新滑动条和帧数显示
+            total_frames = len(self.displacement_results)
+            self.frame_slider.configure(to=total_frames)
+            self.frame_slider.set(1)
+            self.total_frames_label.configure(text=f"/{total_frames}")
+            self.frame_entry.delete(0, tk.END)
+            self.frame_entry.insert(0, "1")
+            self.update_displacement_preview()
             
             messagebox.showinfo("Success", "Processing completed!")
         except Exception as e:
@@ -809,6 +887,14 @@ class RAFTDICGUI:
         
         # 隐藏确认按钮
         self.confirm_roi_btn.grid_remove()
+        
+        # 停止播放
+        self.is_playing = False
+        if hasattr(self, 'play_button'):
+            self.play_button.configure(text=self.play_icon)
+        if self.play_after_id:
+            self.root.after_cancel(self.play_after_id)
+            self.play_after_id = None
 
     def confirm_roi(self):
         """确认ROI选择并更新预览"""
@@ -956,6 +1042,75 @@ class RAFTDICGUI:
         # 重置滚动条位置
         self.roi_canvas.xview_moveto(0)
         self.roi_canvas.yview_moveto(0)
+
+    def jump_to_frame(self):
+        """跳转到指定帧"""
+        try:
+            frame_num = int(self.frame_entry.get())
+            total_frames = len(self.displacement_results)
+            if 1 <= frame_num <= total_frames:
+                self.frame_slider.set(frame_num)
+                self.update_displacement_preview()
+            else:
+                messagebox.showerror("Error", f"Frame number must be between 1 and {total_frames}")
+        except ValueError:
+            messagebox.showerror("Error", "Please enter a valid frame number")
+
+    def toggle_play(self):
+        """切换播放/暂停状态"""
+        if not self.displacement_results:
+            return
+        
+        self.is_playing = not self.is_playing
+        
+        if self.is_playing:
+            # 更新按钮显示为暂停图标
+            self.play_button.configure(text=self.pause_icon)
+            # 开始播放
+            self.play_next_frame()
+        else:
+            # 更新按钮显示为播放图标
+            self.play_button.configure(text=self.play_icon)
+            # 停止播放
+            if self.play_after_id:
+                self.root.after_cancel(self.play_after_id)
+                self.play_after_id = None
+
+    def play_next_frame(self):
+        """播放下一帧"""
+        if not self.is_playing:
+            return
+        
+        current_frame = int(self.frame_slider.get())
+        total_frames = len(self.displacement_results)
+        
+        # 计算下一帧
+        next_frame = current_frame + 1
+        if next_frame > total_frames:
+            next_frame = 1  # 循环播放
+        
+        # 更新滑动条位置
+        self.frame_slider.set(next_frame)
+        
+        # 安排下一帧的播放
+        self.play_after_id = self.root.after(self.play_interval, self.play_next_frame)
+
+    def change_play_speed(self, *args):
+        """改变播放速度"""
+        speed_map = {
+            "0.25x": 400,
+            "0.5x": 200,
+            "1x": 100,
+            "2x": 50,
+            "4x": 25
+        }
+        self.play_interval = speed_map[self.speed_var.get()]
+        
+        # 如果正在播放，重新启动播放以应用新的速度
+        if self.is_playing:
+            if self.play_after_id:
+                self.root.after_cancel(self.play_after_id)
+            self.play_next_frame()
 
 if __name__ == '__main__':
     root = tk.Tk()
