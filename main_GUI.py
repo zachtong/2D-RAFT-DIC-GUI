@@ -59,10 +59,10 @@ class RAFTDICGUI:
         
         # 处理参数变量
         self.mode = tk.StringVar(value="accumulative")
-        self.crop_size_h = tk.StringVar(value="128")
-        self.crop_size_w = tk.StringVar(value="128")
-        self.stride = tk.StringVar(value="64")
-        self.max_displacement = tk.StringVar(value="30")
+        self.crop_size_h = tk.StringVar(value="512")
+        self.crop_size_w = tk.StringVar(value="512")
+        self.stride = tk.StringVar(value="256")
+        self.max_displacement = tk.StringVar(value="5")
         
         # ROI相关变量
         self.roi_points = []          # 存储ROI多边形的顶点
@@ -87,6 +87,10 @@ class RAFTDICGUI:
         self.is_playing = False
         self.play_after_id = None
         self.play_interval = 100  # 播放间隔(ms)
+        
+        # 修改平滑处理相关变量
+        self.use_smooth = tk.BooleanVar(value=True)  # 是否使用平滑
+        self.sigma = tk.StringVar(value="2.0")  # 高斯平滑的sigma参数
         
     def create_control_panel(self, parent):
         """创建控制面板"""
@@ -131,33 +135,60 @@ class RAFTDICGUI:
         ttk.Label(param_frame, text="Crop Size (H×W):").grid(row=0, column=0, sticky=tk.W)
         size_frame = ttk.Frame(param_frame)
         size_frame.grid(row=0, column=1, sticky=tk.W)
-        ttk.Entry(size_frame, textvariable=self.crop_size_h, width=5).grid(row=0, column=0)
+        
+        # 创建Entry小部件的引用
+        self.crop_h_entry = ttk.Entry(size_frame, textvariable=self.crop_size_h, width=5)
+        self.crop_h_entry.grid(row=0, column=0)
         ttk.Label(size_frame, text="×").grid(row=0, column=1, padx=2)
-        ttk.Entry(size_frame, textvariable=self.crop_size_w, width=5).grid(row=0, column=2)
+        self.crop_w_entry = ttk.Entry(size_frame, textvariable=self.crop_size_w, width=5)
+        self.crop_w_entry.grid(row=0, column=2)
         
         # Stride设置
         ttk.Label(param_frame, text="Stride:").grid(row=1, column=0, sticky=tk.W)
-        ttk.Entry(param_frame, textvariable=self.stride, width=10).grid(row=1, column=1, sticky=tk.W)
+        self.stride_entry = ttk.Entry(param_frame, textvariable=self.stride, width=10)
+        self.stride_entry.grid(row=1, column=1, sticky=tk.W)
+        
+        # 绑定事件
+        self.crop_h_entry.bind('<Return>', self.on_param_change)
+        self.crop_h_entry.bind('<FocusOut>', self.on_param_change)
+        self.crop_w_entry.bind('<Return>', self.on_param_change)
+        self.crop_w_entry.bind('<FocusOut>', self.on_param_change)
+        self.stride_entry.bind('<Return>', self.on_param_change)
+        self.stride_entry.bind('<FocusOut>', self.on_param_change)
         
         # Max Displacement设置
         ttk.Label(param_frame, text="Max Displacement:").grid(row=2, column=0, sticky=tk.W)
         ttk.Entry(param_frame, textvariable=self.max_displacement, width=10).grid(row=2, column=1, sticky=tk.W)
         
+        # 在参数设置框架中添加新的平滑处理选项
+        smooth_frame = ttk.LabelFrame(param_frame, text="Smoothing Options", padding="5")
+        smooth_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        
+        # 使用平滑选项
+        ttk.Checkbutton(smooth_frame, text="Use Smoothing", 
+                        variable=self.use_smooth).grid(row=0, column=0, sticky=tk.W)
+        
+        # Sigma值设置
+        ttk.Label(smooth_frame, text="Sigma:").grid(row=1, column=0, sticky=tk.W)
+        sigma_entry = ttk.Entry(smooth_frame, textvariable=self.sigma, width=8)
+        sigma_entry.grid(row=1, column=1, sticky=tk.W, padx=5)
+        ttk.Label(smooth_frame, text="(0.5-5.0)").grid(row=1, column=2, sticky=tk.W)
+        
         # 运行按钮和进度条
         run_frame = ttk.Frame(control_frame)
-        run_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=5)
+        run_frame.grid(row=4, column=0, sticky=(tk.W, tk.E), pady=5)
         ttk.Button(run_frame, text="Run", command=self.run).grid(row=0, column=0, pady=5)
         self.progress = ttk.Progressbar(run_frame, length=400, mode='determinate')
         self.progress.grid(row=1, column=0, pady=5)
         
         # 添加图片信息显示
-        self.image_info = ttk.Label(parent, text="未选择图片")
+        self.image_info = ttk.Label(parent, text="No image selected")
         self.image_info.grid(row=6, column=0, columnspan=3, pady=5)
         
         # 参数变化时自动更新预览
-        self.crop_size_h.trace('w', self.update_preview)
-        self.crop_size_w.trace('w', self.update_preview)
-        self.stride.trace('w', self.update_preview)
+        # self.crop_size_h.trace('w', self.update_preview)
+        # self.crop_size_w.trace('w', self.update_preview)
+        # self.stride.trace('w', self.update_preview)
         
     def create_preview_panel(self, parent):
         """创建预览面板"""
@@ -443,6 +474,17 @@ class RAFTDICGUI:
             if max_displacement < 0:
                 raise ValueError("Max displacement must be non-negative")
             
+            # 验证平滑处理参数
+            try:
+                sigma = float(self.sigma.get())
+                if not 0.5 <= sigma <= 5.0:
+                    print("Warning: Sigma value should be between 0.5 and 5.0")
+                    sigma = np.clip(sigma, 0.5, 5.0)
+                    self.sigma.set(f"{sigma:.2f}")
+            except ValueError:
+                print("Warning: Invalid sigma value, using default 2.0")
+                self.sigma.set("2.0")
+            
             return True
         except ValueError as e:
             messagebox.showerror("Input Error", str(e))
@@ -490,7 +532,7 @@ class RAFTDICGUI:
             # 提取ROI掩码对应区域
             roi_mask_crop = self.roi_mask[ymin:ymax, xmin:xmax] if self.roi_mask is not None else None
 
-            # 处理图像对
+            # 处理图像对，添加平滑参数
             displacement_field, _ = hf.cut_image_pair_with_flow(
                 ref_roi, def_roi,
                 args.project_root,
@@ -499,8 +541,10 @@ class RAFTDICGUI:
                 crop_size=args.crop_size,
                 stride=args.stride,
                 maxDisplacement=args.max_displacement,
-                plot_windows=(i == 1),  # 仅为第一对图像绘制窗口布局
-                roi_mask=roi_mask_crop
+                plot_windows=(i == 1),
+                roi_mask=roi_mask_crop,
+                use_smooth=args.use_smooth,
+                sigma=args.sigma
             )
 
             # 保存位移场结果
@@ -629,6 +673,10 @@ class RAFTDICGUI:
         args.crop_size = (int(self.crop_size_h.get()), int(self.crop_size_w.get()))
         args.stride = int(self.stride.get())
         args.max_displacement = int(self.max_displacement.get())
+        
+        # 添加平滑参数
+        args.use_smooth = self.use_smooth.get()
+        args.sigma = float(self.sigma.get())
         
         # 加载模型
         model_args = hf.Args()
@@ -1111,6 +1159,12 @@ class RAFTDICGUI:
             if self.play_after_id:
                 self.root.after_cancel(self.play_after_id)
             self.play_next_frame()
+
+    def on_param_change(self, event=None):
+        """当参数输入完成时更新预览"""
+        self.update_preview()
+
+
 
 if __name__ == '__main__':
     root = tk.Tk()

@@ -15,21 +15,33 @@ def load_displacement_field(file_path):
         # 假设.mat文件中的位移场存储为'U'和'V'
         return np.stack([data['U'], data['V']], axis=-1)
 
-def calculate_metrics(pred, gt, valid_mask=None):
+def calculate_metrics(pred, gt, valid_mask=None, center_ratio=0.9):
     """
     计算各种评估指标
+    Args:
+        pred: 预测的位移场
+        gt: 真实位移场
+        valid_mask: 可选的有效区域mask
+        center_ratio: 中心区域的比例，默认0.9表示中间90%区域
     """
     if valid_mask is None:
-        valid_mask = ~np.isnan(pred[..., 0]) & ~np.isnan(gt[..., 0])
+        # 创建中心区域的mask
+        h, w = pred.shape[:2]
+        margin = (1 - center_ratio) / 2
+        h_start, h_end = int(h * margin), int(h * (1 - margin))
+        w_start, w_end = int(w * margin), int(w * (1 - margin))
+        center_mask = np.zeros_like(pred[..., 0], dtype=bool)
+        center_mask[h_start:h_end, w_start:w_end] = True
+        valid_mask = center_mask & ~np.isnan(pred[..., 0]) & ~np.isnan(gt[..., 0])
     
     metrics = {}
     
     # 计算U和V分量的误差
     for i, component in enumerate(['U', 'V']):
         diff = pred[..., i][valid_mask] - gt[..., i][valid_mask]
-        metrics[f'{component}_MAE'] = np.mean(np.abs(diff))  # 平均绝对误差
-        metrics[f'{component}_RMSE'] = np.sqrt(np.mean(diff**2))  # 均方根误差
-        metrics[f'{component}_MAX'] = np.max(np.abs(diff))  # 最大误差
+        metrics[f'{component}_MAE'] = np.mean(np.abs(diff))
+        metrics[f'{component}_RMSE'] = np.sqrt(np.mean(diff**2))
+        metrics[f'{component}_MAX'] = np.max(np.abs(diff))
     
     # 计算位移场整体的误差
     total_diff = np.sqrt(np.sum((pred - gt)**2, axis=-1))[valid_mask]
@@ -39,9 +51,14 @@ def calculate_metrics(pred, gt, valid_mask=None):
     
     return metrics
 
-def visualize_comparison(pred, gt, output_path):
+def visualize_comparison(pred, gt, output_path, center_ratio=0.9):
     """
     可视化比较结果
+    Args:
+        pred: 预测的位移场
+        gt: 真实位移场
+        output_path: 输出路径
+        center_ratio: 中心区域的比例，默认0.9表示中间90%区域
     """
     fig, axes = plt.subplots(2, 3, figsize=(15, 10))
     
@@ -79,6 +96,18 @@ def visualize_comparison(pred, gt, output_path):
     axes[1,2].set_title('V Difference')
     plt.colorbar(im5, ax=axes[1,2])
     
+    # 在绘图后添加中心区域的边界标记
+    h, w = pred.shape[:2]
+    margin = (1 - center_ratio) / 2
+    h_start, h_end = int(h * margin), int(h * (1 - margin))
+    w_start, w_end = int(w * margin), int(w * (1 - margin))
+    
+    for ax in axes.flat:
+        ax.axvline(x=w_start, color='white', linestyle='--', alpha=0.5)
+        ax.axvline(x=w_end, color='white', linestyle='--', alpha=0.5)
+        ax.axhline(y=h_start, color='white', linestyle='--', alpha=0.5)
+        ax.axhline(y=h_end, color='white', linestyle='--', alpha=0.5)
+    
     plt.tight_layout()
     plt.savefig(output_path)
     plt.close()
@@ -91,14 +120,27 @@ def load_ground_truth(u_path, v_path):
     v_data = sio.loadmat(v_path)['v_displacement']  # 根据实际变量名调整
     return np.stack([u_data, v_data], axis=-1)
 
-def plot_error_statistics(pred_results, gt, output_dir):
+def plot_error_statistics(pred_results, gt, output_dir, center_ratio=0.9):
     """
     绘制误差的均值和标准差对比图
+    Args:
+        pred_results: 预测结果字典
+        gt: 真实位移场
+        output_dir: 输出目录
+        center_ratio: 中心区域的比例，默认0.9表示中间90%区域
     """
+    # 创建中心区域的mask
+    h, w = gt.shape[:2]
+    margin = (1 - center_ratio) / 2
+    h_start, h_end = int(h * margin), int(h * (1 - margin))
+    w_start, w_end = int(w * margin), int(w * (1 - margin))
+    center_mask = np.zeros_like(gt[..., 0], dtype=bool)
+    center_mask[h_start:h_end, w_start:w_end] = True
+    
     # 计算统计信息
     stats = {}
     for name, pred in pred_results.items():
-        valid_mask = ~np.isnan(pred[..., 0]) & ~np.isnan(gt[..., 0])
+        valid_mask = center_mask & ~np.isnan(pred[..., 0]) & ~np.isnan(gt[..., 0])
         u_diff = pred[..., 0][valid_mask] - gt[..., 0][valid_mask]
         v_diff = pred[..., 1][valid_mask] - gt[..., 1][valid_mask]
         
@@ -146,9 +188,15 @@ def plot_error_statistics(pred_results, gt, output_dir):
     
     return stats
 
-def compare_results(gt_u_path, gt_v_path, results_dirs, output_dir):
+def compare_results(gt_u_path, gt_v_path, results_dirs, output_dir, center_ratio=0.9):
     """
     比较多个结果与ground truth
+    Args:
+        gt_u_path: ground truth U分量路径
+        gt_v_path: ground truth V分量路径
+        results_dirs: 结果目录列表
+        output_dir: 输出目录
+        center_ratio: 中心区域的比例，默认0.9表示中间90%区域
     """
     # 创建输出目录
     os.makedirs(output_dir, exist_ok=True)
@@ -170,12 +218,12 @@ def compare_results(gt_u_path, gt_v_path, results_dirs, output_dir):
         pred_results[dir_name] = pred
         
         # 计算指标
-        metrics = calculate_metrics(pred, gt)
+        metrics = calculate_metrics(pred, gt, center_ratio=center_ratio)
         all_metrics[dir_name] = metrics
         
         # 生成可视化比较
         output_path = os.path.join(output_dir, f"{dir_name}_comparison.png")
-        visualize_comparison(pred, gt, output_path)
+        visualize_comparison(pred, gt, output_path, center_ratio=center_ratio)
         
         # 打印指标
         print(f"\nMetrics for {dir_name}:")
@@ -183,7 +231,7 @@ def compare_results(gt_u_path, gt_v_path, results_dirs, output_dir):
             print(f"{k}: {v:.6f}")
     
     # 生成误差统计对比图
-    error_stats = plot_error_statistics(pred_results, gt, output_dir)
+    error_stats = plot_error_statistics(pred_results, gt, output_dir, center_ratio=center_ratio)
     
     # 保存所有指标到CSV文件
     import pandas as pd
@@ -198,13 +246,13 @@ if __name__ == "__main__":
     gt_u_path = "examples/Quadratic/u_displacement_1.mat"
     gt_v_path = "examples/Quadratic/v_displacement_1.mat"
     results_dirs = [
-        "RAFT_DIC_Results_no_crop/displacement_results_mat/displacement_field_1.mat",
-        "RAFT_DIC_Results_crop_256_step_128/displacement_results_mat/displacement_field_1.mat",
-        "RAFT_DIC_Results_crop_256_step_64/displacement_results_mat/displacement_field_1.mat",
-        "RAFT_DIC_Results_crop_256_step_128_smooth/displacement_results_mat/displacement_field_1.mat",
-        "RAFT_DIC_Results_crop_256_step_64_smooth/displacement_results_mat/displacement_field_1.mat"
+        "Results_no_crop/displacement_results_mat/displacement_field_1.mat",
+        "Results_window_256_step128/displacement_results_mat/displacement_field_1.mat",
+        "Results_window_256_step64/displacement_results_mat/displacement_field_1.mat",
+        "Results_window_256_step128_smooth/displacement_results_mat/displacement_field_1.mat",
+        "Results_window_256_step64_smooth/displacement_results_mat/displacement_field_1.mat"
     ]
-    output_dir = "comparison_results"
+    output_dir = "comparison_results_80%"
     
     # 运行比较
-    metrics, error_stats = compare_results(gt_u_path, gt_v_path, results_dirs, output_dir)
+    metrics, error_stats = compare_results(gt_u_path, gt_v_path, results_dirs, output_dir,0.8)

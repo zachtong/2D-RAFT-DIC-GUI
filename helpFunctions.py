@@ -13,8 +13,11 @@ import matplotlib.collections as collections
 import matplotlib.cm as cm
 import warnings
 import scipy.io as sio
+from scipy.io import savemat
 from scipy.interpolate import griddata
 from scipy.ndimage import gaussian_filter
+from scipy.sparse import csc_matrix, eye
+from scipy.sparse.linalg import spsolve
 
 # 忽略特定警告
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -155,16 +158,18 @@ def calculate_window_positions(image_size, crop_size, stride):
     
     return positions
 
-def cut_image_pair_with_flow(ref_image, def_image, output_dir, model, device,
-                           crop_size=(128, 128), stride=64, maxDisplacement=0, 
-                           plot_windows=False, roi_mask=None):
+
+def cut_image_pair_with_flow(ref_img, def_img, project_root, model, device, 
+                           crop_size=(128, 128), stride=64, maxDisplacement=50,
+                           plot_windows=False, roi_mask=None,
+                           use_smooth=True, sigma=2.0):
     """
-    修改后的切割函数，支持ROI
+    处理图像对并计算位移场
     
     Args:
-        ref_image: 参考图像
-        def_image: 变形图像
-        output_dir: 输出目录
+        ref_img: 参考图像
+        def_img: 变形图像
+        project_root: 项目根目录
         model: RAFT模型
         device: 计算设备
         crop_size: 切割窗口大小
@@ -172,14 +177,16 @@ def cut_image_pair_with_flow(ref_image, def_image, output_dir, model, device,
         maxDisplacement: 最大位移
         plot_windows: 是否绘制窗口布局
         roi_mask: ROI掩码，与输入图像同尺寸的二值数组
+        use_smooth: 是否使用平滑
+        sigma: 高斯平滑的sigma参数
     """
     # 创建必要的子目录
-    crops_dir = os.path.join(output_dir, "crops")
-    windows_dir = os.path.join(output_dir, "windows")
-    os.makedirs(crops_dir, exist_ok=True)
+    #crops_dir = os.path.join(project_root, "crops")
+    windows_dir = os.path.join(project_root, "windows")
+    #os.makedirs(crops_dir, exist_ok=True)
     os.makedirs(windows_dir, exist_ok=True)
 
-    H, W, _ = ref_image.shape
+    H, W, _ = ref_img.shape
     crop_h, crop_w = crop_size
 
     # 计算x和y方向的窗口位置
@@ -189,7 +196,10 @@ def cut_image_pair_with_flow(ref_image, def_image, output_dir, model, device,
     windows = []
     global_flow = np.zeros((H, W, 2), dtype=np.float64)
     count_field = np.zeros((H, W), dtype=np.float64)
-
+    # 创建一个字典来存储每个窗口的flow结果
+    window_flows = {}
+    
+    # 如果提供了ROI掩码，确保其类型为boolean
     # 如果提供了ROI掩码，确保其类型为boolean
     if roi_mask is not None:
         roi_mask = roi_mask.astype(bool)
@@ -205,36 +215,62 @@ def cut_image_pair_with_flow(ref_image, def_image, output_dir, model, device,
               confidenceRange_x[0]:confidenceRange_x[1]] = 1.0
 
     count = 0
+    inference_time = 0  # 在函数内部使用局部变量
+    start_total = time.time()
     for y in y_positions:
         for x in x_positions:
             # 现在所有窗口都是完整的crop_size大小
-            ref_window = ref_image[y:y+crop_h, x:x+crop_w, :]
-            def_window = def_image[y:y+crop_h, x:x+crop_w, :]
+            ref_window = ref_img[y:y+crop_h, x:x+crop_w, :]
+            def_window = def_img[y:y+crop_h, x:x+crop_w, :]
             
-            # 保存切割的子图
-            # cv2.imwrite(os.path.join(crops_dir, f"ref_cropped_{count}.png"),
-            #            cv2.cvtColor(ref_window, cv2.COLOR_RGB2BGR))
-            # cv2.imwrite(os.path.join(crops_dir, f"def_cropped_{count}.png"),
-            #            cv2.cvtColor(def_window, cv2.COLOR_RGB2BGR))
-
+            window_key = f"{x}_{y}"  # 使用坐标作为键
             windows.append({
                 'index': count,
-                'position': (x, y, x+crop_w, y+crop_h)
+                'position': (x, y, x+crop_w, y+crop_h),
+                'key': window_key
             })
 
-            # RAFT inference
+            # 添加RAFT推理时间统计
+            start_inference = time.time()
             flow_low, flow_up = inference(model, ref_window, def_window, device, test_mode=True)
             flow_up = flow_up.squeeze(0)
+            inference_time += time.time() - start_inference
             
-            # 由于我们现在确保了完整的窗口尺寸，不需要额外的尺寸调整
             u = flow_up[0].cpu().numpy()
             v = flow_up[1].cpu().numpy()
             window_flow = np.stack((u, v), axis=-1)
+
+            # 保存这个窗口的flow结果
+            window_flows[window_key] = {
+                'flow': window_flow * valid_mask[..., None],  # 应用valid_mask
+                'position': (x, y, x+crop_w, y+crop_h),
+                'index': count
+            }
 
             global_flow[y:y+crop_h, x:x+crop_w, :] += window_flow * valid_mask[..., None]
             count_field[y:y+crop_h, x:x+crop_w] += valid_mask
 
             count += 1
+
+    if False: # 在循环结束后保存window_flows
+        ref_path = 'C:/Users/zt3323/OneDrive - The University of Texas at Austin/Documents/Python Codes/RAFT-2D-DIC-GUI/Results_window_256_step128_without_merging'
+        save_dir = os.path.join(os.path.dirname(os.path.dirname(ref_path)), 'window_flows')
+        os.makedirs(save_dir, exist_ok=True)
+        
+        # 使用输入图像的文件名作为保存文件的基础名
+        save_path = os.path.join(save_dir, f'{ref_path}/window_flows.mat')
+        
+        # 将window_flows转换为适合保存的格式
+        save_dict = {}
+        for key, value in window_flows.items():
+            save_dict[f'window_{key}'] = {
+                'flow': value['flow'],
+                'position': np.array(value['position']),
+                'index': value['index']
+            }
+        # 保存为mat文件
+        savemat(save_path, save_dict)
+
 
     # 计算平均位移场
     final_flow = np.where(count_field[..., None] > 0,
@@ -244,9 +280,12 @@ def cut_image_pair_with_flow(ref_image, def_image, output_dir, model, device,
     # 应用boolean掩码
     final_flow[~roi_mask] = np.nan
 
-    # 对位移场进行平滑插值
-    smoothed_flow = smooth_displacement_field(final_flow)
-
+    # 在计算完位移场后进行平滑处理
+    if use_smooth:
+        displacement_field = smooth_displacement_field(final_flow, sigma=sigma)
+    else:
+        displacement_field = final_flow
+        
     print(f"Total window pairs processed: {count}")
 
     # 保存窗口布局图
@@ -255,7 +294,7 @@ def cut_image_pair_with_flow(ref_image, def_image, output_dir, model, device,
             # 使用 Agg 后端确保线程安全
             plt.switch_backend('Agg')
             
-            ref_gray = cv2.cvtColor(ref_image, cv2.COLOR_RGB2GRAY)
+            ref_gray = cv2.cvtColor(ref_img, cv2.COLOR_RGB2GRAY)
             fig, ax = plt.subplots(1, figsize=(8, 8))
             ax.imshow(ref_gray, cmap='gray')
             ax.axis('off')
@@ -285,7 +324,14 @@ def cut_image_pair_with_flow(ref_image, def_image, output_dir, model, device,
             print(f"Warning: Failed to save windows layout: {str(e)}")
             # 继续执行，不让绘图错误影响主要处理流程
     
-    return smoothed_flow, count_field
+    total_time = time.time() - start_total
+    
+    print(f"\n时间统计:")
+    print(f"总处理时间: {total_time:.2f} 秒")
+    print(f"RAFT推理时间: {inference_time:.2f} 秒")
+    print(f"RAFT推理占比: {(inference_time/total_time*100):.1f}%")
+    
+    return displacement_field, windows
 
 def save_displacement_results(displacement_field, output_dir, index):
     """保存位移场结果为npy和mat格式"""
@@ -306,53 +352,138 @@ def save_displacement_results(displacement_field, output_dir, index):
     v = displacement_field[:, :, 1]
     sio.savemat(mat_file, {'U': u, 'V': v})
 
-def smooth_displacement_field(displacement_field):
+def gridfit(x, y, z, xnodes, ynodes, lambda_value=0.01, max_iter=100, tol=1e-6):
     """
-    对位移场进行平滑处理，减少窗口重叠区域的突变
+    实现类似MATLAB中gridfit的函数，用于生成平滑的表面网格
+    
+    参数:
+    - x, y: 输入点的x和y坐标
+    - z: 对应的z值（可能包含NaN）
+    - xnodes, ynodes: 输出网格的节点数量
+    - lambda_value: 正则化参数，控制平滑度
+    - max_iter: 最大迭代次数
+    - tol: 收敛容差
+    
+    返回:
+    - zgrid: 平滑的网格节点矩阵
+    """
+    from scipy import sparse
+    from scipy.sparse.linalg import spsolve
+    
+    # 处理输入数据中的NaN值
+    valid_idx = ~np.isnan(z)
+    x, y, z = x[valid_idx], y[valid_idx], z[valid_idx]
+    
+    if len(x) == 0:
+        return np.full((ynodes, xnodes), np.nan)
+    
+    # 创建均匀网格节点
+    xnodes_pos = np.linspace(x.min(), x.max(), xnodes)
+    ynodes_pos = np.linspace(y.min(), y.max(), ynodes)
+    
+    # 计算每个数据点落在哪个网格单元内
+    idx_x = np.searchsorted(xnodes_pos, x) - 1
+    idx_y = np.searchsorted(ynodes_pos, y) - 1
+    
+    # 确保索引在有效范围内
+    idx_x = np.clip(idx_x, 0, xnodes - 2)
+    idx_y = np.clip(idx_y, 0, ynodes - 2)
+    
+    # 计算网格内部的相对位置
+    alpha_x = (x - xnodes_pos[idx_x]) / (xnodes_pos[idx_x + 1] - xnodes_pos[idx_x])
+    alpha_y = (y - ynodes_pos[idx_y]) / (ynodes_pos[idx_y + 1] - ynodes_pos[idx_y])
+    
+    # 构建插值矩阵
+    n_points = len(x)
+    n_grid = xnodes * ynodes
+    rows = np.repeat(np.arange(n_points), 4)
+    cols = []
+    data = []
+    
+    # 四个角点的贡献
+    for i in range(n_points):
+        # 左下角
+        cols.append(idx_y[i] * xnodes + idx_x[i])
+        data.append((1 - alpha_x[i]) * (1 - alpha_y[i]))
+        
+        # 右下角
+        cols.append(idx_y[i] * xnodes + idx_x[i] + 1)
+        data.append(alpha_x[i] * (1 - alpha_y[i]))
+        
+        # 左上角
+        cols.append((idx_y[i] + 1) * xnodes + idx_x[i])
+        data.append((1 - alpha_x[i]) * alpha_y[i])
+        
+        # 右上角
+        cols.append((idx_y[i] + 1) * xnodes + idx_x[i] + 1)
+        data.append(alpha_x[i] * alpha_y[i])
+    
+    # 创建稀疏矩阵
+    A = sparse.csr_matrix((data, (rows, cols)), shape=(n_points, n_grid))
+    
+    # 创建拉普拉斯算子
+    Dx = sparse.diags([1, -2, 1], [-1, 0, 1], shape=(xnodes, xnodes))
+    Dy = sparse.diags([1, -2, 1], [-1, 0, 1], shape=(ynodes, ynodes))
+    
+    # 构建完整的正则化矩阵
+    Lx = sparse.kron(sparse.eye(ynodes), Dx)
+    Ly = sparse.kron(Dy, sparse.eye(xnodes))
+    L = Lx + Ly
+    
+    # 求解线性系统
+    ATz = A.T @ z
+    ATA = A.T @ A
+    P = ATA + lambda_value * L.T @ L
+    
+    # 迭代求解
+    g = np.zeros(n_grid)
+    for it in range(max_iter):
+        g_old = g.copy()
+        g = spsolve(P, ATz)
+        
+        # 检查收敛性
+        rel_change = np.linalg.norm(g - g_old) / (np.linalg.norm(g) + 1e-10)
+        if rel_change < tol:
+            break
+    
+    # 重塑结果为网格形式
+    zgrid = g.reshape(ynodes, xnodes)
+    
+    return zgrid
+
+def smooth_displacement_field(displacement_field, sigma=2.0):
+    """
+    快速高斯平滑位移场
     
     Args:
         displacement_field: shape为(H, W, 2)的位移场数据
-    
-    Returns:
-        smoothed_field: 平滑后的位移场数据
+        sigma: 高斯滤波的标准差，控制平滑程度
     """
-    # 创建输出数组
-    smoothed_field = np.zeros_like(displacement_field)
+    from scipy.ndimage import gaussian_filter
+    import numpy as np
     
-    # 分别处理U和V分量
+    # 直接处理UV两个方向
+    smoothed = np.zeros_like(displacement_field)
+    
     for i in range(2):
         component = displacement_field[..., i]
-        
-        # 处理NaN值
         valid_mask = ~np.isnan(component)
-        temp_component = component.copy()
-        # 将NaN暂时替换为周围有效值的平均值
-        if not np.all(valid_mask):
-            from scipy.ndimage import binary_dilation
-            kernel = np.ones((3, 3))
-            while not np.all(valid_mask):
-                dilated = binary_dilation(valid_mask, kernel)
-                new_valid = dilated & ~valid_mask
-                for y, x in zip(*np.where(new_valid)):
-                    valid_neighbors = component[max(0,y-1):y+2, max(0,x-1):x+2][
-                        ~np.isnan(component[max(0,y-1):y+2, max(0,x-1):x+2])
-                    ]
-                    if len(valid_neighbors) > 0:
-                        temp_component[y, x] = np.mean(valid_neighbors)
-                valid_mask = dilated
         
-        # 应用高斯滤波
-        smoothed = gaussian_filter(temp_component, sigma=2.0)
+        if not np.any(valid_mask):
+            smoothed[..., i] = component
+            continue
+            
+        # 填充无效区域为0
+        filled = np.where(valid_mask, component, 0)
         
-        # 可选：使用双边滤波进一步改善（保持边缘特征）
-        # smoothed = cv2.bilateralFilter(smoothed.astype(np.float32), 
-        #                               d=5,  # 邻域直径
-        #                               sigmaColor=0.1,  # 颜色空间标准差
-        #                               sigmaSpace=5.0)  # 坐标空间标准差
+        # 一次性完成高斯滤波
+        smoothed_data = gaussian_filter(filled, sigma)
+        weight = gaussian_filter(valid_mask.astype(float), sigma)
         
-        # 恢复原始的NaN位置
-        smoothed[np.isnan(component)] = np.nan
-        
-        smoothed_field[..., i] = smoothed
+        # 归一化并恢复NaN
+        with np.errstate(divide='ignore', invalid='ignore'):
+            smoothed[..., i] = np.where(weight > 0.01, 
+                                      smoothed_data / weight, 
+                                      np.nan)
     
-    return smoothed_field
+    return smoothed
