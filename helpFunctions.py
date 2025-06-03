@@ -13,6 +13,7 @@ import matplotlib.collections as collections
 import matplotlib.cm as cm
 import warnings
 import scipy.io as sio
+import tifffile
 from scipy.io import savemat
 from scipy.interpolate import griddata
 from scipy.ndimage import gaussian_filter
@@ -107,22 +108,54 @@ def load_and_convert_image(img_path):
     Returns:
         frame_rgb: RGB格式的8bit图像
     """
-    # 读取图片
-    frame = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
+    # 检查文件扩展名
+    ext = os.path.splitext(img_path)[1].lower()
+    
+    if ext in ['.tif', '.tiff']:
+        try:
+            # 使用tifffile读取TIFF文件
+            frame = tifffile.imread(img_path)
+        except Exception as e:
+            raise Exception(f"Failed to load TIFF image from {img_path}: {str(e)}")
+    else:
+        # 对于其他格式使用OpenCV
+        frame = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
     
     if frame is None:
         raise Exception(f"Failed to load image from {img_path}")
 
-    # 检查图像位深度并转换为8bit
-    if frame.dtype != np.uint8:
-        if frame.dtype == np.uint16:
-            # 16bit转8bit，保持相对亮度关系
-            frame = (frame / 256).astype(np.uint8)
+    # 检查图像位深度和类型并进行相应转换
+    if frame.dtype == np.float32:
+        # 对于32位浮点图像，先归一化到0-1范围
+        min_val = np.nanmin(frame)  # 使用nanmin处理可能的NaN值
+        max_val = np.nanmax(frame)
+        if max_val != min_val:
+            frame = np.clip((frame - min_val) / (max_val - min_val), 0, 1)
         else:
-            # 其他位深度，归一化到0-255范围
-            frame = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX)
-            frame = frame.astype(np.uint8)
+            frame = np.zeros_like(frame)
+        
+        # 转换到0-255范围并转为8位无符号整数
+        frame = (frame * 255).astype(np.uint8)
+    elif frame.dtype == np.uint16:
+        # 16bit转8bit，保持相对亮度关系
+        frame = (frame / 256).astype(np.uint8)
+    elif frame.dtype != np.uint8:
+        # 其他位深度，归一化到0-255范围
+        frame = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX)
+        frame = frame.astype(np.uint8)
 
+    # 如果是单通道图像，转换为三通道
+    if len(frame.shape) == 2:
+        frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+    elif len(frame.shape) == 3 and frame.shape[2] > 3:
+        # 如果有多于3个通道，只保留前3个
+        frame = frame[:, :, :3]
+    
+    # 如果是tifffile读取的图像，需要处理颜色通道顺序
+    if ext in ['.tif', '.tiff']:
+        if len(frame.shape) == 3:
+            frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+    
     # BGR转RGB
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     
@@ -352,104 +385,105 @@ def save_displacement_results(displacement_field, output_dir, index):
     v = displacement_field[:, :, 1]
     sio.savemat(mat_file, {'U': u, 'V': v})
 
-def gridfit(x, y, z, xnodes, ynodes, lambda_value=0.01, max_iter=100, tol=1e-6):
-    """
-    实现类似MATLAB中gridfit的函数，用于生成平滑的表面网格
+
+# def gridfit(x, y, z, xnodes, ynodes, lambda_value=0.01, max_iter=100, tol=1e-6):
+#     """
+#     实现类似MATLAB中gridfit的函数，用于生成平滑的表面网格
     
-    参数:
-    - x, y: 输入点的x和y坐标
-    - z: 对应的z值（可能包含NaN）
-    - xnodes, ynodes: 输出网格的节点数量
-    - lambda_value: 正则化参数，控制平滑度
-    - max_iter: 最大迭代次数
-    - tol: 收敛容差
+#     参数:
+#     - x, y: 输入点的x和y坐标
+#     - z: 对应的z值（可能包含NaN）
+#     - xnodes, ynodes: 输出网格的节点数量
+#     - lambda_value: 正则化参数，控制平滑度
+#     - max_iter: 最大迭代次数
+#     - tol: 收敛容差
     
-    返回:
-    - zgrid: 平滑的网格节点矩阵
-    """
-    from scipy import sparse
-    from scipy.sparse.linalg import spsolve
+#     返回:
+#     - zgrid: 平滑的网格节点矩阵
+#     """
+#     from scipy import sparse
+#     from scipy.sparse.linalg import spsolve
     
-    # 处理输入数据中的NaN值
-    valid_idx = ~np.isnan(z)
-    x, y, z = x[valid_idx], y[valid_idx], z[valid_idx]
+#     # 处理输入数据中的NaN值
+#     valid_idx = ~np.isnan(z)
+#     x, y, z = x[valid_idx], y[valid_idx], z[valid_idx]
     
-    if len(x) == 0:
-        return np.full((ynodes, xnodes), np.nan)
+#     if len(x) == 0:
+#         return np.full((ynodes, xnodes), np.nan)
     
-    # 创建均匀网格节点
-    xnodes_pos = np.linspace(x.min(), x.max(), xnodes)
-    ynodes_pos = np.linspace(y.min(), y.max(), ynodes)
+#     # 创建均匀网格节点
+#     xnodes_pos = np.linspace(x.min(), x.max(), xnodes)
+#     ynodes_pos = np.linspace(y.min(), y.max(), ynodes)
     
-    # 计算每个数据点落在哪个网格单元内
-    idx_x = np.searchsorted(xnodes_pos, x) - 1
-    idx_y = np.searchsorted(ynodes_pos, y) - 1
+#     # 计算每个数据点落在哪个网格单元内
+#     idx_x = np.searchsorted(xnodes_pos, x) - 1
+#     idx_y = np.searchsorted(ynodes_pos, y) - 1
     
-    # 确保索引在有效范围内
-    idx_x = np.clip(idx_x, 0, xnodes - 2)
-    idx_y = np.clip(idx_y, 0, ynodes - 2)
+#     # 确保索引在有效范围内
+#     idx_x = np.clip(idx_x, 0, xnodes - 2)
+#     idx_y = np.clip(idx_y, 0, ynodes - 2)
     
-    # 计算网格内部的相对位置
-    alpha_x = (x - xnodes_pos[idx_x]) / (xnodes_pos[idx_x + 1] - xnodes_pos[idx_x])
-    alpha_y = (y - ynodes_pos[idx_y]) / (ynodes_pos[idx_y + 1] - ynodes_pos[idx_y])
+#     # 计算网格内部的相对位置
+#     alpha_x = (x - xnodes_pos[idx_x]) / (xnodes_pos[idx_x + 1] - xnodes_pos[idx_x])
+#     alpha_y = (y - ynodes_pos[idx_y]) / (ynodes_pos[idx_y + 1] - ynodes_pos[idx_y])
     
-    # 构建插值矩阵
-    n_points = len(x)
-    n_grid = xnodes * ynodes
-    rows = np.repeat(np.arange(n_points), 4)
-    cols = []
-    data = []
+#     # 构建插值矩阵
+#     n_points = len(x)
+#     n_grid = xnodes * ynodes
+#     rows = np.repeat(np.arange(n_points), 4)
+#     cols = []
+#     data = []
     
-    # 四个角点的贡献
-    for i in range(n_points):
-        # 左下角
-        cols.append(idx_y[i] * xnodes + idx_x[i])
-        data.append((1 - alpha_x[i]) * (1 - alpha_y[i]))
+#     # 四个角点的贡献
+#     for i in range(n_points):
+#         # 左下角
+#         cols.append(idx_y[i] * xnodes + idx_x[i])
+#         data.append((1 - alpha_x[i]) * (1 - alpha_y[i]))
         
-        # 右下角
-        cols.append(idx_y[i] * xnodes + idx_x[i] + 1)
-        data.append(alpha_x[i] * (1 - alpha_y[i]))
+#         # 右下角
+#         cols.append(idx_y[i] * xnodes + idx_x[i] + 1)
+#         data.append(alpha_x[i] * (1 - alpha_y[i]))
         
-        # 左上角
-        cols.append((idx_y[i] + 1) * xnodes + idx_x[i])
-        data.append((1 - alpha_x[i]) * alpha_y[i])
+#         # 左上角
+#         cols.append((idx_y[i] + 1) * xnodes + idx_x[i])
+#         data.append((1 - alpha_x[i]) * alpha_y[i])
         
-        # 右上角
-        cols.append((idx_y[i] + 1) * xnodes + idx_x[i] + 1)
-        data.append(alpha_x[i] * alpha_y[i])
+#         # 右上角
+#         cols.append((idx_y[i] + 1) * xnodes + idx_x[i] + 1)
+#         data.append(alpha_x[i] * alpha_y[i])
     
-    # 创建稀疏矩阵
-    A = sparse.csr_matrix((data, (rows, cols)), shape=(n_points, n_grid))
+#     # 创建稀疏矩阵
+#     A = sparse.csr_matrix((data, (rows, cols)), shape=(n_points, n_grid))
     
-    # 创建拉普拉斯算子
-    Dx = sparse.diags([1, -2, 1], [-1, 0, 1], shape=(xnodes, xnodes))
-    Dy = sparse.diags([1, -2, 1], [-1, 0, 1], shape=(ynodes, ynodes))
+#     # 创建拉普拉斯算子
+#     Dx = sparse.diags([1, -2, 1], [-1, 0, 1], shape=(xnodes, xnodes))
+#     Dy = sparse.diags([1, -2, 1], [-1, 0, 1], shape=(ynodes, ynodes))
     
-    # 构建完整的正则化矩阵
-    Lx = sparse.kron(sparse.eye(ynodes), Dx)
-    Ly = sparse.kron(Dy, sparse.eye(xnodes))
-    L = Lx + Ly
+#     # 构建完整的正则化矩阵
+#     Lx = sparse.kron(sparse.eye(ynodes), Dx)
+#     Ly = sparse.kron(Dy, sparse.eye(xnodes))
+#     L = Lx + Ly
     
-    # 求解线性系统
-    ATz = A.T @ z
-    ATA = A.T @ A
-    P = ATA + lambda_value * L.T @ L
+#     # 求解线性系统
+#     ATz = A.T @ z
+#     ATA = A.T @ A
+#     P = ATA + lambda_value * L.T @ L
     
-    # 迭代求解
-    g = np.zeros(n_grid)
-    for it in range(max_iter):
-        g_old = g.copy()
-        g = spsolve(P, ATz)
+#     # 迭代求解
+#     g = np.zeros(n_grid)
+#     for it in range(max_iter):
+#         g_old = g.copy()
+#         g = spsolve(P, ATz)
         
-        # 检查收敛性
-        rel_change = np.linalg.norm(g - g_old) / (np.linalg.norm(g) + 1e-10)
-        if rel_change < tol:
-            break
+#         # 检查收敛性
+#         rel_change = np.linalg.norm(g - g_old) / (np.linalg.norm(g) + 1e-10)
+#         if rel_change < tol:
+#             break
     
-    # 重塑结果为网格形式
-    zgrid = g.reshape(ynodes, xnodes)
+#     # 重塑结果为网格形式
+#     zgrid = g.reshape(ynodes, xnodes)
     
-    return zgrid
+#     return zgrid
 
 def smooth_displacement_field(displacement_field, sigma=2.0):
     """

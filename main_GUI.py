@@ -359,9 +359,12 @@ class RAFTDICGUI:
                 messagebox.showerror("Error", "No valid image files found in the directory")
                 return
             
-            # 读取第一张图片
+            # 保存图像文件列表供后续使用
+            self.image_files = image_files
+            
+            # 读取第一张图片，使用helpFunctions中的函数
             img_path = os.path.join(directory, image_files[0])
-            img = cv2.imread(img_path)
+            img = hf.load_and_convert_image(img_path)
             if img is None:
                 raise Exception(f"Failed to load image: {img_path}")
             
