@@ -1,3 +1,26 @@
+"""
+RAFT-DIC Helper Functions
+------------------------
+This module provides helper functions for the RAFT-DIC displacement field calculator.
+It includes functions for:
+- Image loading and preprocessing
+- RAFT model loading and inference
+- Displacement field calculation and visualization
+- Result saving and data processing
+
+Author: Zixiang (Zach) Tong @ UT-Austin, Lehu Bu @ UT-Austin
+Date: 2025-06-03
+Version: 1.0
+
+Dependencies:
+- OpenCV
+- PyTorch
+- NumPy
+- SciPy
+- Matplotlib
+- RAFT core modules
+"""
+
 import os
 os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 
@@ -20,15 +43,15 @@ from scipy.ndimage import gaussian_filter
 from scipy.sparse import csc_matrix, eye
 from scipy.sparse.linalg import spsolve
 
-# 忽略特定警告
+# Ignore specific warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-# 设置matplotlib使用Agg后端，避免字体问题
+# Set matplotlib to use Agg backend to avoid font issues
 plt.switch_backend('Agg')
 
-sys.path.append('./core')  # 将 raft 文件夹添加到路径中
+sys.path.append('./core')  # Add raft folder to path
 from core.raft import RAFT
 from core.utils import flow_viz
 from core.utils.utils import InputPadder
@@ -67,14 +90,14 @@ def inference(model, frame1, frame2, device, pad_mode='sintel',
         frame1 = process_img(frame1, device)
         frame2 = process_img(frame2, device)
         
-        # 记录原始尺寸
+        # Record original size
         original_size = (frame1.shape[2], frame1.shape[3])
         
-        # 使用padder进行padding
+        # Use padder for padding
         padder = InputPadder(frame1.shape, mode=pad_mode)
         frame1, frame2 = padder.pad(frame1, frame2)
         
-        # 使用新的 autocast 语法
+        # Use new autocast syntax
         with torch.amp.autocast('cuda', enabled=True):
             if test_mode:
                 flow_low, flow_up = model(frame1, frame2, iters=iters, 
@@ -82,7 +105,7 @@ def inference(model, frame1, frame2, device, pad_mode='sintel',
                                         upsample=upsample, 
                                         test_mode=test_mode)
                 
-                # 裁剪回原始尺寸
+                # Crop back to original size
                 flow_up = flow_up[:, :, :original_size[0], :original_size[1]]
                 flow_low = flow_low[:, :, :original_size[0]//8, :original_size[1]//8]
                 
@@ -100,63 +123,63 @@ def get_viz(flo):
     return flow_viz.flow_to_image(flo)
 
 def load_and_convert_image(img_path):
-    """从本地加载图片并进行颜色空间和位深度转换
+    """Load image from local path and convert color space and bit depth
     
     Args:
-        img_path: 图片路径
+        img_path: Image file path
         
     Returns:
-        frame_rgb: RGB格式的8bit图像
+        frame_rgb: RGB format 8bit image
     """
-    # 检查文件扩展名
+    # Check file extension
     ext = os.path.splitext(img_path)[1].lower()
     
     if ext in ['.tif', '.tiff']:
         try:
-            # 使用tifffile读取TIFF文件
+            # Use tifffile to read TIFF files
             frame = tifffile.imread(img_path)
         except Exception as e:
             raise Exception(f"Failed to load TIFF image from {img_path}: {str(e)}")
     else:
-        # 对于其他格式使用OpenCV
+        # Use OpenCV for other formats
         frame = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
     
     if frame is None:
         raise Exception(f"Failed to load image from {img_path}")
 
-    # 检查图像位深度和类型并进行相应转换
+    # Check image bit depth and type and convert accordingly
     if frame.dtype == np.float32:
-        # 对于32位浮点图像，先归一化到0-1范围
-        min_val = np.nanmin(frame)  # 使用nanmin处理可能的NaN值
+        # For 32-bit float images, first normalize to 0-1 range
+        min_val = np.nanmin(frame)  # Use nanmin to handle potential NaN values
         max_val = np.nanmax(frame)
         if max_val != min_val:
             frame = np.clip((frame - min_val) / (max_val - min_val), 0, 1)
         else:
             frame = np.zeros_like(frame)
         
-        # 转换到0-255范围并转为8位无符号整数
+        # Convert to 0-255 range and 8-bit unsigned integer
         frame = (frame * 255).astype(np.uint8)
     elif frame.dtype == np.uint16:
-        # 16bit转8bit，保持相对亮度关系
+        # 16bit to 8bit conversion, preserving relative brightness
         frame = (frame / 256).astype(np.uint8)
     elif frame.dtype != np.uint8:
-        # 其他位深度，归一化到0-255范围
+        # Other bit depths, normalize to 0-255 range
         frame = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX)
         frame = frame.astype(np.uint8)
 
-    # 如果是单通道图像，转换为三通道
+    # If single channel image, convert to three channels
     if len(frame.shape) == 2:
         frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
     elif len(frame.shape) == 3 and frame.shape[2] > 3:
-        # 如果有多于3个通道，只保留前3个
+        # If more than 3 channels, keep only first 3
         frame = frame[:, :, :3]
     
-    # 如果是tifffile读取的图像，需要处理颜色通道顺序
+    # If image was read by tifffile, handle color channel order
     if ext in ['.tif', '.tiff']:
         if len(frame.shape) == 3:
             frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
     
-    # BGR转RGB
+    # BGR to RGB conversion
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     
     return frame_rgb
@@ -166,15 +189,15 @@ def load_and_convert_image(img_path):
 # ============================
 def calculate_window_positions(image_size, crop_size, stride):
     """
-    计算窗口位置，确保完整覆盖且使用完整尺寸的窗口
+    Calculate window positions to ensure complete coverage with full-size windows
     
     Args:
-        image_size: 图像尺寸
-        crop_size: 裁剪窗口尺寸
-        stride: 滑动步长
+        image_size: Image dimensions
+        crop_size: Crop window size
+        stride: Sliding step size
     
     Returns:
-        positions: 窗口起始位置列表
+        positions: List of window start positions
     """
     positions = []
     current = 0
@@ -183,7 +206,7 @@ def calculate_window_positions(image_size, crop_size, stride):
         positions.append(current)
         current += stride
     
-    # 如果最后一个位置未覆盖到边缘，添加一个确保覆盖边缘的位置
+    # If last position doesn't cover edge, add one that ensures edge coverage
     if current < image_size - crop_size:
         positions.append(image_size - crop_size)
     elif positions[-1] + crop_size < image_size:
@@ -197,23 +220,23 @@ def cut_image_pair_with_flow(ref_img, def_img, project_root, model, device,
                            plot_windows=False, roi_mask=None,
                            use_smooth=True, sigma=2.0):
     """
-    处理图像对并计算位移场
+    Process image pair and calculate displacement field
     
     Args:
-        ref_img: 参考图像
-        def_img: 变形图像
-        project_root: 项目根目录
-        model: RAFT模型
-        device: 计算设备
-        crop_size: 切割窗口大小
-        stride: 滑动步长
-        maxDisplacement: 最大位移
-        plot_windows: 是否绘制窗口布局
-        roi_mask: ROI掩码，与输入图像同尺寸的二值数组
-        use_smooth: 是否使用平滑
-        sigma: 高斯平滑的sigma参数
+        ref_img: Reference image
+        def_img: Deformed image
+        project_root: Project root directory
+        model: RAFT model
+        device: Computation device
+        crop_size: Cutting window size
+        stride: Sliding step size
+        maxDisplacement: Maximum displacement
+        plot_windows: Whether to plot window layout
+        roi_mask: ROI mask, binary array same size as input image
+        use_smooth: Whether to use smoothing
+        sigma: Gaussian smoothing sigma parameter
     """
-    # 创建必要的子目录
+    # Create necessary subdirectories
     #crops_dir = os.path.join(project_root, "crops")
     windows_dir = os.path.join(project_root, "windows")
     #os.makedirs(crops_dir, exist_ok=True)
@@ -222,25 +245,24 @@ def cut_image_pair_with_flow(ref_img, def_img, project_root, model, device,
     H, W, _ = ref_img.shape
     crop_h, crop_w = crop_size
 
-    # 计算x和y方向的窗口位置
+    # Calculate window positions in x and y directions
     x_positions = calculate_window_positions(W, crop_w, stride)
     y_positions = calculate_window_positions(H, crop_h, stride)
 
     windows = []
     global_flow = np.zeros((H, W, 2), dtype=np.float64)
     count_field = np.zeros((H, W), dtype=np.float64)
-    # 创建一个字典来存储每个窗口的flow结果
+    # Create dictionary to store flow results for each window
     window_flows = {}
     
-    # 如果提供了ROI掩码，确保其类型为boolean
-    # 如果提供了ROI掩码，确保其类型为boolean
+    # If ROI mask provided, ensure it's boolean type
     if roi_mask is not None:
         roi_mask = roi_mask.astype(bool)
     else:
-        # 如果没有提供掩码，创建一个全True的掩码
+        # If no mask provided, create all True mask
         roi_mask = np.ones((H, W), dtype=bool)
 
-    # Valid mask (保持原有的有效区域计算)
+    # Valid mask (maintain original valid area calculation)
     confidenceRange_y = [maxDisplacement, crop_h-maxDisplacement]
     confidenceRange_x = [maxDisplacement, crop_w-maxDisplacement]
     valid_mask = np.zeros((crop_h, crop_w), dtype=np.float64)
@@ -248,22 +270,22 @@ def cut_image_pair_with_flow(ref_img, def_img, project_root, model, device,
               confidenceRange_x[0]:confidenceRange_x[1]] = 1.0
 
     count = 0
-    inference_time = 0  # 在函数内部使用局部变量
+    inference_time = 0  # Use local variable within function
     start_total = time.time()
     for y in y_positions:
         for x in x_positions:
-            # 现在所有窗口都是完整的crop_size大小
+            # Now all windows are full crop_size
             ref_window = ref_img[y:y+crop_h, x:x+crop_w, :]
             def_window = def_img[y:y+crop_h, x:x+crop_w, :]
             
-            window_key = f"{x}_{y}"  # 使用坐标作为键
+            window_key = f"{x}_{y}"  # Use coordinates as key
             windows.append({
                 'index': count,
                 'position': (x, y, x+crop_w, y+crop_h),
                 'key': window_key
             })
 
-            # 添加RAFT推理时间统计
+            # Add RAFT inference time statistics
             start_inference = time.time()
             flow_low, flow_up = inference(model, ref_window, def_window, device, test_mode=True)
             flow_up = flow_up.squeeze(0)
@@ -273,9 +295,9 @@ def cut_image_pair_with_flow(ref_img, def_img, project_root, model, device,
             v = flow_up[1].cpu().numpy()
             window_flow = np.stack((u, v), axis=-1)
 
-            # 保存这个窗口的flow结果
+            # Save flow results for this window
             window_flows[window_key] = {
-                'flow': window_flow * valid_mask[..., None],  # 应用valid_mask
+                'flow': window_flow * valid_mask[..., None],  # Apply valid_mask
                 'position': (x, y, x+crop_w, y+crop_h),
                 'index': count
             }
@@ -285,15 +307,15 @@ def cut_image_pair_with_flow(ref_img, def_img, project_root, model, device,
 
             count += 1
 
-    if False: # 在循环结束后保存window_flows
+    if False: # Save window_flows after loop
         ref_path = 'C:/Users/zt3323/OneDrive - The University of Texas at Austin/Documents/Python Codes/RAFT-2D-DIC-GUI/Results_window_256_step128_without_merging'
         save_dir = os.path.join(os.path.dirname(os.path.dirname(ref_path)), 'window_flows')
         os.makedirs(save_dir, exist_ok=True)
         
-        # 使用输入图像的文件名作为保存文件的基础名
+        # Use input image filename as base name for saving
         save_path = os.path.join(save_dir, f'{ref_path}/window_flows.mat')
         
-        # 将window_flows转换为适合保存的格式
+        # Convert window_flows to format suitable for saving
         save_dict = {}
         for key, value in window_flows.items():
             save_dict[f'window_{key}'] = {
@@ -301,19 +323,19 @@ def cut_image_pair_with_flow(ref_img, def_img, project_root, model, device,
                 'position': np.array(value['position']),
                 'index': value['index']
             }
-        # 保存为mat文件
+        # Save as mat file
         savemat(save_path, save_dict)
 
 
-    # 计算平均位移场
+    # Calculate average displacement field
     final_flow = np.where(count_field[..., None] > 0,
                          global_flow / count_field[..., None],
                          np.nan)
     
-    # 应用boolean掩码
+    # Apply boolean mask
     final_flow[~roi_mask] = np.nan
 
-    # 在计算完位移场后进行平滑处理
+    # Apply smoothing after displacement field calculation
     if use_smooth:
         displacement_field = smooth_displacement_field(final_flow, sigma=sigma)
     else:
@@ -321,10 +343,10 @@ def cut_image_pair_with_flow(ref_img, def_img, project_root, model, device,
         
     print(f"Total window pairs processed: {count}")
 
-    # 保存窗口布局图
+    # Save window layout plot
     if plot_windows:
         try:
-            # 使用 Agg 后端确保线程安全
+            # Use Agg backend for thread safety
             plt.switch_backend('Agg')
             
             ref_gray = cv2.cvtColor(ref_img, cv2.COLOR_RGB2GRAY)
@@ -333,7 +355,7 @@ def cut_image_pair_with_flow(ref_img, def_img, project_root, model, device,
             ax.axis('off')
             colormap = cm.get_cmap('hsv', len(windows))
             
-            # 一次性创建所有矩形，而不是逐个添加
+            # Create all rectangles at once instead of adding one by one
             patches_list = []
             for window in windows:
                 x_start, y_start, x_end, y_end = window['position']
@@ -344,159 +366,59 @@ def cut_image_pair_with_flow(ref_img, def_img, project_root, model, device,
                                       edgecolor=color, facecolor='none')
                 patches_list.append(rect)
             
-            # 批量添加所有矩形
+            # Add all rectangles in batch
             ax.add_collection(collections.PatchCollection(patches_list, match_original=True))
             
             plt.title("Sliding Windows Layout")
-            # 使用 bbox_inches='tight' 确保图像完整保存
+            # Use bbox_inches='tight' to ensure complete image saving
             plt.savefig(os.path.join(windows_dir, "windows_layout.png"), 
                        bbox_inches='tight', dpi=300)
-            plt.close(fig)  # 确保关闭图形
+            plt.close(fig)  # Ensure figure is closed
             
         except Exception as e:
             print(f"Warning: Failed to save windows layout: {str(e)}")
-            # 继续执行，不让绘图错误影响主要处理流程
+            # Continue execution, don't let plotting error affect main processing
     
     total_time = time.time() - start_total
     
-    print(f"\n时间统计:")
-    print(f"总处理时间: {total_time:.2f} 秒")
-    print(f"RAFT推理时间: {inference_time:.2f} 秒")
-    print(f"RAFT推理占比: {(inference_time/total_time*100):.1f}%")
+    print(f"\nTime statistics:")
+    print(f"Total processing time: {total_time:.2f} seconds")
+    print(f"RAFT inference time: {inference_time:.2f} seconds")
+    print(f"RAFT inference percentage: {(inference_time/total_time*100):.1f}%")
     
     return displacement_field, windows
 
 def save_displacement_results(displacement_field, output_dir, index):
-    """保存位移场结果为npy和mat格式"""
-    # 创建目录结构
+    """Save displacement field results in npy and mat formats"""
+    # Create directory structure
     npy_dir = os.path.join(output_dir, "displacement_results_npy")
     mat_dir = os.path.join(output_dir, "displacement_results_mat")
     os.makedirs(npy_dir, exist_ok=True)
     os.makedirs(mat_dir, exist_ok=True)
     
-    # 保存.npy格式
+    # Save .npy format
     npy_file = os.path.join(npy_dir, f"displacement_field_{index}.npy")
     np.save(npy_file, displacement_field)
     
-    # 保存.mat格式
+    # Save .mat format
     mat_file = os.path.join(mat_dir, f"displacement_field_{index}.mat")
-    # 分离U和V分量
+    # Separate U and V components
     u = displacement_field[:, :, 0]
     v = displacement_field[:, :, 1]
     sio.savemat(mat_file, {'U': u, 'V': v})
 
-
-# def gridfit(x, y, z, xnodes, ynodes, lambda_value=0.01, max_iter=100, tol=1e-6):
-#     """
-#     实现类似MATLAB中gridfit的函数，用于生成平滑的表面网格
-    
-#     参数:
-#     - x, y: 输入点的x和y坐标
-#     - z: 对应的z值（可能包含NaN）
-#     - xnodes, ynodes: 输出网格的节点数量
-#     - lambda_value: 正则化参数，控制平滑度
-#     - max_iter: 最大迭代次数
-#     - tol: 收敛容差
-    
-#     返回:
-#     - zgrid: 平滑的网格节点矩阵
-#     """
-#     from scipy import sparse
-#     from scipy.sparse.linalg import spsolve
-    
-#     # 处理输入数据中的NaN值
-#     valid_idx = ~np.isnan(z)
-#     x, y, z = x[valid_idx], y[valid_idx], z[valid_idx]
-    
-#     if len(x) == 0:
-#         return np.full((ynodes, xnodes), np.nan)
-    
-#     # 创建均匀网格节点
-#     xnodes_pos = np.linspace(x.min(), x.max(), xnodes)
-#     ynodes_pos = np.linspace(y.min(), y.max(), ynodes)
-    
-#     # 计算每个数据点落在哪个网格单元内
-#     idx_x = np.searchsorted(xnodes_pos, x) - 1
-#     idx_y = np.searchsorted(ynodes_pos, y) - 1
-    
-#     # 确保索引在有效范围内
-#     idx_x = np.clip(idx_x, 0, xnodes - 2)
-#     idx_y = np.clip(idx_y, 0, ynodes - 2)
-    
-#     # 计算网格内部的相对位置
-#     alpha_x = (x - xnodes_pos[idx_x]) / (xnodes_pos[idx_x + 1] - xnodes_pos[idx_x])
-#     alpha_y = (y - ynodes_pos[idx_y]) / (ynodes_pos[idx_y + 1] - ynodes_pos[idx_y])
-    
-#     # 构建插值矩阵
-#     n_points = len(x)
-#     n_grid = xnodes * ynodes
-#     rows = np.repeat(np.arange(n_points), 4)
-#     cols = []
-#     data = []
-    
-#     # 四个角点的贡献
-#     for i in range(n_points):
-#         # 左下角
-#         cols.append(idx_y[i] * xnodes + idx_x[i])
-#         data.append((1 - alpha_x[i]) * (1 - alpha_y[i]))
-        
-#         # 右下角
-#         cols.append(idx_y[i] * xnodes + idx_x[i] + 1)
-#         data.append(alpha_x[i] * (1 - alpha_y[i]))
-        
-#         # 左上角
-#         cols.append((idx_y[i] + 1) * xnodes + idx_x[i])
-#         data.append((1 - alpha_x[i]) * alpha_y[i])
-        
-#         # 右上角
-#         cols.append((idx_y[i] + 1) * xnodes + idx_x[i] + 1)
-#         data.append(alpha_x[i] * alpha_y[i])
-    
-#     # 创建稀疏矩阵
-#     A = sparse.csr_matrix((data, (rows, cols)), shape=(n_points, n_grid))
-    
-#     # 创建拉普拉斯算子
-#     Dx = sparse.diags([1, -2, 1], [-1, 0, 1], shape=(xnodes, xnodes))
-#     Dy = sparse.diags([1, -2, 1], [-1, 0, 1], shape=(ynodes, ynodes))
-    
-#     # 构建完整的正则化矩阵
-#     Lx = sparse.kron(sparse.eye(ynodes), Dx)
-#     Ly = sparse.kron(Dy, sparse.eye(xnodes))
-#     L = Lx + Ly
-    
-#     # 求解线性系统
-#     ATz = A.T @ z
-#     ATA = A.T @ A
-#     P = ATA + lambda_value * L.T @ L
-    
-#     # 迭代求解
-#     g = np.zeros(n_grid)
-#     for it in range(max_iter):
-#         g_old = g.copy()
-#         g = spsolve(P, ATz)
-        
-#         # 检查收敛性
-#         rel_change = np.linalg.norm(g - g_old) / (np.linalg.norm(g) + 1e-10)
-#         if rel_change < tol:
-#             break
-    
-#     # 重塑结果为网格形式
-#     zgrid = g.reshape(ynodes, xnodes)
-    
-#     return zgrid
-
 def smooth_displacement_field(displacement_field, sigma=2.0):
     """
-    快速高斯平滑位移场
+    Fast Gaussian smoothing of displacement field
     
     Args:
-        displacement_field: shape为(H, W, 2)的位移场数据
-        sigma: 高斯滤波的标准差，控制平滑程度
+        displacement_field: Displacement field data with shape (H, W, 2)
+        sigma: Gaussian filter standard deviation, controls smoothing level
     """
     from scipy.ndimage import gaussian_filter
     import numpy as np
     
-    # 直接处理UV两个方向
+    # Directly process U and V directions
     smoothed = np.zeros_like(displacement_field)
     
     for i in range(2):
@@ -507,14 +429,14 @@ def smooth_displacement_field(displacement_field, sigma=2.0):
             smoothed[..., i] = component
             continue
             
-        # 填充无效区域为0
+        # Fill invalid areas with 0
         filled = np.where(valid_mask, component, 0)
         
-        # 一次性完成高斯滤波
+        # Complete Gaussian filtering in one step
         smoothed_data = gaussian_filter(filled, sigma)
         weight = gaussian_filter(valid_mask.astype(float), sigma)
         
-        # 归一化并恢复NaN
+        # Normalize and restore NaN
         with np.errstate(divide='ignore', invalid='ignore'):
             smoothed[..., i] = np.where(weight > 0.01, 
                                       smoothed_data / weight, 
