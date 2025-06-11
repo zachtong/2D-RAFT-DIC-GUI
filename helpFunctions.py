@@ -187,14 +187,14 @@ def load_and_convert_image(img_path):
 # ============================
 # Cutting and Flow Reconstruction with Fixed-Stride Cropping
 # ============================
-def calculate_window_positions(image_size, crop_size, stride):
+def calculate_window_positions(image_size, crop_size, shift):
     """
     Calculate window positions to ensure complete coverage with full-size windows
     
     Args:
         image_size: Image dimensions
         crop_size: Crop window size
-        stride: Sliding step size
+        shift: Sliding step size
     
     Returns:
         positions: List of window start positions
@@ -204,7 +204,7 @@ def calculate_window_positions(image_size, crop_size, stride):
     
     while current <= image_size - crop_size:
         positions.append(current)
-        current += stride
+        current += shift
     
     # If last position doesn't cover edge, add one that ensures edge coverage
     if current < image_size - crop_size:
@@ -216,7 +216,7 @@ def calculate_window_positions(image_size, crop_size, stride):
 
 
 def cut_image_pair_with_flow(ref_img, def_img, project_root, model, device, 
-                           crop_size=(128, 128), stride=64, maxDisplacement=50,
+                           crop_size=(128, 128), shift=64, maxDisplacement=50,
                            plot_windows=False, roi_mask=None,
                            use_smooth=True, sigma=2.0):
     """
@@ -229,25 +229,25 @@ def cut_image_pair_with_flow(ref_img, def_img, project_root, model, device,
         model: RAFT model
         device: Computation device
         crop_size: Cutting window size
-        stride: Sliding step size
+        shift: Sliding step size
         maxDisplacement: Maximum displacement
         plot_windows: Whether to plot window layout
         roi_mask: ROI mask, binary array same size as input image
         use_smooth: Whether to use smoothing
         sigma: Gaussian smoothing sigma parameter
     """
+    start_total = time.time()  # Start timing total process
+    
     # Create necessary subdirectories
-    #crops_dir = os.path.join(project_root, "crops")
     windows_dir = os.path.join(project_root, "windows")
-    #os.makedirs(crops_dir, exist_ok=True)
     os.makedirs(windows_dir, exist_ok=True)
 
     H, W, _ = ref_img.shape
     crop_h, crop_w = crop_size
 
     # Calculate window positions in x and y directions
-    x_positions = calculate_window_positions(W, crop_w, stride)
-    y_positions = calculate_window_positions(H, crop_h, stride)
+    x_positions = calculate_window_positions(W, crop_w, shift)
+    y_positions = calculate_window_positions(H, crop_h, shift)
 
     windows = []
     global_flow = np.zeros((H, W, 2), dtype=np.float64)
@@ -270,8 +270,7 @@ def cut_image_pair_with_flow(ref_img, def_img, project_root, model, device,
               confidenceRange_x[0]:confidenceRange_x[1]] = 1.0
 
     count = 0
-    inference_time = 0  # Use local variable within function
-    start_total = time.time()
+    inference_time = 0
     for y in y_positions:
         for x in x_positions:
             # Now all windows are full crop_size
@@ -385,6 +384,7 @@ def cut_image_pair_with_flow(ref_img, def_img, project_root, model, device,
     print(f"Total processing time: {total_time:.2f} seconds")
     print(f"RAFT inference time: {inference_time:.2f} seconds")
     print(f"RAFT inference percentage: {(inference_time/total_time*100):.1f}%")
+    print(f"Other operations time: {(total_time-inference_time):.2f} seconds")
     
     return displacement_field, windows
 
@@ -443,3 +443,58 @@ def smooth_displacement_field(displacement_field, sigma=2.0):
                                       np.nan)
     
     return smoothed
+
+def process_image_pair(ref_img, def_img, project_root, model, device, 
+                      maxDisplacement=50, roi_mask=None,
+                      use_smooth=True, sigma=2.0):
+    """
+    Process entire image pair without cropping
+    
+    Args:
+        ref_img: Reference image
+        def_img: Deformed image
+        project_root: Project root directory
+        model: RAFT model
+        device: Computation device
+        maxDisplacement: Maximum displacement
+        roi_mask: ROI mask, binary array same size as input image
+        use_smooth: Whether to use smoothing
+        sigma: Gaussian smoothing sigma parameter
+    """
+    start_total = time.time()  # Start timing total process
+    H, W, _ = ref_img.shape
+    
+    # If ROI mask provided, ensure it's boolean type
+    if roi_mask is not None:
+        roi_mask = roi_mask.astype(bool)
+    else:
+        # If no mask provided, create all True mask
+        roi_mask = np.ones((H, W), dtype=bool)
+
+    # Add RAFT inference time statistics
+    start_inference = time.time()
+    flow_low, flow_up = inference(model, ref_img, def_img, device, test_mode=True)
+    flow_up = flow_up.squeeze(0)
+    inference_time = time.time() - start_inference
+    
+    # Convert flow to numpy array
+    u = flow_up[0].cpu().numpy()
+    v = flow_up[1].cpu().numpy()
+    displacement_field = np.stack((u, v), axis=-1)
+    
+    # Apply ROI mask
+    displacement_field[~roi_mask] = np.nan
+    
+    # Apply smoothing if requested
+    if use_smooth:
+        displacement_field = smooth_displacement_field(displacement_field, sigma=sigma)
+    
+    total_time = time.time() - start_total
+    
+    print(f"\nTime statistics:")
+    print(f"Total processing time: {total_time:.2f} seconds")
+    print(f"RAFT inference time: {inference_time:.2f} seconds")
+    print(f"RAFT inference percentage: {(inference_time/total_time*100):.1f}%")
+    print(f"Other operations time: {(total_time-inference_time):.2f} seconds")
+    
+    return displacement_field, None  # Return None for windows as they're not used

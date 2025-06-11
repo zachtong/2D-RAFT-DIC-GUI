@@ -8,8 +8,8 @@ It provides tools for:
 - Result visualization and analysis
 - Interactive parameter adjustment
 
-Author: [Your Name]
-Date: [Current Date]
+Author: Zixiang Tong @ UT-Austin, Lehu Bu @ UT-Austin
+Date: 2025-06-10
 Version: 1.0
 
 Dependencies:
@@ -40,6 +40,74 @@ import visualization as vis
 import io
 import scipy.io as sio
 
+class CollapsibleFrame(ttk.LabelFrame):
+    """A collapsible frame widget that can be expanded or collapsed."""
+    def __init__(self, parent, text="", **kwargs):
+        super().__init__(parent, text=text, **kwargs)
+        
+        # Create a container frame for the header
+        self.header_frame = ttk.Frame(self)
+        self.header_frame.grid(row=0, column=0, sticky="ew")
+        
+        # Add toggle button to header
+        self.toggle_button = ttk.Button(self.header_frame, text="▼", width=2,
+                                      command=self.toggle)
+        self.toggle_button.grid(row=0, column=0, padx=(0,5))
+        
+        # Create content frame
+        self.content_frame = ttk.Frame(self)
+        self.content_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+        
+        # Configure grid
+        self.grid_columnconfigure(0, weight=1)
+        self.header_frame.grid_columnconfigure(1, weight=1)
+        
+        self.is_expanded = True
+        
+    def toggle(self):
+        """Toggle the visibility of the content frame."""
+        if self.is_expanded:
+            self.content_frame.grid_remove()
+            self.toggle_button.configure(text="▶")
+        else:
+            self.content_frame.grid()
+            self.toggle_button.configure(text="▼")
+        self.is_expanded = not self.is_expanded
+        
+    def get_content_frame(self):
+        """Return the content frame for adding widgets."""
+        return self.content_frame
+
+class Tooltip:
+    """Create a tooltip for a given widget."""
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.tooltip = None
+        self.widget.bind("<Enter>", self.show_tooltip)
+        self.widget.bind("<Leave>", self.hide_tooltip)
+    
+    def show_tooltip(self, event=None):
+        x, y, _, _ = self.widget.bbox("insert")
+        x += self.widget.winfo_rootx() + 25
+        y += self.widget.winfo_rooty() + 25
+        
+        # Create top level window
+        self.tooltip = tk.Toplevel(self.widget)
+        # Remove window decorations
+        self.tooltip.wm_overrideredirect(True)
+        self.tooltip.wm_geometry(f"+{x}+{y}")
+        
+        # Create tooltip content
+        label = ttk.Label(self.tooltip, text=self.text, justify=tk.LEFT,
+                         background="#ffffe0", relief="solid", borderwidth=1)
+        label.pack()
+    
+    def hide_tooltip(self, event=None):
+        if self.tooltip:
+            self.tooltip.destroy()
+            self.tooltip = None
+
 class RAFTDICGUI:
     def __init__(self, root):
         self.root = root
@@ -51,32 +119,49 @@ class RAFTDICGUI:
         # Initialize variables
         self.init_variables()
         
-        # Create main frame
-        main_frame = ttk.Frame(root, padding="10")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        # Create main container with padding
+        main_container = ttk.Frame(root, padding="5")
+        main_container.grid(row=0, column=0, sticky="nsew")
+        
+        # Configure root grid
         root.grid_rowconfigure(0, weight=1)
         root.grid_columnconfigure(0, weight=1)
         
-        # Create top and bottom panels
-        top_frame = ttk.Frame(main_frame)
-        bottom_frame = ttk.Frame(main_frame)
-        top_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
-        bottom_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        # Create main PanedWindow for left-right split
+        self.main_paned = ttk.PanedWindow(main_container, orient=tk.HORIZONTAL)
+        self.main_paned.grid(row=0, column=0, sticky="nsew")
         
-        # Set weights for frame expansion
-        main_frame.grid_rowconfigure(1, weight=1)  # bottom_frame can expand
-        main_frame.grid_columnconfigure(0, weight=1)
+        # Configure main container grid
+        main_container.grid_rowconfigure(0, weight=1)
+        main_container.grid_columnconfigure(0, weight=1)
         
-        # Top control panel (path selection, parameter settings, etc.)
-        self.create_control_panel(top_frame)
+        # Create left control panel with fixed minimum width
+        self.left_frame = ttk.Frame(self.main_paned, width=300)
+        self.left_frame.grid_propagate(False)  # Prevent frame from shrinking
+        self.main_paned.add(self.left_frame, weight=0)
         
-        # Bottom preview area (ROI selection, crop preview, displacement field preview)
-        self.create_preview_panel(bottom_frame)
+        # Add vertical separator
+        separator = ttk.Separator(main_container, orient="vertical")
+        separator.grid(row=0, column=1, sticky="ns")
         
-        self.displacement_results = []  # Store only file paths
-        self.current_displacement = None  # Can remove this line
-        self.displacement_cache = {}  # Can remove this line
-        self.cache_size = 5  # Can remove this line
+        # Create right preview panel
+        self.right_frame = ttk.Frame(self.main_paned)
+        self.main_paned.add(self.right_frame, weight=1)
+        
+        # Create control panel in left frame
+        self.create_control_panel(self.left_frame)
+        
+        # Create preview panel in right frame
+        self.create_preview_panel(self.right_frame)
+        
+        # Set initial paned window position
+        self.root.update()
+        self.main_paned.sashpos(0, 300)
+        
+        self.displacement_results = []
+        self.current_displacement = None
+        self.displacement_cache = {}
+        self.cache_size = 5
         
     def init_variables(self):
         """Initialize variables"""
@@ -86,10 +171,38 @@ class RAFTDICGUI:
         
         # Processing parameter variables
         self.mode = tk.StringVar(value="accumulative")
-        self.crop_size_h = tk.StringVar(value="512")
-        self.crop_size_w = tk.StringVar(value="512")
-        self.stride = tk.StringVar(value="256")
+        self.use_crop = tk.BooleanVar(value=False)  # New variable for crop control
+        self.crop_size_w = tk.StringVar(value="0")  # Changed order to W first
+        self.crop_size_h = tk.StringVar(value="0")  # Changed order to H second
+        self.shift_size = tk.StringVar(value="256")  # Renamed from stride
         self.max_displacement = tk.StringVar(value="5")
+        
+        # Add colorbar range variables
+        self.use_fixed_colorbar = tk.BooleanVar(value=False)
+        self.colorbar_u_min = tk.StringVar(value="-1")
+        self.colorbar_u_max = tk.StringVar(value="1")
+        self.colorbar_v_min = tk.StringVar(value="-1")
+        self.colorbar_v_max = tk.StringVar(value="1")
+        
+        # Add colormap variable
+        self.colormap = tk.StringVar(value="viridis")
+        
+        # Modify smoothing processing related variables
+        self.use_smooth = tk.BooleanVar(value=True)
+        self.sigma = tk.StringVar(value="2.0")
+        
+        # Help tooltips text
+        self.tooltips = {
+            "path": "Select input image directory and output directory for results",
+            "mode": "Accumulative: Calculate displacement relative to first frame\nIncremental: Calculate displacement relative to previous frame",
+            "crop": "Enable/disable image cropping for processing",
+            "crop_size": "Size of the cropping window (Width × Height)",
+            "shift": "Step size for moving the cropping window",
+            "max_disp": "Expected maximum displacement value",
+            "smooth": "Apply Gaussian filter to smooth the results",
+            "vis": "Visualization settings including colorbar range and colormap",
+            "run": "Start processing the image sequence"
+        }
         
         # ROI related variables
         self.roi_points = []          # Store ROI polygon vertices
@@ -115,108 +228,221 @@ class RAFTDICGUI:
         self.play_after_id = None
         self.play_interval = 100  # Playback interval (ms)
         
-        # Modify smoothing processing related variables
-        self.use_smooth = tk.BooleanVar(value=True)  # Whether to use smoothing
-        self.sigma = tk.StringVar(value="2.0")  # Gaussian smoothing sigma parameter
+        # Add overlay related variables
+        self.overlay_type = tk.StringVar(value="quiver")
+        self.overlay_density = tk.StringVar(value="20")
+        self.overlay_alpha = tk.StringVar(value="0.5")  # Changed default to 0.5
         
     def create_control_panel(self, parent):
-        """Create control panel"""
-        # Use LabelFrame to wrap control panel
-        control_frame = ttk.LabelFrame(parent, text="Control Panel", padding="5")
-        control_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        """Create control panel with collapsible sections"""
+        # Main control frame with scrollbar
+        control_canvas = tk.Canvas(parent)
+        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=control_canvas.yview)
+        control_frame = ttk.Frame(control_canvas)
         
-        # Path selection area
-        path_frame = ttk.Frame(control_frame)
-        path_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=5)
+        # Configure scrolling
+        control_canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Grid layout for scrollbar and canvas
+        control_canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        
+        # Configure parent grid
+        parent.grid_rowconfigure(0, weight=1)
+        parent.grid_columnconfigure(0, weight=1)
+        
+        # Create window in canvas
+        canvas_frame = control_canvas.create_window((0, 0), window=control_frame, anchor="nw")
+        
+        # Configure control frame
+        control_frame.grid_columnconfigure(0, weight=1)
+        
+        # Path selection section
+        path_frame = CollapsibleFrame(control_frame, text="Path Settings")
+        path_frame.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
+        
+        # Add help button to header
+        help_btn = self.create_help_button(path_frame.header_frame, "path")
+        help_btn.grid(row=0, column=1, padx=2)
+        
+        path_content = path_frame.get_content_frame()
+        path_content.grid_columnconfigure(1, weight=1)  # Make entry expand
         
         # Input path
-        ttk.Label(path_frame, text="Input Directory:").grid(row=0, column=0, sticky=tk.W)
-        ttk.Entry(path_frame, textvariable=self.input_path, width=50).grid(row=0, column=1, padx=5)
-        ttk.Button(path_frame, text="Browse", command=self.browse_input).grid(row=0, column=2)
+        ttk.Label(path_content, text="Input Directory:").grid(row=0, column=0, sticky="w", padx=5)
+        input_entry = ttk.Entry(path_content, textvariable=self.input_path)
+        input_entry.grid(row=0, column=1, sticky="ew", padx=5)
+        ttk.Button(path_content, text="Browse", command=self.browse_input, width=8).grid(row=0, column=2, padx=5)
         
         # Output path
-        ttk.Label(path_frame, text="Output Directory:").grid(row=1, column=0, sticky=tk.W, pady=5)
-        ttk.Entry(path_frame, textvariable=self.output_path, width=50).grid(row=1, column=1, padx=5)
-        ttk.Button(path_frame, text="Browse", command=self.browse_output).grid(row=1, column=2)
+        ttk.Label(path_content, text="Output Directory:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
+        output_entry = ttk.Entry(path_content, textvariable=self.output_path)
+        output_entry.grid(row=1, column=1, sticky="ew", padx=5, pady=5)
+        ttk.Button(path_content, text="Browse", command=self.browse_output, width=8).grid(row=1, column=2, padx=5, pady=5)
         
-        # Processing mode and parameter settings in the same row
-        settings_frame = ttk.Frame(control_frame)
-        settings_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=5)
+        # Add separator
+        ttk.Separator(control_frame, orient="horizontal").grid(row=1, column=0, sticky="ew", pady=5)
         
-        # Processing mode (left)
-        mode_frame = ttk.LabelFrame(settings_frame, text="Processing Mode", padding="5")
-        mode_frame.grid(row=0, column=0, sticky=(tk.W, tk.N, tk.S), padx=(0, 5))
-        ttk.Radiobutton(mode_frame, text="Accumulative", variable=self.mode, 
-                        value="accumulative").grid(row=0, column=0, padx=5)
-        ttk.Radiobutton(mode_frame, text="Incremental", variable=self.mode, 
-                        value="incremental").grid(row=1, column=0, padx=5)
+        # Processing mode section
+        mode_frame = CollapsibleFrame(control_frame, text="Processing Mode")
+        mode_frame.grid(row=2, column=0, sticky="ew", padx=5, pady=5)
         
-        # Parameter settings (right)
-        param_frame = ttk.LabelFrame(settings_frame, text="Parameters", padding="5")
-        param_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S))
+        # Add help button to header
+        help_btn = self.create_help_button(mode_frame.header_frame, "mode")
+        help_btn.grid(row=0, column=1, padx=2)
         
-        # Grid layout parameters
-        param_frame.grid_columnconfigure(1, weight=1)
+        mode_content = mode_frame.get_content_frame()
+        mode_content.grid_columnconfigure(0, weight=1)
         
-        # Crop Size settings
-        ttk.Label(param_frame, text="Crop Size (H×W):").grid(row=0, column=0, sticky=tk.W)
-        size_frame = ttk.Frame(param_frame)
-        size_frame.grid(row=0, column=1, sticky=tk.W)
+        # Mode radio buttons with padding
+        ttk.Radiobutton(mode_content, text="Accumulative", variable=self.mode, 
+                       value="accumulative").grid(row=0, column=0, sticky="w", padx=20, pady=2)
+        ttk.Radiobutton(mode_content, text="Incremental", variable=self.mode, 
+                       value="incremental").grid(row=1, column=0, sticky="w", padx=20, pady=2)
         
-        # Create Entry widgets
-        self.crop_h_entry = ttk.Entry(size_frame, textvariable=self.crop_size_h, width=5)
-        self.crop_h_entry.grid(row=0, column=0)
+        # Add separator
+        ttk.Separator(control_frame, orient="horizontal").grid(row=3, column=0, sticky="ew", pady=5)
+        
+        # Parameters section
+        param_frame = CollapsibleFrame(control_frame, text="Parameters")
+        param_frame.grid(row=4, column=0, sticky="ew", padx=5, pady=5)
+        
+        param_content = param_frame.get_content_frame()
+        param_content.grid_columnconfigure(0, weight=1)
+        
+        # Basic parameters
+        basic_frame = ttk.LabelFrame(param_content, text="Basic Settings", padding=5)
+        basic_frame.grid(row=0, column=0, sticky="ew", pady=5)
+        basic_frame.grid_columnconfigure(1, weight=1)
+        
+        # Add help button
+        help_btn = self.create_help_button(basic_frame, "crop")
+        help_btn.grid(row=0, column=2, padx=2)
+        
+        # Add crop checkbox
+        ttk.Checkbutton(basic_frame, text="Enable Crop", 
+                       variable=self.use_crop,
+                       command=self.update_crop_state).grid(row=0, column=0, 
+                                                          columnspan=2, sticky="w", padx=5)
+        
+        # Crop Size settings with W×H order
+        ttk.Label(basic_frame, text="Crop Size (W×H):").grid(row=1, column=0, sticky="w", padx=5)
+        size_frame = ttk.Frame(basic_frame)
+        size_frame.grid(row=1, column=1, sticky="w", pady=2)
+        
+        self.crop_w_entry = ttk.Entry(size_frame, textvariable=self.crop_size_w, width=5, state="disabled")
+        self.crop_w_entry.grid(row=0, column=0)
         ttk.Label(size_frame, text="×").grid(row=0, column=1, padx=2)
-        self.crop_w_entry = ttk.Entry(size_frame, textvariable=self.crop_size_w, width=5)
-        self.crop_w_entry.grid(row=0, column=2)
+        self.crop_h_entry = ttk.Entry(size_frame, textvariable=self.crop_size_h, width=5, state="disabled")
+        self.crop_h_entry.grid(row=0, column=2)
         
-        # Stride settings
-        ttk.Label(param_frame, text="Stride:").grid(row=1, column=0, sticky=tk.W)
-        self.stride_entry = ttk.Entry(param_frame, textvariable=self.stride, width=10)
-        self.stride_entry.grid(row=1, column=1, sticky=tk.W)
+        # Help button for crop size
+        help_btn = self.create_help_button(size_frame, "crop_size")
+        help_btn.grid(row=0, column=3, padx=2)
         
-        # Bind events
+        # Shift size settings
+        ttk.Label(basic_frame, text="Shift Size:").grid(row=2, column=0, sticky="w", padx=5)
+        self.shift_entry = ttk.Entry(basic_frame, textvariable=self.shift_size, 
+                                   width=10, state="disabled")
+        self.shift_entry.grid(row=2, column=1, sticky="w", pady=2)
+        
+        # Help button for shift size
+        help_btn = self.create_help_button(basic_frame, "shift")
+        help_btn.grid(row=2, column=2, padx=2)
+        
+        # Advanced parameters
+        advanced_frame = ttk.LabelFrame(param_content, text="Advanced Settings", padding=5)
+        advanced_frame.grid(row=1, column=0, sticky="ew", pady=5)
+        advanced_frame.grid_columnconfigure(1, weight=1)
+        
+        # Max Displacement settings
+        ttk.Label(advanced_frame, text="Max Displacement:").grid(row=0, column=0, sticky="w", padx=5)
+        ttk.Entry(advanced_frame, textvariable=self.max_displacement, width=10).grid(row=0, column=1, sticky="w", pady=2)
+        
+        # Smoothing options
+        smooth_frame = ttk.Frame(advanced_frame)
+        smooth_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=2)
+        
+        ttk.Checkbutton(smooth_frame, text="Use Smoothing", 
+                       variable=self.use_smooth).grid(row=0, column=0, sticky="w", padx=5)
+        ttk.Label(smooth_frame, text="Sigma:").grid(row=0, column=1, sticky="w", padx=(10,0))
+        ttk.Entry(smooth_frame, textvariable=self.sigma, width=5).grid(row=0, column=2, padx=5)
+        ttk.Label(smooth_frame, text="(0.5-5.0)").grid(row=0, column=3, sticky="w")
+        
+        # Visualization settings
+        vis_frame = ttk.LabelFrame(param_content, text="Visualization Settings", padding=5)
+        vis_frame.grid(row=2, column=0, sticky="ew", pady=5)
+        vis_frame.grid_columnconfigure(0, weight=1)
+        
+        # Colorbar settings
+        ttk.Checkbutton(vis_frame, text="Use Fixed Range", 
+                       variable=self.use_fixed_colorbar).grid(row=0, column=0, sticky="w", padx=5)
+        
+        range_frame = ttk.Frame(vis_frame)
+        range_frame.grid(row=1, column=0, sticky="ew", pady=5, padx=5)
+        range_frame.grid_columnconfigure(1, weight=1)
+        range_frame.grid_columnconfigure(3, weight=1)
+        
+        # U Range
+        ttk.Label(range_frame, text="U Range:").grid(row=0, column=0, sticky="w")
+        ttk.Entry(range_frame, textvariable=self.colorbar_u_min, width=8).grid(row=0, column=1, padx=2)
+        ttk.Label(range_frame, text="to").grid(row=0, column=2, padx=2)
+        ttk.Entry(range_frame, textvariable=self.colorbar_u_max, width=8).grid(row=0, column=3, padx=2)
+        
+        # V Range
+        ttk.Label(range_frame, text="V Range:").grid(row=1, column=0, sticky="w", pady=2)
+        ttk.Entry(range_frame, textvariable=self.colorbar_v_min, width=8).grid(row=1, column=1, padx=2)
+        ttk.Label(range_frame, text="to").grid(row=1, column=2, padx=2)
+        ttk.Entry(range_frame, textvariable=self.colorbar_v_max, width=8).grid(row=1, column=3, padx=2)
+        
+        # Colormap selection
+        ttk.Label(vis_frame, text="Colormap:").grid(row=2, column=0, sticky="w", padx=5, pady=(5,0))
+        colormap_combo = ttk.Combobox(vis_frame, 
+                                    textvariable=self.colormap,
+                                    values=["viridis", "jet", "magma", "plasma", "inferno", 
+                                           "cividis", "RdYlBu", "coolwarm"],
+                                    width=15,
+                                    state="readonly")
+        colormap_combo.grid(row=3, column=0, sticky="w", padx=5, pady=(0,5))
+        
+        # Add separator
+        ttk.Separator(control_frame, orient="horizontal").grid(row=5, column=0, sticky="ew", pady=5)
+        
+        # Run section
+        run_frame = CollapsibleFrame(control_frame, text="Run Control")
+        run_frame.grid(row=6, column=0, sticky="ew", padx=5, pady=5)
+        
+        run_content = run_frame.get_content_frame()
+        run_content.grid_columnconfigure(0, weight=1)
+        
+        ttk.Button(run_content, text="Run", command=self.run, width=15).grid(row=0, column=0, pady=5)
+        self.progress = ttk.Progressbar(run_content, length=200, mode='determinate')
+        self.progress.grid(row=1, column=0, pady=5)
+        
+        # Configure canvas scrolling
+        def configure_scroll_region(event):
+            control_canvas.configure(scrollregion=control_canvas.bbox("all"))
+        
+        def configure_canvas_width(event):
+            control_canvas.itemconfig(canvas_frame, width=event.width)
+        
+        control_frame.bind("<Configure>", configure_scroll_region)
+        control_canvas.bind("<Configure>", configure_canvas_width)
+        
+        # Bind mouse wheel
+        def on_mousewheel(event):
+            control_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        
+        control_canvas.bind_all("<MouseWheel>", on_mousewheel)
+        
+        # Bind events for parameter changes
         self.crop_h_entry.bind('<Return>', self.on_param_change)
         self.crop_h_entry.bind('<FocusOut>', self.on_param_change)
         self.crop_w_entry.bind('<Return>', self.on_param_change)
         self.crop_w_entry.bind('<FocusOut>', self.on_param_change)
-        self.stride_entry.bind('<Return>', self.on_param_change)
-        self.stride_entry.bind('<FocusOut>', self.on_param_change)
-        
-        # Max Displacement settings
-        ttk.Label(param_frame, text="Max Displacement:").grid(row=2, column=0, sticky=tk.W)
-        ttk.Entry(param_frame, textvariable=self.max_displacement, width=10).grid(row=2, column=1, sticky=tk.W)
-        
-        # Add new smoothing processing options in parameter settings frame
-        smooth_frame = ttk.LabelFrame(param_frame, text="Smoothing Options", padding="5")
-        smooth_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
-        
-        # Use smoothing options
-        ttk.Checkbutton(smooth_frame, text="Use Smoothing", 
-                        variable=self.use_smooth).grid(row=0, column=0, sticky=tk.W)
-        
-        # Sigma value settings
-        ttk.Label(smooth_frame, text="Sigma:").grid(row=1, column=0, sticky=tk.W)
-        sigma_entry = ttk.Entry(smooth_frame, textvariable=self.sigma, width=8)
-        sigma_entry.grid(row=1, column=1, sticky=tk.W, padx=5)
-        ttk.Label(smooth_frame, text="(0.5-5.0)").grid(row=1, column=2, sticky=tk.W)
-        
-        # Run button and progress bar
-        run_frame = ttk.Frame(control_frame)
-        run_frame.grid(row=4, column=0, sticky=(tk.W, tk.E), pady=5)
-        ttk.Button(run_frame, text="Run", command=self.run).grid(row=0, column=0, pady=5)
-        self.progress = ttk.Progressbar(run_frame, length=400, mode='determinate')
-        self.progress.grid(row=1, column=0, pady=5)
-        
-        # Add image information display
-        self.image_info = ttk.Label(parent, text="No image selected")
-        self.image_info.grid(row=6, column=0, columnspan=3, pady=5)
-        
-        # Automatically update preview when parameters change
-        # self.crop_size_h.trace('w', self.update_preview)
-        # self.crop_size_w.trace('w', self.update_preview)
-        # self.stride.trace('w', self.update_preview)
-        
+        self.shift_entry.bind('<Return>', self.on_param_change)
+        self.shift_entry.bind('<FocusOut>', self.on_param_change)
+
     def create_preview_panel(self, parent):
         """Create preview panel"""
         preview_frame = ttk.LabelFrame(parent, text="Preview", padding="5")
@@ -225,7 +451,7 @@ class RAFTDICGUI:
         preview_frame.grid_columnconfigure(1, weight=1)
         preview_frame.grid_columnconfigure(2, weight=1)
         
-        # ROI selection area
+        # ROI selection area (left)
         roi_frame = ttk.LabelFrame(preview_frame, text="ROI Selection", padding="5")
         roi_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5)
         roi_frame.grid_rowconfigure(0, weight=1)
@@ -272,7 +498,7 @@ class RAFTDICGUI:
         self.confirm_roi_btn.grid(row=0, column=3, padx=2)
         self.confirm_roi_btn.grid_remove()  # Initially hidden
         
-        # Crop preview area
+        # Crop preview area (middle)
         crop_frame = ttk.LabelFrame(preview_frame, text="Crop Windows Preview", padding="5")
         crop_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5)
         crop_frame.grid_rowconfigure(0, weight=1)
@@ -285,77 +511,102 @@ class RAFTDICGUI:
         # Bind size change events
         self.preview_canvas.bind('<Configure>', self.on_preview_canvas_resize)
         
-        # Displacement field preview area
-        disp_frame = ttk.LabelFrame(preview_frame, text="Displacement Field Preview", padding="5")
+        # Displacement overlay area (right)
+        disp_frame = ttk.LabelFrame(preview_frame, text="Displacement Field Overlay", padding="5")
         disp_frame.grid(row=0, column=2, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5)
         disp_frame.grid_rowconfigure(0, weight=1)
         disp_frame.grid_columnconfigure(0, weight=1)
         
+        # Add displacement overlay display
         self.displacement_label = ttk.Label(disp_frame)
         self.displacement_label.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
-        # Modify frame selection control area
-        slider_frame = ttk.Frame(disp_frame)
-        slider_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=5)
+        # Add control panel at the bottom
+        control_frame = ttk.Frame(disp_frame)
+        control_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=5)
         
         # Add playback control buttons
-        control_frame = ttk.Frame(slider_frame)
-        control_frame.grid(row=0, column=0, padx=5)
+        play_control = ttk.Frame(control_frame)
+        play_control.grid(row=0, column=0, padx=5)
         
         # Add play/pause button
         self.play_icon = "▶"  # Play icon
         self.pause_icon = "⏸"  # Pause icon
         self.is_playing = False
-        self.play_button = ttk.Button(control_frame, 
-                                     text=self.play_icon,
-                                     width=3,
-                                     command=self.toggle_play)
+        self.play_button = ttk.Button(play_control, 
+                                    text=self.play_icon,
+                                    width=3,
+                                    command=self.toggle_play)
         self.play_button.grid(row=0, column=0, padx=2)
         
-        # Add frame number display and input
-        frame_control = ttk.Frame(slider_frame)
+        # Add frame control
+        frame_control = ttk.Frame(control_frame)
         frame_control.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5)
         
-        ttk.Label(frame_control, text="Frame:").grid(row=0, column=0, padx=5)
+        # Add Previous button
+        ttk.Button(frame_control, text="◀", width=3,
+                  command=self.previous_frame).grid(row=0, column=0, padx=2)
+        
+        ttk.Label(frame_control, text="Frame:").grid(row=0, column=1, padx=5)
         
         # Add frame number input box
         self.frame_entry = ttk.Entry(frame_control, width=5)
-        self.frame_entry.grid(row=0, column=1, padx=2)
+        self.frame_entry.grid(row=0, column=2, padx=2)
         
         # Add total frame number display
         self.total_frames_label = ttk.Label(frame_control, text="/1")
-        self.total_frames_label.grid(row=0, column=2, padx=2)
+        self.total_frames_label.grid(row=0, column=3, padx=2)
         
-        # Add jump button
-        ttk.Button(frame_control, text="Go", command=self.jump_to_frame).grid(row=0, column=3, padx=5)
+        # Add Go button
+        ttk.Button(frame_control, text="Go", 
+                  command=self.jump_to_frame).grid(row=0, column=4, padx=5)
+        
+        # Add Next button
+        ttk.Button(frame_control, text="▶", width=3,
+                  command=self.next_frame).grid(row=0, column=5, padx=2)
         
         # Add current image name display
         self.current_image_name = ttk.Label(frame_control, text="")
-        self.current_image_name.grid(row=0, column=4, padx=5)
-        
-        # Slider
-        self.frame_slider = ttk.Scale(slider_frame, 
-                                    from_=1, 
-                                    to=1,
-                                    orient=tk.HORIZONTAL,
-                                    command=self.update_displacement_preview)
-        self.frame_slider.grid(row=1, column=1, sticky=(tk.W, tk.E), padx=5)
-        slider_frame.grid_columnconfigure(1, weight=1)
-        
-        # Image information display
-        self.image_info = ttk.Label(preview_frame, text="")
-        self.image_info.grid(row=1, column=0, columnspan=3, sticky=tk.W, pady=5)
+        self.current_image_name.grid(row=0, column=6, padx=5)
         
         # Add playback speed control
-        speed_frame = ttk.Frame(control_frame)
+        speed_frame = ttk.Frame(play_control)
         speed_frame.grid(row=0, column=1, padx=5)
         
         ttk.Label(speed_frame, text="Speed:").grid(row=0, column=0)
         self.speed_var = tk.StringVar(value="1x")
         speed_menu = ttk.OptionMenu(speed_frame, self.speed_var, "1x",
-                                   "0.25x", "0.5x", "1x", "2x", "4x",
-                                   command=self.change_play_speed)
+                                  "0.25x", "0.5x", "1x", "2x", "4x",
+                                  command=self.change_play_speed)
         speed_menu.grid(row=0, column=1)
+        
+        # Add transparency control
+        alpha_frame = ttk.Frame(control_frame)
+        alpha_frame.grid(row=0, column=2, padx=5)
+        
+        ttk.Label(alpha_frame, text="Transparency:").grid(row=0, column=0, padx=2)
+        self.overlay_alpha = tk.StringVar(value="0.5")
+        alpha_entry = ttk.Entry(alpha_frame,
+                              textvariable=self.overlay_alpha,
+                              width=5)
+        alpha_entry.grid(row=0, column=1, padx=2)
+        
+        # Add update button
+        ttk.Button(alpha_frame, 
+                  text="Update",
+                  command=self.update_displacement_preview).grid(row=0, column=2, padx=5)
+        
+        # Slider
+        self.frame_slider = ttk.Scale(disp_frame, 
+                                    from_=1, 
+                                    to=1,
+                                    orient=tk.HORIZONTAL,
+                                    command=self.update_displacement_preview)
+        self.frame_slider.grid(row=2, column=0, sticky=(tk.W, tk.E), padx=5, pady=5)
+        
+        # Image information display
+        self.image_info = ttk.Label(preview_frame, text="")
+        self.image_info.grid(row=1, column=0, columnspan=3, sticky=tk.W, pady=5)
         
     def browse_input(self):
         """Browse input directory"""
@@ -398,6 +649,9 @@ class RAFTDICGUI:
             # Store current image
             self.current_image = img
             
+            # Update crop size with image dimensions
+            self.update_crop_size()
+            
             # Update ROI preview
             self.update_roi_label(img)
             
@@ -429,15 +683,15 @@ class RAFTDICGUI:
                 try:
                     crop_h = int(self.crop_size_h.get() or "128")
                     crop_w = int(self.crop_size_w.get() or "128")
-                    stride = int(self.stride.get() or "64")
+                    shift = int(self.shift_size.get() or "64")
                 except ValueError:
                     crop_h, crop_w = 128, 128
-                    stride = 64
+                    shift = 64
                 
                 # Only used for preview display when adjusting size
                 preview_crop_h = min(crop_h, roi_h)
                 preview_crop_w = min(crop_w, roi_w)
-                preview_stride = min(stride, min(preview_crop_h, preview_crop_w))
+                preview_shift = min(shift, min(preview_crop_h, preview_crop_w))
                 
                 # Update preview
                 preview_image = self.current_image[ymin:ymax, xmin:xmax].copy()
@@ -445,7 +699,7 @@ class RAFTDICGUI:
                     self.preview_canvas,
                     preview_image,
                     crop_size=(preview_crop_h, preview_crop_w),
-                    stride=preview_stride
+                    shift=preview_shift
                 )
         except Exception as e:
             print(f"Error in update_preview: {str(e)}")
@@ -465,39 +719,40 @@ class RAFTDICGUI:
             xmin, ymin, xmax, ymax = self.roi_rect
             roi_h, roi_w = ymax - ymin, xmax - xmin
             
-            # Get user input
-            try:
-                crop_h = int(self.crop_size_h.get())
-                crop_w = int(self.crop_size_w.get())
-                stride = int(self.stride.get())
-            except ValueError:
-                raise ValueError("Invalid crop size or stride value")
-            
-            # Adjust crop size
-            if crop_h < 128 or crop_w < 128:
-                print("Warning: Crop size too small, using minimum size of 128")
-                crop_h = max(128, crop_h)
-                crop_w = max(128, crop_w)
-                self.crop_size_h.set(str(crop_h))
-                self.crop_size_w.set(str(crop_w))
-            
-            if crop_h > roi_h or crop_w > roi_w:
-                print("Warning: Crop size larger than ROI, using ROI dimensions")
-                crop_h = min(crop_h, roi_h)
-                crop_w = min(crop_w, roi_w)
-                self.crop_size_h.set(str(crop_h))
-                self.crop_size_w.set(str(crop_w))
-            
-            # Adjust stride
-            if stride < 32:
-                print("Warning: Stride too small, using minimum value of 32")
-                stride = 32
-                self.stride.set(str(stride))
-            
-            if stride > min(crop_h, crop_w):
-                print("Warning: Stride larger than crop size, using crop size")
-                stride = min(crop_h, crop_w)
-                self.stride.set(str(stride))
+            if self.use_crop.get():
+                # Only validate crop and shift parameters if crop is enabled
+                try:
+                    crop_h = int(self.crop_size_h.get())
+                    crop_w = int(self.crop_size_w.get())
+                    shift = int(self.shift_size.get())
+                except ValueError:
+                    raise ValueError("Invalid crop size or shift value")
+                
+                # Adjust crop size
+                if crop_h < 128 or crop_w < 128:
+                    print("Warning: Crop size too small, using minimum size of 128")
+                    crop_h = max(128, crop_h)
+                    crop_w = max(128, crop_w)
+                    self.crop_size_h.set(str(crop_h))
+                    self.crop_size_w.set(str(crop_w))
+                
+                if crop_h > roi_h or crop_w > roi_w:
+                    print("Warning: Crop size larger than ROI, using ROI dimensions")
+                    crop_h = min(crop_h, roi_h)
+                    crop_w = min(crop_w, roi_w)
+                    self.crop_size_h.set(str(crop_h))
+                    self.crop_size_w.set(str(crop_w))
+                
+                # Adjust shift
+                if shift < 32:
+                    print("Warning: Shift too small, using minimum value of 32")
+                    shift = 32
+                    self.shift_size.set(str(shift))
+                
+                if shift > min(crop_h, crop_w):
+                    print("Warning: Shift larger than crop size, using crop size")
+                    shift = min(crop_h, crop_w)
+                    self.shift_size.set(str(shift))
             
             # Verify max displacement
             max_displacement = int(self.max_displacement.get())
@@ -536,7 +791,7 @@ class RAFTDICGUI:
         # Get ROI rectangle area and mask
         xmin, ymin, xmax, ymax = self.roi_rect
 
-        # Create results directory # This is created for later use to read results for display
+        # Create results directory
         results_dir = os.path.join(args.project_root, "displacement_results_npy")
         os.makedirs(results_dir, exist_ok=True)
 
@@ -562,27 +817,41 @@ class RAFTDICGUI:
             # Extract ROI mask corresponding area
             roi_mask_crop = self.roi_mask[ymin:ymax, xmin:xmax] if self.roi_mask is not None else None
 
-            # Process image pair, add smoothing parameters
-            displacement_field, _ = hf.cut_image_pair_with_flow(
-                ref_roi, def_roi,
-                args.project_root,
-                args.model,
-                args.device,
-                crop_size=args.crop_size,
-                stride=args.stride,
-                maxDisplacement=args.max_displacement,
-                plot_windows=(i == 1),
-                roi_mask=roi_mask_crop,
-                use_smooth=args.use_smooth,
-                sigma=args.sigma
-            )
+            # Process image pair
+            if self.use_crop.get():
+                # Use crop mode with specified parameters
+                displacement_field, _ = hf.cut_image_pair_with_flow(
+                    ref_roi, def_roi,
+                    args.project_root,
+                    args.model,
+                    args.device,
+                    crop_size=args.crop_size,
+                    shift=args.shift,
+                    maxDisplacement=args.max_displacement,
+                    plot_windows=(i == 1),
+                    roi_mask=roi_mask_crop,
+                    use_smooth=args.use_smooth,
+                    sigma=args.sigma
+                )
+            else:
+                # Process entire ROI without cropping
+                displacement_field, _ = hf.process_image_pair(
+                    ref_roi, def_roi,
+                    args.project_root,
+                    args.model,
+                    args.device,
+                    maxDisplacement=args.max_displacement,
+                    roi_mask=roi_mask_crop,
+                    use_smooth=args.use_smooth,
+                    sigma=args.sigma
+                )
 
             # Save displacement field results
             hf.save_displacement_results(displacement_field, args.project_root, i)
 
             # If incremental mode, update reference image
             if args.mode == "incremental":
-                ref_roi = def_roi.copy() # TBD
+                ref_roi = def_roi.copy()
 
         # Save results path
         self.displacement_results = [
@@ -601,7 +870,7 @@ class RAFTDICGUI:
 
     def update_displacement_preview(self, *args):
         """Update displacement field preview"""
-        if not self.displacement_results:
+        if not self.displacement_results or not hasattr(self, 'current_image'):
             return
         
         try:
@@ -618,43 +887,105 @@ class RAFTDICGUI:
             if hasattr(self, 'image_files') and len(self.image_files) > current_frame + 1:
                 self.current_image_name.configure(text=self.image_files[current_frame + 1])
             
-            # Load and display displacement field
+            # Load displacement field
             displacement = np.load(self.displacement_results[current_frame])
             
-            # Create displacement field visualization
-            fig, (ax_u, ax_v) = plt.subplots(1, 2, figsize=(12, 6))
+            if self.roi_rect is None:
+                return
+                
+            # Get ROI coordinates
+            xmin, ymin, xmax, ymax = self.roi_rect
             
-            # Get displacement field valid range (exclude NaN)
+            # Create figure with two subplots
+            fig, (ax_u, ax_v) = plt.subplots(1, 2, figsize=(16, 8))
+            
+            # Get displacement components
             u = displacement[:, :, 0]
             v = displacement[:, :, 1]
-            valid_mask = ~np.isnan(u)
-            if np.any(valid_mask):
+            
+            try:
+                alpha = float(self.overlay_alpha.get())
+            except ValueError:
+                alpha = 0.5
+            
+            # Ensure valid values
+            alpha = max(0.1, min(1.0, alpha))   # Limit between 0.1 and 1.0
+            
+            # Get current colormap
+            current_colormap = self.colormap.get()
+            
+            # Create full-size displacement fields initialized with NaN
+            h, w = self.current_image.shape[:2]
+            u_full = np.full((h, w), np.nan)
+            v_full = np.full((h, w), np.nan)
+            
+            # Place displacement fields in their correct position
+            u_full[ymin:ymax, xmin:xmax] = u
+            v_full[ymin:ymax, xmin:xmax] = v
+            
+            # Display U component
+            ax_u.imshow(self.current_image)  # Display full reference image
+            if self.use_fixed_colorbar.get():
+                try:
+                    vmin_u = float(self.colorbar_u_min.get())
+                    vmax_u = float(self.colorbar_u_max.get())
+                except ValueError:
+                    vmin_u = np.nanmin(u)
+                    vmax_u = np.nanmax(u)
+            else:
                 vmin_u = np.nanmin(u)
                 vmax_u = np.nanmax(u)
-                vmin_v = np.nanmin(v)
-                vmax_v = np.nanmax(v)
-            else:
-                vmin_u = vmax_u = vmin_v = vmax_v = 0
             
-            # Use same color scale range
-            im_u = ax_u.imshow(u, cmap='jet', vmin=vmin_u, vmax=vmax_u)
-            ax_u.set_title("Displacement Field U")
+            # Create mask for non-NaN values
+            mask_u = ~np.isnan(u_full)
+            u_masked = np.ma.array(u_full, mask=~mask_u)
+            
+            im_u = ax_u.imshow(u_masked, cmap=current_colormap, 
+                             alpha=alpha * mask_u, vmin=vmin_u, vmax=vmax_u)
+            ax_u.set_title("U Component Overlay")
             fig.colorbar(im_u, ax=ax_u)
             
-            im_v = ax_v.imshow(v, cmap='jet', vmin=vmin_v, vmax=vmax_v)
-            ax_v.set_title("Displacement Field V")
+            # Display V component
+            ax_v.imshow(self.current_image)  # Display full reference image
+            if self.use_fixed_colorbar.get():
+                try:
+                    vmin_v = float(self.colorbar_v_min.get())
+                    vmax_v = float(self.colorbar_v_max.get())
+                except ValueError:
+                    vmin_v = np.nanmin(v)
+                    vmax_v = np.nanmax(v)
+            else:
+                vmin_v = np.nanmin(v)
+                vmax_v = np.nanmax(v)
+            
+            # Create mask for non-NaN values
+            mask_v = ~np.isnan(v_full)
+            v_masked = np.ma.array(v_full, mask=~mask_v)
+            
+            im_v = ax_v.imshow(v_masked, cmap=current_colormap, 
+                             alpha=alpha * mask_v, vmin=vmin_v, vmax=vmax_v)
+            ax_v.set_title("V Component Overlay")
             fig.colorbar(im_v, ax=ax_v)
+            
+            # Remove axes
+            ax_u.set_axis_off()
+            ax_v.set_axis_off()
+            
+            # Ensure correct aspect ratio
+            ax_u.set_aspect('equal')
+            ax_v.set_aspect('equal')
             
             # Save to memory buffer
             buf = io.BytesIO()
-            plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+            plt.savefig(buf, format='png', dpi=100, bbox_inches='tight',
+                       pad_inches=0)
             plt.close(fig)
             buf.seek(0)
             
             # Update preview
             preview = Image.open(buf)
             w, h = preview.size
-            max_size = (800, 400)
+            max_size = (800, 400)  # Increased size for better visibility
             scale = min(max_size[0]/w, max_size[1]/h)
             display_size = (int(w*scale), int(h*scale))
             preview = preview.resize(display_size, Image.LANCZOS)
@@ -701,7 +1032,7 @@ class RAFTDICGUI:
         args.mode = self.mode.get()
         args.scale_factor = 1.0  # Fixed at 1.0, no longer use variable scaling
         args.crop_size = (int(self.crop_size_h.get()), int(self.crop_size_w.get()))
-        args.stride = int(self.stride.get())
+        args.shift = int(self.shift_size.get())
         args.max_displacement = int(self.max_displacement.get())
         
         # Add smoothing parameters
@@ -1194,6 +1525,44 @@ class RAFTDICGUI:
         """Update preview when parameter input is complete"""
         self.update_preview()
 
+    def previous_frame(self):
+        """Go to previous frame"""
+        if not self.displacement_results:
+            return
+        current_frame = int(self.frame_slider.get())
+        if current_frame > 1:
+            self.frame_slider.set(current_frame - 1)
+            self.update_displacement_preview()
+    
+    def next_frame(self):
+        """Go to next frame"""
+        if not self.displacement_results:
+            return
+        current_frame = int(self.frame_slider.get())
+        if current_frame < len(self.displacement_results):
+            self.frame_slider.set(current_frame + 1)
+            self.update_displacement_preview()
+
+    def create_help_button(self, parent, tooltip_key):
+        """Create a help button with tooltip"""
+        help_btn = ttk.Label(parent, text="?", cursor="hand2")
+        help_btn.configure(background="lightgray", width=2)
+        Tooltip(help_btn, self.tooltips[tooltip_key])
+        return help_btn
+
+    def update_crop_state(self, *args):
+        """Update the state of crop-related widgets based on checkbox"""
+        state = "normal" if self.use_crop.get() else "disabled"
+        self.crop_w_entry.configure(state=state)
+        self.crop_h_entry.configure(state=state)
+        self.shift_entry.configure(state=state)
+
+    def update_crop_size(self):
+        """Update crop size entries with image dimensions"""
+        if hasattr(self, 'current_image') and self.current_image is not None:
+            h, w = self.current_image.shape[:2]
+            self.crop_size_w.set(str(w))
+            self.crop_size_h.set(str(h))
 
 
 if __name__ == '__main__':

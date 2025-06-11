@@ -23,7 +23,7 @@ def save_displacement_visualization(final_flow, output_path):
     plt.savefig(output_path)
     plt.close()
 
-def create_preview_image(image, crop_size=None, stride=None):
+def create_preview_image(image, crop_size=None, shift=None):
     """创建预览图像，优化窗口显示效果"""
     # 转换为PIL图像用于GUI显示
     preview_pil = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
@@ -31,12 +31,12 @@ def create_preview_image(image, crop_size=None, stride=None):
     
     h, w = image.shape[:2]
     
-    if crop_size and stride:
+    if crop_size and shift:
         crop_h, crop_w = crop_size
         
         # 计算网格
-        x_positions = range(0, w-crop_w+stride, stride)
-        y_positions = range(0, h-crop_h+stride, stride)
+        x_positions = range(0, w-crop_w+shift, shift)
+        y_positions = range(0, h-crop_h+shift, shift)
         
         # 绘制所有窗口，使用统一的样式
         for y in y_positions:
@@ -57,51 +57,24 @@ def create_preview_image(image, crop_size=None, stride=None):
                       outline='blue', width=2)
         
         # 右邻居（黄色）
-        if stride < w:
+        if shift < w:
             draw.rectangle(
-                [(stride, 0), 
-                 (min(stride + crop_w, w), crop_h)],
+                [(shift, 0), 
+                 (min(shift + crop_w, w), crop_h)],
                 outline='yellow', width=2
             )
         
         # 下邻居（绿色）
-        if stride < h:
+        if shift < h:
             draw.rectangle(
-                [(0, stride), 
-                 (crop_w, min(stride + crop_h, h))],
+                [(0, shift), 
+                 (crop_w, min(shift + crop_h, h))],
                 outline='green', width=2
             )
-        
-        # # 添加图例
-        # legend_y = h - 30
-        # legend_items = [
-        #     ("First Window", "blue"),
-        #     ("Right Neighbor", "yellow"),
-        #     ("Bottom Neighbor", "green"),
-        #     ("Other Windows", "lightblue")
-        # ]
-        
-        # # 绘制图例
-        # legend_x = 10
-        # for text, color in legend_items:
-        #     # 绘制小方框
-        #     draw.rectangle(
-        #         [(legend_x, legend_y), (legend_x + 15, legend_y + 15)],
-        #         outline=color,
-        #         width=2
-        #     )
-        #     # 绘制文字
-        #     draw.text(
-        #         (legend_x + 20, legend_y),
-        #         text,
-        #         fill='black',
-        #         font=None  # 使用默认字体
-        #     )
-        #     legend_x += 150  # 移动到下一个图例项的位置
     
     return preview_pil
 
-def update_preview(canvas, image, crop_size=None, stride=None):
+def update_preview(canvas, image, crop_size=None, shift=None):
     """更新GUI中的预览图像"""
     # 获取canvas的当前大小
     canvas_width = canvas.winfo_width()
@@ -110,7 +83,7 @@ def update_preview(canvas, image, crop_size=None, stride=None):
     if canvas_width <= 1 or canvas_height <= 1:  # Canvas尚未完全初始化
         return
     
-    preview = create_preview_image(image, crop_size, stride)
+    preview = create_preview_image(image, crop_size, shift)
     
     # 计算缩放比例以适应canvas
     w, h = preview.size
