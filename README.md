@@ -21,28 +21,38 @@ A graphical user interface for Digital Image Correlation (DIC) using RAFT neural
 - 🔧 Gaussian smoothing for noise reduction
 - 💾 Multiple export formats (NPY, MAT)
 
-## Installation
+## Getting Started
 
 ### Prerequisites
 
-- Python 3.7 or higher
-- CUDA-capable GPU (recommended)
-- CUDA Toolkit and cuDNN
+To ensure 2D-RAFT-DIC-GUI runs smoothly, please make sure your system meets the following requirements:
 
-### Dependencies
+* **Python 3.11 or higher**
+* **NVIDIA CUDA-capable GPU** (RTX 40 series or newer recommended)
+* **CUDA Toolkit 12.8 and corresponding cuDNN** must be installed.
+
+Above configurations are the writer's, we haven't test 
+
+### Installation Guide
+
+We highly recommend using **Conda** to manage project dependencies. It effectively handles complex compatibility issues between PyTorch and CUDA, providing the most convenient installation experience.
+
+#### 1. Install Miniconda (if you don't have it)
+
+Visit the [Miniconda Official Website](https://docs.conda.io/en/latest/miniconda.html) to download and install Miniconda for your operating system. After installation, you may need to close and reopen your terminal (or command prompt) for `conda` commands to be available.
+
+#### 2. Clone the Repository
+
+First, clone the 2D-RAFT-DIC-GUI repository to your local machine:
 
 ```bash
-pip install -r requirements.txt
+git clone https://github.com/zachtong/2D-RAFT-DIC-GUI.git
 ```
-
-Required packages:
-- PyTorch
-- OpenCV
-- NumPy
-- SciPy
-- Matplotlib
-- tkinter
-- Pillow
+#### 4. Create environment 
+```bash
+conda env create -f environment.yml
+conda activate your_project_env # 'your_project_env' is the environment name defined in environment.yml
+```
 
 ### Model Setup
 

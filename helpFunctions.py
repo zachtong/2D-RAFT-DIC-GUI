@@ -15,9 +15,11 @@ Version: 1.0
 Dependencies:
 - OpenCV
 - PyTorch
+- Pillow
 - NumPy
 - SciPy
 - Matplotlib
+- tifffile
 - RAFT core modules
 """
 
@@ -29,7 +31,7 @@ import cv2
 import time
 import torch
 import numpy as np
-import requests
+# import requests
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import matplotlib.collections as collections
