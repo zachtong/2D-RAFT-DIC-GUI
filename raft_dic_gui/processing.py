@@ -459,52 +459,12 @@ def dic_over_roi_with_tiling(ref_img: np.ndarray,
 
 
 def save_displacement_results(displacement_field: np.ndarray, output_dir: str, index: int,
-                              roi_rect=None, roi_mask=None):
-    npy_dir = os.path.join(output_dir, "displacement_results_npy")
-    mat_dir = os.path.join(output_dir, "displacement_results_mat")
+                               roi_rect=None, roi_mask=None):
+    npy_dir = os.path.join(output_dir, "displacement_results_temp_npy")
     os.makedirs(npy_dir, exist_ok=True)
-    os.makedirs(mat_dir, exist_ok=True)
 
     npy_file = os.path.join(npy_dir, f"displacement_field_{index}.npy")
     np.save(npy_file, displacement_field)
-
-    h, w = displacement_field.shape[:2]
-    if roi_rect is not None:
-        xmin, ymin, xmax, ymax = roi_rect
-        y_coords, x_coords = np.mgrid[ymin:ymin+h, xmin:xmin+w]
-        X_ref = x_coords.astype(np.float64)
-        Y_ref = y_coords.astype(np.float64)
-        u = displacement_field[:, :, 0]
-        v = displacement_field[:, :, 1]
-        X_current = X_ref + u
-        Y_current = Y_ref + v
-        if roi_mask is not None:
-            roi_mask_crop = roi_mask[ymin:ymax, xmin:xmax]
-            invalid_mask = ~roi_mask_crop
-            X_ref[invalid_mask] = np.nan
-            Y_ref[invalid_mask] = np.nan
-            X_current[invalid_mask] = np.nan
-            Y_current[invalid_mask] = np.nan
-    else:
-        y_coords, x_coords = np.mgrid[0:h, 0:w]
-        X_ref = x_coords.astype(np.float64)
-        Y_ref = y_coords.astype(np.float64)
-        u = displacement_field[:, :, 0]
-        v = displacement_field[:, :, 1]
-        X_current = X_ref + u
-        Y_current = Y_ref + v
-
-    mat_file = os.path.join(mat_dir, f"displacement_field_{index}.mat")
-    u = displacement_field[:, :, 0]
-    v = displacement_field[:, :, 1]
-    sio.savemat(mat_file, {
-        'U': u,
-        'V': v,
-        'X_ref': X_ref,
-        'Y_ref': Y_ref,
-        'X_current': X_current,
-        'Y_current': Y_current,
-    })
 
 
 def save_displacement_sequence(displacements, output_dir: str, roi_rect=None, roi_mask=None,
@@ -1146,5 +1106,221 @@ def update_displacement_plot(ax_u, ax_v, data, colormap, alpha, vmin_u, vmax_u, 
     ax_u.set_aspect('equal')
     ax_v.set_aspect('equal')
     
+
+
+
+
+
+def update_displacement_plot(ax_u, ax_v, data, colormap, alpha, vmin_u, vmax_u, vmin_v, vmax_v):
+    """Update existing axes with new data"""
+    if data.get('error'):
+        return
+
+    # Clear axes but keep them alive
+    ax_u.clear()
+    ax_v.clear()
+    
+    img_crop = data['img_crop']
+    if img_crop is not None:
+        ax_u.imshow(img_crop, cmap='gray')
+        ax_v.imshow(img_crop, cmap='gray')
+
+    u_masked = data['u_masked']
+    v_masked = data['v_masked']
+
+    if u_masked is not None:
+        im_u = ax_u.imshow(u_masked, cmap=colormap, alpha=alpha, vmin=vmin_u, vmax=vmax_u)
+        # Note: Colorbar is tricky to update if it's already there. 
+        # For robustness, we assume the caller handles colorbar or we just don't update it if it's fixed.
+        # But to be safe, we can let the caller handle colorbar creation/update or just re-create it.
+        # However, re-creating colorbar every time might shrink the axis.
+        # Ideally, we should update the mappable of the existing colorbar.
+        pass
+
+    if v_masked is not None:
+        im_v = ax_v.imshow(v_masked, cmap=colormap, alpha=alpha, vmin=vmin_v, vmax=vmax_v)
+
+    ax_u.set_title("U Component")
+    ax_v.set_title("V Component")
+
+    boundary = data.get('boundary_points')
+    if boundary:
+        xb, yb = boundary
+        ax_u.plot(xb, yb, color='white', linewidth=1.0, alpha=0.8)
+        ax_v.plot(xb, yb, color='white', linewidth=1.0, alpha=0.8)
+
+    quiver = data.get('quiver_data')
+    if quiver:
+        xq, yq, uq, vq = quiver
+        ax_u.quiver(xq, yq, uq, vq, color='white', angles='xy', scale_units='xy', scale=1, width=0.002, alpha=0.9)
+        ax_v.quiver(xq, yq, uq, vq, color='white', angles='xy', scale_units='xy', scale=1, width=0.002, alpha=0.9)
+
+    ax_u.set_axis_off()
+    ax_v.set_axis_off()
+    ax_u.set_aspect('equal')
+    ax_v.set_aspect('equal')
+    
     return im_u, im_v
 
+
+import scipy.io
+import os
+
+def save_scientific_results(displacement_results, strain_results, roi_mask, roi_rect, metadata, file_path, image_files=None):
+    """
+    Save full-field results (Displacement + Strain) to .npz or .mat format.
+    
+    Args:
+        displacement_results: List of (H, W, 2) arrays or paths to .npy files.
+        strain_results: List of dicts containing strain components.
+        roi_mask: (H, W) boolean mask.
+        roi_rect: (xmin, ymin, xmax, ymax).
+        metadata: Dict containing analysis parameters.
+        file_path: Full path to the output file (including extension .npz or .mat).
+        image_files: List of absolute paths to the images corresponding to each frame.
+    """
+    try:
+        # 1. Prepare Static Data (Coordinates)
+        xmin, ymin, xmax, ymax = roi_rect
+        h, w = roi_mask.shape
+        
+        # Create meshgrid for ROI
+        x_range = np.arange(xmin, xmax)
+        y_range = np.arange(ymin, ymax)
+        X_ref, Y_ref = np.meshgrid(x_range, y_range)
+        
+        # Ensure mask matches ROI size (it should be full image size usually, need to crop)
+        # roi_mask passed here is usually the full image mask. Crop it to ROI.
+        mask_crop = roi_mask[ymin:ymax, xmin:xmax]
+        
+        # 2. Prepare Dynamic Data (Time-Series)
+        T = len(displacement_results)
+        H_roi, W_roi = mask_crop.shape
+        
+        # Initialize arrays with NaNs
+        U_stack = np.full((T, H_roi, W_roi), np.nan, dtype=np.float32)
+        V_stack = np.full((T, H_roi, W_roi), np.nan, dtype=np.float32)
+        
+        # Strain stacks
+        strain_keys = ['exx', 'eyy', 'exy', 'e1', 'e2', 'e_von_mises']
+        strain_stacks = {k: np.full((T, H_roi, W_roi), np.nan, dtype=np.float32) for k in strain_keys}
+        
+        # Loop through frames
+        for t in range(T):
+            try:
+                # Load Displacement
+                d = displacement_results[t]
+                if isinstance(d, str):
+                    d = np.load(d)
+                
+                # Validation
+                if d is None or d.size == 0:
+                    print(f"[Warning] Frame {t} is empty or None. Skipping.")
+                    continue
+            
+                h_d, w_d = d.shape[:2]
+                
+                # Debug logging for first frame/mismatches
+                if t == 0:
+                    print(f"[DEBUG] Export Frame 0: shape={d.shape}, expected ROI={H_roi}x{W_roi}")
+
+                # Determine Crop Logic
+                if h_d == H_roi and w_d == W_roi:
+                    # Already cropped to ROI
+                    d_crop = d
+                elif h_d == h and w_d == w:
+                    # Full image, need crop
+                    d_crop = d[ymin:ymax, xmin:xmax]
+                else:
+                    print(f"[Warning] Frame {t} shape {d.shape} incompatible with ROI {H_roi}x{W_roi} or Full {h}x{w}. using raw.")
+                    d_crop = d
+
+                # Safety check before indexing
+                if d_crop.shape[0] != H_roi or d_crop.shape[1] != W_roi:
+                     print(f"[Error] Frame {t}: d_crop shape {d_crop.shape} != Mask shape {H_roi}x{W_roi}. Skipping.")
+                     continue
+
+            
+                # Apply mask (set invalid to NaN)
+                valid = mask_crop > 0
+                
+                u_frame = d_crop[..., 0]
+                v_frame = d_crop[..., 1]
+                
+                # Store
+                U_stack[t, valid] = u_frame[valid]
+                V_stack[t, valid] = v_frame[valid]
+                
+                # Load Strain
+                if t < len(strain_results):
+                    s = strain_results[t]
+                    if s:
+                        for k in strain_keys:
+                            if k in s:
+                                val = s[k]
+                                # Strain should match cropped dimensions if computed correctly
+                                # But we need to handle full vs crop
+                                h_s, w_s = val.shape
+                                if h_s == H_roi and w_s == W_roi:
+                                    val_crop = val
+                                elif h_s == h and w_s == w:
+                                    val_crop = val[ymin:ymax, xmin:xmax]
+                                else:
+                                    val_crop = val # Attempt usage
+
+                                strain_stacks[k][t, valid] = val_crop[valid]
+                            elif k == 'e_von_mises':
+                                # Calculate if missing
+                                if 'exx' in s and 'eyy' in s and 'exy' in s:
+                                    exx = s['exx']
+                                    eyy = s['eyy']
+                                    exy = s['exy']
+                                    
+                                    # Handle cropping for components
+                                    if exx.shape[0] == h and exx.shape[1] == w:
+                                        exx = exx[ymin:ymax, xmin:xmax]
+                                        eyy = eyy[ymin:ymax, xmin:xmax]
+                                        exy = exy[ymin:ymax, xmin:xmax]
+                                    
+                                    # von Mises for Plane Strain
+                                    vm = np.sqrt(exx**2 - exx*eyy + eyy**2 + 3*exy**2)
+                                    strain_stacks[k][t, valid] = vm[valid]
+            
+            except Exception as e:
+                print(f"[Error] Failed processing frame {t}: {str(e)}")
+                continue
+
+
+        # 3. Save based on extension
+        ext = os.path.splitext(file_path)[1].lower()
+        
+        save_dict = {
+            'U': U_stack,
+            'V': V_stack,
+            'X_ref': X_ref,
+            'Y_ref': Y_ref,
+            'ROI_mask': mask_crop,
+            **strain_stacks,
+            **metadata
+        }
+        
+        if image_files is not None:
+             save_dict['image_files'] = image_files
+
+        if ext == '.npz':
+            np.savez_compressed(file_path, **save_dict)
+            return file_path
+        elif ext == '.mat':
+            scipy.io.savemat(file_path, save_dict)
+            return file_path
+        else:
+            # Default to npz if unknown
+            new_path = file_path + ".npz"
+            np.savez_compressed(new_path, **save_dict)
+            return new_path
+        
+    except Exception as e:
+        print(f"Error saving scientific results: {e}")
+        import traceback
+        traceback.print_exc()
+        raise e

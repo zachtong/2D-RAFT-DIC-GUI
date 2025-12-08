@@ -244,6 +244,7 @@ class RAFTDICGUI:
         self.control_panel.post_processing_panel.callbacks['probe_mode_changed'] = self._on_probe_mode_changed
         self.control_panel.post_processing_panel.callbacks['calculate_strain'] = self.calculate_strain
         self.control_panel.post_processing_panel.callbacks['update_post_preview'] = self.update_post_preview
+        self.control_panel.post_processing_panel.callbacks['export_scientific_data'] = self._on_export_scientific_data
 
     def _on_probe_mode_changed(self, mode):
         """Handle probe mode change (point/line/area)."""
@@ -434,6 +435,19 @@ class RAFTDICGUI:
             except ValueError:
                 alpha = 0.7
                 
+            # Physical Units Handling
+            unit_label = ""
+            if comp_name in ['u', 'v']:
+                unit_label = "[px]"
+                if pp.use_physical_units.get():
+                    try:
+                        ratio = float(pp.physical_ratio.get())
+                        unit = pp.physical_unit.get()
+                        data_map = data_map * ratio
+                        unit_label = f"[{unit}]"
+                    except ValueError:
+                        pass # Keep as pixels if ratio is invalid
+                
             # Range handling
             vmin, vmax = None, None
             is_fixed = pp.post_fixed_range.get()
@@ -471,7 +485,8 @@ class RAFTDICGUI:
             self.preview_panel.plot_post_data(data_map, comp_name, cmap, alpha, 
                                             background_image=bg_img, 
                                             roi_rect=self.roi_rect,
-                                            vmin=vmin, vmax=vmax)
+                                            vmin=vmin, vmax=vmax,
+                                            unit_label=unit_label)
             
             # Update Controls
             if hasattr(self.preview_panel, 'post_frame_slider'):
@@ -1097,6 +1112,70 @@ class RAFTDICGUI:
             self.control_panel.crop_size_h.set(str(h))
 
 
+    def _on_export_scientific_data(self):
+        """Handle scientific data export request."""
+        if not self.processor.displacement_results:
+            messagebox.showwarning("Warning", "No results to export. Please run analysis first.")
+            return
+
+        # Ask user for SAVE location and Format
+        file_path = filedialog.asksaveasfilename(
+            title="Export Scientific Data",
+            initialfile="DIC_results",
+            filetypes=[
+                ("MATLAB MAT-file", "*.mat"),
+                ("NumPy Compressed", "*.npz")
+            ],
+            defaultextension=".mat"
+        )
+            
+        if not file_path:
+            return
+
+        # Show busy indicator
+        if hasattr(self.control_panel, 'status_label'):
+            self.control_panel.status_label.config(text="Exporting data... Please wait.")
+        self.root.update()
+
+        try:
+            # Gather Metadata
+            pp = self.control_panel.post_processing_panel
+            metadata = {
+                'vsg_size': int(pp.vsg_size.get()),
+                'strain_method': pp.strain_method.get(),
+                'poly_order': int(pp.poly_order.get()),
+                'weighting': pp.weighting.get(),
+                'strain_step': int(pp.strain_step.get()),
+                'use_physical_units': self.control_panel.use_physical_units.get(),
+                'physical_ratio': float(self.control_panel.physical_ratio.get()),
+                'physical_unit': self.control_panel.physical_unit.get(),
+                
+                'time_step': float(self.control_panel.time_step.get())
+            }
+            
+            # Call processing function
+            saved_path = proc.save_scientific_results(
+                self.processor.displacement_results,
+                self.strain_results,
+                self.roi_mask,
+                self.roi_rect,
+                metadata,
+                file_path,
+                image_files=getattr(self.processor, 'image_files', None)
+            )
+            
+            messagebox.showinfo("Export Success", f"Successfully exported scientific data to:\n{saved_path}")
+            
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Failed to export data: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            
+        finally:
+            if hasattr(self.control_panel, 'status_label'):
+                self.control_panel.status_label.config(text="Ready")
+
+
 def main():
     """Main entry point for the RAFT-DIC GUI application."""
     # Load optional external app config
@@ -1224,6 +1303,8 @@ def main():
 
 if __name__ == '__main__':
     main() 
+
+
 
 
 

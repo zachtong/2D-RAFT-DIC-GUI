@@ -36,12 +36,13 @@ class ControlPanel(ttk.Frame):
         self.overlay_alpha = tk.StringVar(value="0.5")
         self.fixed_range_frame = tk.StringVar(value="1")
         
-        # Performance
-        self.fast_preview = tk.BooleanVar(value=True)
-        self.show_colorbars = tk.BooleanVar(value=True)  # Default to True
-        self.preview_scale = tk.StringVar(value="0.5")
-        self.interp_sample_step = tk.StringVar(value="2")
+        # Physical Units
+        self.use_physical_units = tk.BooleanVar(value=False)
+        self.physical_ratio = tk.StringVar(value="1.0")
+        self.physical_unit = tk.StringVar(value="mm")
         
+        # Time Step
+        self.time_step = tk.StringVar(value="1.0")
         # Smoothing
         self.use_smooth = tk.BooleanVar(value=True)
         self.sigma = tk.StringVar(value="2.0")
@@ -156,7 +157,7 @@ class ControlPanel(ttk.Frame):
         ttk.Button(path_content, text="Browse", command=lambda: self._trigger('browse_output'), width=8).grid(row=1, column=2, padx=5, pady=5)
 
         # Model selection
-        ttk.Label(path_content, text="Model Checkpoint:").grid(row=2, column=0, sticky="w", padx=5, pady=(5, 0))
+        ttk.Label(path_content, text="Model:").grid(row=2, column=0, sticky="w", padx=5, pady=(5, 0))
         self.model_combobox = ttk.Combobox(path_content, textvariable=self.selected_model, values=(), width=38, state="readonly")
         self.model_combobox.grid(row=2, column=1, sticky="ew", padx=5, pady=(5, 0))
         try:
@@ -187,7 +188,7 @@ class ControlPanel(ttk.Frame):
         ttk.Radiobutton(mode_content, text="Accumulative", variable=self.mode,
                        value="accumulative").grid(row=0, column=0, sticky="w", padx=20, pady=2)
         ttk.Radiobutton(mode_content, text="Incremental", variable=self.mode,
-                       value="incremental").grid(row=0, column=1, sticky="w", padx=10, pady=2)
+                       value="incremental", state="disabled").grid(row=0, column=1, sticky="w", padx=10, pady=2)
         
         # Add separator
         ttk.Separator(control_frame, orient="horizontal").grid(row=3, column=0, sticky="ew", pady=5)
@@ -198,52 +199,6 @@ class ControlPanel(ttk.Frame):
         
         param_content = param_frame.get_content_frame()
         param_content.grid_columnconfigure(0, weight=1)
-        
-        # Basic parameters
-        basic_frame = ttk.LabelFrame(param_content, text="Basic Settings", padding=5)
-        basic_frame.grid(row=0, column=0, sticky="ew", pady=5)
-        basic_frame.grid_columnconfigure(1, weight=1)
-        
-        # Add help button
-        help_btn = self.create_help_button(basic_frame, "crop")
-        help_btn.grid(row=0, column=2, padx=2)
-        
-        # Add crop checkbox
-        ttk.Checkbutton(basic_frame, text="Enable Crop", 
-                       variable=self.use_crop,
-                       command=self.update_crop_state).grid(row=0, column=0, 
-                                                          columnspan=2, sticky="w", padx=5)
-        
-        # Crop Size settings
-        ttk.Label(basic_frame, text="Crop Size (W x H):").grid(row=1, column=0, sticky="w", padx=5)
-        size_frame = ttk.Frame(basic_frame)
-        size_frame.grid(row=1, column=1, sticky="w", pady=2)
-        
-        self.crop_w_entry = ttk.Entry(size_frame, textvariable=self.crop_size_w, width=5, state="disabled")
-        self.crop_w_entry.grid(row=0, column=0)
-        ttk.Label(size_frame, text="x").grid(row=0, column=1, padx=2)
-        self.crop_h_entry = ttk.Entry(size_frame, textvariable=self.crop_size_h, width=5, state="disabled")
-        self.crop_h_entry.grid(row=0, column=2)
-        
-        # Help button for crop size
-        help_btn = self.create_help_button(size_frame, "crop_size")
-        help_btn.grid(row=0, column=3, padx=2)
-        
-        # Shift size settings
-        ttk.Label(basic_frame, text="Shift Size:").grid(row=2, column=0, sticky="w", padx=5)
-        self.shift_entry = ttk.Entry(basic_frame, textvariable=self.shift_size, 
-                                   width=10, state="disabled")
-        self.shift_entry.grid(row=2, column=1, sticky="w", pady=2)
-        
-        # Help button for shift size
-        help_btn = self.create_help_button(basic_frame, "shift")
-        help_btn.grid(row=2, column=2, padx=2)
-        
-        # Hide entire Basic Settings (crop-related) per spec
-        try:
-            basic_frame.grid_remove()
-        except Exception:
-            pass
 
         # Advanced parameters (collapsible, hidden by default)
         advanced_cf = CollapsibleFrame(param_content, text="Advanced Parameters")
@@ -251,8 +206,7 @@ class ControlPanel(ttk.Frame):
         adv_content = advanced_cf.get_content_frame()
         adv_content.grid_columnconfigure(1, weight=1)
         try:
-            # start collapsed
-            advanced_cf.toggle()
+            advanced_cf.toggle() # Start collapsed
         except Exception:
             pass
 
@@ -289,8 +243,6 @@ class ControlPanel(ttk.Frame):
         ttk.Checkbutton(tile_frame, text="Show Tiles", variable=self.show_tiles,
                        command=lambda: self._trigger('on_show_tiles_change')).grid(row=3, column=0, columnspan=2, sticky="w", padx=5, pady=2)
 
-
-        
         # Help button for tiling
         help_btn = self.create_help_button(tile_frame, "tiling")
         help_btn.grid(row=0, column=2, padx=6)
@@ -305,15 +257,12 @@ class ControlPanel(ttk.Frame):
         ttk.Label(smooth_frame, text="Sigma (px):").grid(row=0, column=1, sticky="w", padx=(10,0))
         self.sigma_entry = ttk.Entry(smooth_frame, textvariable=self.sigma, width=5)
         self.sigma_entry.grid(row=0, column=2, padx=5)
-        self.sigma_hint = ttk.Label(smooth_frame, text="0.5-5.0 (Gaussian blur strength)")
+        self.sigma_hint = ttk.Label(smooth_frame, text="0.5-5.0")
         self.sigma_hint.grid(row=0, column=3, sticky="w")
         # Slider for sigma
         self.sigma_scale = ttk.Scale(smooth_frame, from_=0.5, to=5.0, orient=tk.HORIZONTAL,
-                                     command=self.on_sigma_scale_change, length=160)
-        self.sigma_scale.grid(row=0, column=4, padx=10)
-        # Help button
-        help_btn = self.create_help_button(smooth_frame, "smooth")
-        help_btn.grid(row=0, column=5, padx=2)
+                                     command=self.on_sigma_scale_change, length=100)
+        self.sigma_scale.grid(row=0, column=4, padx=5)
         
         # Visualization settings
         vis_frame = ttk.LabelFrame(param_content, text="Visualization Settings", padding=5)
@@ -331,7 +280,7 @@ class ControlPanel(ttk.Frame):
         range_frame.grid_columnconfigure(3, weight=1)
         
         # U Range
-        ttk.Label(range_frame, text="U Range:").grid(row=0, column=0, sticky="w")
+        ttk.Label(range_frame, text="U:").grid(row=0, column=0, sticky="w")
         umin_entry = ttk.Entry(range_frame, textvariable=self.colorbar_u_min, width=8)
         umin_entry.grid(row=0, column=1, padx=2)
         ttk.Label(range_frame, text="to").grid(row=0, column=2, padx=2)
@@ -339,14 +288,14 @@ class ControlPanel(ttk.Frame):
         umax_entry.grid(row=0, column=3, padx=2)
         
         # V Range
-        ttk.Label(range_frame, text="V Range:").grid(row=1, column=0, sticky="w", pady=2)
+        ttk.Label(range_frame, text="V:").grid(row=1, column=0, sticky="w", pady=2)
         vmin_entry = ttk.Entry(range_frame, textvariable=self.colorbar_v_min, width=8)
         vmin_entry.grid(row=1, column=1, padx=2)
         ttk.Label(range_frame, text="to").grid(row=1, column=2, padx=2)
         vmax_entry = ttk.Entry(range_frame, textvariable=self.colorbar_v_max, width=8)
         vmax_entry.grid(row=1, column=3, padx=2)
         
-        # Bind range entries to update preview
+        # Bind range entries
         def _on_range_edit(event=None):
             self.use_fixed_colorbar.set(True)
             self._trigger('on_param_change')
@@ -369,7 +318,7 @@ class ControlPanel(ttk.Frame):
         colormap_combo.grid(row=3, column=0, sticky="w", padx=5, pady=(0,5))
         colormap_combo.bind('<<ComboboxSelected>>', lambda e: self._trigger('on_param_change'))
 
-        # Transparency control and Update button
+        # Transparency
         alpha_row = ttk.Frame(vis_frame)
         alpha_row.grid(row=4, column=0, sticky='w', padx=5, pady=(0,5))
         ttk.Label(alpha_row, text="Transparency:").grid(row=0, column=0, padx=(0,6))
@@ -377,54 +326,49 @@ class ControlPanel(ttk.Frame):
         alpha_entry.grid(row=0, column=1, padx=(0,8))
         ttk.Button(alpha_row, text="Update", command=lambda: self._trigger('update_preview')).grid(row=0, column=2)
 
+        # Physical Units
+        phys_frame = ttk.Frame(vis_frame)
+        phys_frame.grid(row=5, column=0, sticky='ew', padx=5, pady=(0,5))
+        ttk.Checkbutton(phys_frame, text="Physical Units", variable=self.use_physical_units,
+                        command=lambda: self._trigger('update_preview')).pack(side="left")
+        ttk.Label(phys_frame, text="Ratio:").pack(side="left", padx=(5, 2))
+        ratio_entry = ttk.Entry(phys_frame, textvariable=self.physical_ratio, width=5)
+        ratio_entry.pack(side="left")
+        
+        unit_cb = ttk.Combobox(phys_frame, textvariable=self.physical_unit, 
+                              values=["mm", "um", "nm", "m", "inch"], width=4, state="readonly")
+        unit_cb.pack(side="left", padx=(2,0))
+        unit_cb.bind("<<ComboboxSelected>>", lambda e: self._trigger('update_preview'))
+
+        ttk.Label(phys_frame, text="dt(s):").pack(side="left", padx=(5, 2))
+        dt_entry = ttk.Entry(phys_frame, textvariable=self.time_step, width=5)
+        dt_entry.pack(side="left")
+
         # Fixed range from specific frame
         fixed_from_frame = ttk.Frame(vis_frame)
-        fixed_from_frame.grid(row=5, column=0, sticky='w', padx=5, pady=(0,5))
-        ttk.Label(fixed_from_frame, text="Set fixed range from Frame #").grid(row=0, column=0, padx=(0,6))
-        ttk.Entry(fixed_from_frame, textvariable=self.fixed_range_frame, width=6).grid(row=0, column=1, padx=(0,8))
+        fixed_from_frame.grid(row=6, column=0, sticky='w', padx=5, pady=(0,5))
+        ttk.Label(fixed_from_frame, text="Range from Frame:").grid(row=0, column=0, padx=(0,6))
+        ttk.Entry(fixed_from_frame, textvariable=self.fixed_range_frame, width=5).grid(row=0, column=1, padx=(0,8))
         ttk.Button(fixed_from_frame, text="Apply", command=lambda: self._trigger('set_fixed_colorbar')).grid(row=0, column=2)
 
-        # Performance toggles
-        perf = ttk.LabelFrame(vis_frame, text="Performance", padding=5)
-        perf.grid(row=7, column=0, sticky='ew', padx=5, pady=5)
-        ttk.Checkbutton(perf, text="Fast Preview (no colorbars)", variable=self.fast_preview,
-                        command=lambda: self._trigger('update_preview')).grid(row=0, column=0, sticky='w')
-        ttk.Checkbutton(perf, text="Show Colorbars (slower)", variable=self.show_colorbars,
-                        command=lambda: self._trigger('update_preview')).grid(row=0, column=1, sticky='w', padx=10)
-        ttk.Label(perf, text="Preview scale:").grid(row=1, column=0, sticky='w', pady=(4,0))
-        scale = ttk.Scale(perf, from_=0.25, to=1.0, orient=tk.HORIZONTAL,
-                          command=lambda v: self._trigger('on_preview_scale_change', v), length=160)
-        # Initialize slider with current value
-        try:
-            scale.set(float(self.preview_scale.get()))
-        except Exception:
-            scale.set(0.5)
-        scale.grid(row=1, column=1, sticky='w', padx=10, pady=(4,0))
-        ttk.Label(perf, text="Interp sample step:").grid(row=2, column=0, sticky='w', pady=(4,0))
-        step_combo = ttk.Combobox(perf, textvariable=self.interp_sample_step,
-                                  values=["1","2","4","8"], width=5, state='readonly')
-        step_combo.grid(row=2, column=1, sticky='w', padx=10, pady=(4,0))
-        step_combo.bind('<<ComboboxSelected>>', lambda e: self._trigger('on_param_change'))
-        
         # Background Image Mode selection
         bg_mode_frame = ttk.LabelFrame(vis_frame, text="Background Image Mode", padding=5)
-        bg_mode_frame.grid(row=6, column=0, sticky="ew", pady=5)
+        bg_mode_frame.grid(row=7, column=0, sticky="ew", pady=5)
         bg_mode_frame.grid_columnconfigure(0, weight=1)
         
         # Mode radio buttons
         ttk.Radiobutton(bg_mode_frame, text="Reference Image", variable=self.background_mode, 
                        value="reference", command=lambda: self._trigger('update_preview')).grid(row=0, column=0, sticky="w", padx=5, pady=2)
         ttk.Radiobutton(bg_mode_frame, text="Deformed Image", variable=self.background_mode, 
-                       value="deformed", command=lambda: self._trigger('update_preview')).grid(row=1, column=0, sticky="w", padx=5, pady=2)
+                       value="deformed", command=lambda: self._trigger('update_preview'), state='disabled').grid(row=0, column=1, sticky="w", padx=10, pady=2)
         
-        # Deformed mode options
         deformed_options_frame = ttk.Frame(bg_mode_frame)
         deformed_options_frame.grid(row=2, column=0, sticky="ew", padx=5, pady=2)
         
         ttk.Checkbutton(deformed_options_frame, text="Smooth Interpolation", 
-                       variable=self.use_smooth_interpolation,
-                       command=lambda: self._trigger('update_preview')).grid(row=0, column=0, sticky="w", padx=20)
-
+                        variable=self.use_smooth_interpolation,
+                        command=lambda: self._trigger('update_preview')).grid(row=0, column=0, sticky="w", padx=20)
+        
         # Deformed visualization method options
         ttk.Label(deformed_options_frame, text="Deformed Mode:").grid(row=1, column=0, sticky="w", padx=(20,4))
         ttk.Radiobutton(deformed_options_frame, text="Heatmap", value="heatmap",
@@ -486,208 +430,18 @@ class ControlPanel(ttk.Frame):
         self.progress_text.grid(row=2, column=0, columnspan=2)
         self.time_log = tk.Text(run_content, height=5, wrap="word", state="disabled")
         self.time_log.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        
+        # Status Label
+        self.status_label = ttk.Label(run_content, text="Ready", anchor="w")
+        self.status_label.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(2, 0))
+
         run_content.grid_columnconfigure(0, weight=1)
         run_content.grid_columnconfigure(1, weight=1)
         
         # Configure canvas scrolling
         def configure_scroll_region(event):
             control_canvas.configure(scrollregion=control_canvas.bbox("all"))
-        
-        def configure_canvas_width(event):
-            control_canvas.itemconfig(canvas_frame, width=event.width)
-        
-        control_frame.bind("<Configure>", configure_scroll_region)
-        control_canvas.bind("<Configure>", configure_canvas_width)
-        
-        # Bind mouse wheel
-        def on_mousewheel(event):
-            control_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-        
-        # Bind mouse wheel only to this canvas to avoid affecting other panes
-        control_canvas.bind("<MouseWheel>", on_mousewheel)
 
-        # Initialize UI states
-        self.update_max_disp_hint()
-        self.update_smoothing_state()
-
-    def create_help_button(self, parent, key):
-        """Create a help button with tooltip"""
-        btn = ttk.Button(parent, text="?", width=2)
-        if key in self.tooltips:
-            Tooltip(btn, self.tooltips[key])
-        return btn
-
-    def update_crop_state(self):
-        """Enable/disable crop inputs based on checkbox"""
-        state = "normal" if self.use_crop.get() else "disabled"
-        self.crop_w_entry.configure(state=state)
-        self.crop_h_entry.configure(state=state)
-        self.shift_entry.configure(state=state)
-
-    def update_max_disp_hint(self):
-        """Update hint text for max displacement"""
-        pass # Logic removed in original
-
-    def update_smoothing_state(self):
-        """Enable/disable smoothing inputs"""
-        state = "normal" if self.use_smooth.get() else "disabled"
-        self.sigma_entry.configure(state=state)
-        self.sigma_scale.configure(state=state)
-
-    def on_sigma_scale_change(self, value):
-        """Update sigma entry when scale moves"""
-        self.sigma.set(f"{float(value):.2f}")
-
-
-
-    def on_sigma_entry_change(self, event=None):
-        """Update sigma scale when entry changes"""
-        try:
-            val = float(self.sigma.get())
-            self.sigma_scale.set(val)
-        except ValueError:
-            pass
-
-    def refresh_model_list(self, *_args, initial: bool = False):
-        """Populate available RAFT checkpoints in the model selector."""
-        try:
-            entries = mdl.discover_models()
-        except Exception as exc:
-            entries = []
-            print(f"Error discovering models: {exc}")
-        
-        self.available_models = entries
-        self.model_lookup = {e.label: e for e in entries}
-        
-        names = [e.label for e in entries]
-        self.model_combobox['values'] = names
-        
-        if initial and names:
-            self.model_combobox.current(0)
-            self.on_model_selected()
-
-    # Obsolete methods removed: _map_disp_selection, on_disp_preset_change
-
-    def update_config(self, config):
-        """Update the configuration object with current UI values."""
-        config.img_dir = self.input_path.get()
-        config.project_root = self.output_path.get()
-        config.mode = self.mode.get()
-        config.crop_size = (int(self.crop_size_h.get() or "0"), int(self.crop_size_w.get() or "0"))
-        config.shift = int(self.shift_size.get() or "0")
-        
-        config.use_smooth = self.use_smooth.get()
-        config.sigma = float(self.sigma.get())
-        
-        config.use_smooth = self.use_smooth.get()
-        config.sigma = float(self.sigma.get())
-        
-        try:
-            config.context_padding = int(self.context_padding.get())
-        except Exception:
-            config.context_padding = 32
-            
-        try:
-            config.tile_overlap = int(self.tile_overlap.get())
-        except Exception:
-            config.tile_overlap = 32
-            
-        try:
-            config.safety_factor = float(self.safety_factor.get())
-        except Exception:
-            config.safety_factor = 0.55
-
-        # Parse pixel budget input
-        try:
-            s = (self.p_max_pixels.get() or "").lower().replace(' ', '')
-            if '*' in s:
-                a, b = s.split('*', 1)
-                config.p_max_pixels = int(float(a)) * int(float(b))
-            elif 'x' in s:
-                a, b = s.split('x', 1)
-                config.p_max_pixels = int(float(a)) * int(float(b))
-            else:
-                config.p_max_pixels = int(float(s))
-        except Exception:
-            config.p_max_pixels = 1100 * 1100
-        
-        # Device
-        # Device
-        config.device = getattr(mdl, "DEFAULT_DEVICE", "cuda")
-        
-        
-        ttk.Checkbutton(deformed_options_frame, text="Smooth Interpolation", 
-                       variable=self.use_smooth_interpolation,
-                       command=lambda: self._trigger('update_preview')).grid(row=0, column=0, sticky="w", padx=20)
-
-        # Deformed visualization method options
-        ttk.Label(deformed_options_frame, text="Deformed Mode:").grid(row=1, column=0, sticky="w", padx=(20,4))
-        ttk.Radiobutton(deformed_options_frame, text="Heatmap", value="heatmap",
-                        variable=self.deform_display_mode,
-                        command=lambda: self._trigger('update_preview')).grid(row=1, column=1, sticky="w")
-        ttk.Radiobutton(deformed_options_frame, text="Quiver", value="quiver",
-                        variable=self.deform_display_mode,
-                        command=lambda: self._trigger('update_preview')).grid(row=1, column=2, sticky="w")
-
-        ttk.Label(deformed_options_frame, text="Interpolation:").grid(row=2, column=0, sticky="w", padx=(20,4))
-        interp_combo = ttk.Combobox(deformed_options_frame, textvariable=self.deform_interp,
-                                    values=["linear", "nearest", "rbf"], width=8, state='readonly')
-        interp_combo.grid(row=2, column=1, sticky="w")
-        interp_combo.bind('<<ComboboxSelected>>', lambda e: self._trigger('on_param_change'))
-
-        # Show deformed-options only when 'Deformed Image' is selected
-        def _update_deformed_options(*_):
-            try:
-                if self.background_mode.get() == 'deformed':
-                    deformed_options_frame.grid()
-                else:
-                    deformed_options_frame.grid_remove()
-            except Exception:
-                pass
-        try:
-            _update_deformed_options()
-            self.background_mode.trace_add('write', lambda *args: _update_deformed_options())
-        except Exception:
-            pass
-
-        ttk.Checkbutton(deformed_options_frame, text="Show Deformed Boundary",
-                        variable=self.show_deformed_boundary,
-                        command=lambda: self._trigger('update_preview')).grid(row=3, column=0, columnspan=2, sticky="w", padx=(20,0))
-
-        ttk.Label(deformed_options_frame, text="Quiver Step:").grid(row=4, column=0, sticky="w", padx=(20,4))
-        quiver_entry = ttk.Entry(deformed_options_frame, textvariable=self.quiver_step, width=6)
-        quiver_entry.grid(row=4, column=1, sticky="w")
-        quiver_entry.bind('<Return>', lambda e: self._trigger('on_param_change'))
-        quiver_entry.bind('<FocusOut>', lambda e: self._trigger('on_param_change'))
-        
-        # Add separator
-        ttk.Separator(control_frame, orient="horizontal").grid(row=5, column=0, sticky="ew", pady=5)
-        
-        # Run section
-        run_frame = CollapsibleFrame(control_frame, text="Run Control")
-        run_frame.grid(row=6, column=0, sticky="ew", padx=5, pady=5)
-        
-        run_content = run_frame.get_content_frame()
-        run_content.grid_columnconfigure(0, weight=1)
-        
-        # Run/Stop controls and progress
-        self.run_button = ttk.Button(run_content, text="Run", command=lambda: self._trigger('run'), width=12)
-        self.run_button.grid(row=0, column=0, pady=5, padx=(0,6))
-        self.stop_button = ttk.Button(run_content, text="Stop", command=lambda: self._trigger('stop'), width=12, state='disabled')
-        self.stop_button.grid(row=0, column=1, pady=5)
-        self.progress = ttk.Progressbar(run_content, length=220, mode='determinate')
-        self.progress.grid(row=1, column=0, columnspan=2, pady=5, sticky='ew')
-        self.progress_text = ttk.Label(run_content, text="0/0")
-        self.progress_text.grid(row=2, column=0, columnspan=2)
-        self.time_log = tk.Text(run_content, height=5, wrap="word", state="disabled")
-        self.time_log.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(6, 0))
-        run_content.grid_columnconfigure(0, weight=1)
-        run_content.grid_columnconfigure(1, weight=1)
-        
-        # Configure canvas scrolling
-        def configure_scroll_region(event):
-            control_canvas.configure(scrollregion=control_canvas.bbox("all"))
-        
         def configure_canvas_width(event):
             control_canvas.itemconfig(canvas_frame, width=event.width)
         
@@ -771,9 +525,6 @@ class ControlPanel(ttk.Frame):
         config.mode = self.mode.get()
         config.crop_size = (int(self.crop_size_h.get() or "0"), int(self.crop_size_w.get() or "0"))
         config.shift = int(self.shift_size.get() or "0")
-        
-        config.use_smooth = self.use_smooth.get()
-        config.sigma = float(self.sigma.get())
         
         config.use_smooth = self.use_smooth.get()
         config.sigma = float(self.sigma.get())

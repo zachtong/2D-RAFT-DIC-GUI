@@ -1251,6 +1251,18 @@ class PreviewPanel(ttk.Frame):
                     except Exception:
                         pass
 
+            # Physical Units Handling
+            unit_label = "[px]"
+            if cp.use_physical_units.get():
+                try:
+                    ratio = float(cp.physical_ratio.get())
+                    unit = cp.physical_unit.get()
+                    # Scale result (U, V)
+                    result = result * ratio
+                    unit_label = f"[{unit}]"
+                except ValueError:
+                    pass
+
             # Prepare data
             print("[DEBUG] Calling prepare_visualization_data...")
             data = proc.prepare_visualization_data(
@@ -1259,8 +1271,8 @@ class PreviewPanel(ttk.Frame):
                 deformed_image,
                 self.roi_rect,
                 self.roi_mask,
-                float(cp.preview_scale.get()),
-                int(cp.interp_sample_step.get()),
+                1.0, # scale (unused)
+                1,   # step (unused)
                 cp.background_mode.get(),
                 cp.deform_display_mode.get(),
                 cp.deform_interp.get(),
@@ -1268,6 +1280,7 @@ class PreviewPanel(ttk.Frame):
                 int(cp.quiver_step.get() or "10")
             )
             
+
             # Determine color range
             if cp.use_fixed_colorbar.get():
                 vmin_u = float(cp.colorbar_u_min.get() or 0)
@@ -1298,40 +1311,31 @@ class PreviewPanel(ttk.Frame):
                 vmin_v, vmax_v
             )
             
-            # Update colorbars
-            if cp.show_colorbars.get():
-                # U Component
-                if im_u:
-                    if self.cax_u is None:
-                        self.cax_u = self.div_u.append_axes("right", size="5%", pad=0.05)
-                    else:
-                        self.cax_u.clear()
-                    self.cb_u = self.fig.colorbar(im_u, cax=self.cax_u)
-                
-                # V Component
-                if im_v:
-                    if self.cax_v is None:
-                        self.cax_v = self.div_v.append_axes("right", size="5%", pad=0.05)
-                    else:
-                        self.cax_v.clear()
-                    self.cb_v = self.fig.colorbar(im_v, cax=self.cax_v)
-            else:
-                # Hide colorbars if they exist
-                if self.cax_u is not None:
-                    self.cax_u.remove()
-                    self.cax_u = None
-                    self.cb_u = None
-                if self.cax_v is not None:
-                    self.cax_v.remove()
-                    self.cax_v = None
-                    self.cb_v = None
+            # Update colorbars (Always show)
+            # U Component
+            if im_u:
+                if self.cax_u is None:
+                    self.cax_u = self.div_u.append_axes("right", size="5%", pad=0.05)
+                else:
+                    self.cax_u.clear()
+                cb_u = self.fig.colorbar(im_u, cax=self.cax_u)
+                cb_u.set_label(f"U Displacement {unit_label}")
+            
+            # V Component
+            if im_v:
+                if self.cax_v is None:
+                    self.cax_v = self.div_v.append_axes("right", size="5%", pad=0.05)
+                else:
+                    self.cax_v.clear()
+                cb_v = self.fig.colorbar(im_v, cax=self.cax_v)
+                cb_v.set_label(f"V Displacement {unit_label}")
 
             self.canvas.draw()
             
         except Exception as e:
             print(f"Error updating preview: {e}")
 
-    def plot_post_data(self, data_map, title, colormap, alpha, background_image=None, roi_rect=None, vmin=None, vmax=None):
+    def plot_post_data(self, data_map, title, colormap, alpha, background_image=None, roi_rect=None, vmin=None, vmax=None, unit_label="[px]"):
         """Plot post-processing data (e.g., strain) on the post_canvas."""
         if self.post_ax is None:
             return
@@ -1372,7 +1376,8 @@ class PreviewPanel(ttk.Frame):
         else:
             self.post_cax.clear()
             
-        self.post_fig.colorbar(im, cax=self.post_cax)
+        cb = self.post_fig.colorbar(im, cax=self.post_cax)
+        cb.set_label(f"{title.upper()} {unit_label}")
         
         self.post_canvas.draw()
 

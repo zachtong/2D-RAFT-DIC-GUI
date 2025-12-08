@@ -430,7 +430,7 @@ def discover_models(models_dir: Optional[str] = None,
             label = path.name
         candidates.append(ModelEntry(path=str(path), label=label))
 
-    candidates.sort(key=lambda entry: entry.label.lower())
+    candidates.sort(key=lambda entry: entry.label.lower(), reverse=True)
     return candidates
 
 

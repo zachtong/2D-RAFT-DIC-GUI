@@ -93,9 +93,9 @@ class PostProcessingPanel(ttk.Frame):
         # Step
         ttk.Label(content, text="Step (px):").grid(row=r, column=0, sticky="w")
         self.strain_step = tk.StringVar(value="1")
-        step_entry = ttk.Entry(content, textvariable=self.strain_step, width=6)
+        step_entry = ttk.Entry(content, textvariable=self.strain_step, width=6, state="disabled")
         step_entry.grid(row=r, column=1, sticky="w")
-        Tooltip(step_entry, "Calculation stride (integer >= 1)")
+        Tooltip(step_entry, "Calculation stride (Fixed to 1 for full resolution)")
         r += 1
         
         # Polynomial Order
@@ -153,9 +153,33 @@ class PostProcessingPanel(ttk.Frame):
         alpha_entry.grid(row=2, column=1, sticky="w")
         alpha_entry.bind('<Return>', lambda e: self._trigger('update_post_preview'))
         alpha_entry.bind('<FocusOut>', lambda e: self._trigger('update_post_preview'))
+
+        # Physical Units
+        ttk.Separator(content, orient="horizontal").grid(row=3, column=0, columnspan=2, sticky="ew", pady=5)
+        
+        self.use_physical_units = tk.BooleanVar(value=False)
+        cb_phys = ttk.Checkbutton(content, text="Use Physical Units", variable=self.use_physical_units, 
+                                command=lambda: self._trigger('update_post_preview'))
+        cb_phys.grid(row=4, column=0, columnspan=2, sticky="w")
+        
+        phys_frame = ttk.Frame(content)
+        phys_frame.grid(row=5, column=0, columnspan=2, sticky="ew", padx=20)
+        
+        ttk.Label(phys_frame, text="Ratio (unit/px):").pack(side="left")
+        self.physical_ratio = tk.StringVar(value="1.0")
+        ratio_entry = ttk.Entry(phys_frame, textvariable=self.physical_ratio, width=8)
+        ratio_entry.pack(side="left", padx=5)
+        ratio_entry.bind('<Return>', lambda e: self._trigger('update_post_preview'))
+        ratio_entry.bind('<FocusOut>', lambda e: self._trigger('update_post_preview'))
+        
+        self.physical_unit = tk.StringVar(value="mm")
+        unit_cb = ttk.Combobox(phys_frame, textvariable=self.physical_unit, values=["mm", "um", "nm", "m", "inch"], width=5, state="readonly")
+        unit_cb.pack(side="left")
+        unit_cb.bind("<<ComboboxSelected>>", lambda e: self._trigger('update_post_preview'))
+        Tooltip(ratio_entry, "Physical units per pixel (e.g. mm/pixel)")
         
         # Color Range Controls
-        ttk.Separator(content, orient="horizontal").grid(row=3, column=0, columnspan=2, sticky="ew", pady=5)
+        ttk.Separator(content, orient="horizontal").grid(row=6, column=0, columnspan=2, sticky="ew", pady=5)
         
         self.post_fixed_range = tk.BooleanVar(value=False)
         self.post_vmin = tk.StringVar(value="")
@@ -166,10 +190,10 @@ class PostProcessingPanel(ttk.Frame):
         
         cb_fixed = ttk.Checkbutton(content, text="Fixed Color Range", variable=self.post_fixed_range, 
                                  command=lambda: self._trigger('update_post_preview'))
-        cb_fixed.grid(row=4, column=0, columnspan=2, sticky="w")
+        cb_fixed.grid(row=7, column=0, columnspan=2, sticky="w")
         
         range_frame = ttk.Frame(content)
-        range_frame.grid(row=5, column=0, columnspan=2, sticky="ew")
+        range_frame.grid(row=8, column=0, columnspan=2, sticky="ew")
         
         ttk.Label(range_frame, text="Min:").pack(side="left", padx=2)
         v_min_entry = ttk.Entry(range_frame, textvariable=self.post_vmin, width=8)
@@ -329,8 +353,8 @@ class PostProcessingPanel(ttk.Frame):
         frame.pack(fill="x", padx=5, pady=5)
         content = frame.get_content_frame()
         
-        ttk.Button(content, text="Export Strain Data...").pack(fill="x", pady=2)
-        ttk.Button(content, text="Export Probe Data...").pack(fill="x", pady=2)
+        ttk.Button(content, text="Export Scientific Data (.mat/.npz)", 
+                  command=lambda: self._trigger('export_scientific_data')).pack(fill="x", pady=5)
 
     def update_probe_list(self, probes):
         """Update the probe list treeview."""

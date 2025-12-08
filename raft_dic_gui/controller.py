@@ -46,6 +46,9 @@ class DICProcessor:
 
         if len(image_files) < 2:
             raise Exception("At least 2 images are needed")
+            
+        # Store absolute paths for export
+        self.image_files = [os.path.abspath(os.path.join(img_dir, f)) for f in image_files]
 
         if roi_mask is None:
             raise Exception("ROI mask is missing")
@@ -96,7 +99,7 @@ class DICProcessor:
         # Cleanup stale results if forcing re-run
         if force_rerun:
             import glob
-            npy_dir = os.path.join(out_dir, "displacement_results_npy")
+            npy_dir = os.path.join(out_dir, "displacement_results_temp_npy")
             if os.path.exists(npy_dir):
                 print(f"[INFO] Cleaning up stale results in {npy_dir}...")
                 files = glob.glob(os.path.join(npy_dir, "displacement_field_*.npy"))
@@ -127,7 +130,7 @@ class DICProcessor:
                 
             # Check if result already exists (Resume functionality)
             result_filename = f"displacement_field_{i}.npy"
-            result_path = os.path.join(out_dir, "displacement_results_npy", result_filename)
+            result_path = os.path.join(out_dir, "displacement_results_temp_npy", result_filename)
             
             # Load deformed image (needed for incremental mode or processing)
             def_img_path = os.path.join(img_dir, image_files[i])
@@ -199,19 +202,19 @@ class DICProcessor:
                 ref_image = def_image.copy()
 
         # Save consolidated files
-        try:
-            proc.save_displacement_sequence(
-                sequence_displacements,
-                out_dir,
-                roi_rect=roi_rect,
-                roi_mask=roi_mask,
-                save_numpy=True,
-                save_matlab=True,
-                numpy_filename="displacement_sequence.npz",
-                matlab_filename="displacement_sequence.mat",
-            )
-        except Exception as e:
-            print(f"Warning: Failed to save consolidated results: {e}")
+        # try:
+        #     proc.save_displacement_sequence(
+        #         sequence_displacements,
+        #         out_dir,
+        #         roi_rect=roi_rect,
+        #         roi_mask=roi_mask,
+        #         save_numpy=True,
+        #         save_matlab=True,
+        #         numpy_filename="displacement_sequence.npz",
+        #         matlab_filename="displacement_sequence.mat",
+        #     )
+        # except Exception as e:
+        #     print(f"Warning: Failed to save consolidated results: {e}")
 
         self.displacement_results = sequence_displacements
         return sequence_displacements

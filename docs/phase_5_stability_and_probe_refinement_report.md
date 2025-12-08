@@ -37,6 +37,17 @@ The system now supports a complete, stable workflow:
     *   Interactive Visualization (switching components/colormaps).
     *   Multi-modal Probing (Point, Line, Area) with independent management.
 
+### 4. Data Export (New Feature)
+*   **Scientific Data Export**: Implemented full-field result export to **.mat** (MATLAB) and **.npz** (NumPy) formats. This includes displacement/strain fields, ROI masks, and metadata, accessible via the *Data Export* section in the Post-Processing panel.
+
 ## Next Steps
-*   **Data Export**: Implement functionality to export probe data (CSV) and full field results (TIFF/NPY).
+*   **Probe Data Export**: Implement functionality to export time-series data from Probes (Points, Lines, Areas) to CSV format.
 *   **Performance Tuning**: Further optimize the rendering pipeline for high-resolution datasets.
+
+### 4. UI Polish & Critical Logic Fixes (Latest Updates)
+*   **Control Panel Restoration**: Fixed a critical `IndentationError` in `ControlPanel.py` that caused the application to crash on startup. This involved reconstructing the `create_widgets` method to ensure correct UI nesting.
+*   **UI Simplification**: Removed the "Performance" settings section (fast preview, scale, etc.) to streamline the interface, shifting to sensible defaults.
+*   **Model Selection UX**:
+    *   Renamed "Model Checkpoint" to "Model" for brevity.
+    *   Updated the model list sorting to **descending alphabetical order** (Z->A) to prioritize specific models.
+*   **Code Cleanup**: Removed duplicate configuration updates and unused logic in `ControlPanel.py`.
