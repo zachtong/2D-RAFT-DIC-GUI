@@ -43,8 +43,8 @@ class DICConfig:
         """Validate the configuration. Returns (is_valid, error_message)."""
         if not self.img_dir:
             return False, "Input directory is not selected."
-        if not self.project_root:
-            return False, "Output directory is not selected."
+        # if not self.project_root:
+        #     return False, "Output directory is not selected."
         if not self.model_path:
             return False, "Model checkpoint is not selected."
         

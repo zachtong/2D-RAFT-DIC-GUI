@@ -214,7 +214,7 @@ class RAFTDICGUI:
         self.control_panel.callbacks['run'] = self.run
         self.control_panel.callbacks['stop'] = self.request_stop
         self.control_panel.callbacks['browse_input'] = self.browse_input
-        self.control_panel.callbacks['browse_output'] = self.browse_output
+
         self.control_panel.callbacks['update_preview'] = self.preview_panel.update_displacement_preview
         self.control_panel.callbacks['on_param_change'] = self.preview_panel.update_displacement_preview
         self.control_panel.callbacks['on_preview_scale_change'] = lambda v: self.preview_panel.update_displacement_preview()
@@ -916,13 +916,7 @@ class RAFTDICGUI:
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to load images: {e}")
 
-    def browse_output(self, directory=None):
-        """Handle output directory selection."""
-        if directory is None:
-            directory = filedialog.askdirectory()
-        
-        if directory:
-            self.control_panel.output_path.set(directory)
+
 
     def update_image_info(self, directory):
         """Load first image and update preview."""
@@ -1059,7 +1053,7 @@ class RAFTDICGUI:
             self.control_panel.colorbar_v_min.set(f"{np.nanmin(v):.3f}")
             self.control_panel.colorbar_v_max.set(f"{np.nanmax(v):.3f}")
             
-            self.control_panel.use_fixed_colorbar.set(True)
+            # self.control_panel.use_fixed_colorbar.set(True)
             self.preview_panel.update_displacement_preview()
             
         except Exception as e:

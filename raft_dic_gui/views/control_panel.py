@@ -150,23 +150,17 @@ class ControlPanel(ttk.Frame):
         input_entry.grid(row=0, column=1, sticky="ew", padx=5)
         ttk.Button(path_content, text="Browse", command=lambda: self._trigger('browse_input'), width=8).grid(row=0, column=2, padx=5)
         
-        # Output path
-        ttk.Label(path_content, text="Output Directory:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
-        output_entry = ttk.Entry(path_content, textvariable=self.output_path)
-        output_entry.grid(row=1, column=1, sticky="ew", padx=5, pady=5)
-        ttk.Button(path_content, text="Browse", command=lambda: self._trigger('browse_output'), width=8).grid(row=1, column=2, padx=5, pady=5)
-
         # Model selection
-        ttk.Label(path_content, text="Model:").grid(row=2, column=0, sticky="w", padx=5, pady=(5, 0))
+        ttk.Label(path_content, text="Model:").grid(row=1, column=0, sticky="w", padx=5, pady=(5, 0))
         self.model_combobox = ttk.Combobox(path_content, textvariable=self.selected_model, values=(), width=38, state="readonly")
-        self.model_combobox.grid(row=2, column=1, sticky="ew", padx=5, pady=(5, 0))
+        self.model_combobox.grid(row=1, column=1, sticky="ew", padx=5, pady=(5, 0))
         try:
             self.model_combobox.bind('<<ComboboxSelected>>', lambda e: self.on_model_selected())
         except Exception:
             pass
-        ttk.Button(path_content, text="Refresh", command=self.refresh_model_list, width=8).grid(row=2, column=2, padx=5, pady=(5, 0))
+        ttk.Button(path_content, text="Refresh", command=self.refresh_model_list, width=8).grid(row=1, column=2, padx=5, pady=(5, 0))
         ttk.Label(path_content, textvariable=self.model_summary_text, justify="left", wraplength=360).grid(
-            row=3, column=0, columnspan=3, sticky="w", padx=5, pady=(2, 6)
+            row=2, column=0, columnspan=3, sticky="w", padx=5, pady=(2, 6)
         )
         self.refresh_model_list(initial=True)
         
@@ -521,7 +515,8 @@ class ControlPanel(ttk.Frame):
     def update_config(self, config):
         """Update the configuration object with current UI values."""
         config.img_dir = self.input_path.get()
-        config.project_root = self.output_path.get()
+        # Output directory is deprecated in UI, defaulting to input or empty
+        config.project_root = self.input_path.get()
         config.mode = self.mode.get()
         config.crop_size = (int(self.crop_size_h.get() or "0"), int(self.crop_size_w.get() or "0"))
         config.shift = int(self.shift_size.get() or "0")
