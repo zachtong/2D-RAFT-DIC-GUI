@@ -1,93 +1,79 @@
 # RAFTcorr
 
-An interactive desktop GUI for Digital Image Correlation powered by a RAFT neural network (CUDA‑accelerated).
+An interactive desktop GUI for 2D Digital Image Correlation (DIC) powered by the RAFT (Recurrent All-Pairs Field Transforms) optical flow network. This tool provides a robust, CUDA-accelerated workflow for calculating full-field displacement and strain from image sequences.
 
 ![Demo](assets/RAFT_DIC_demo.gif)
 
+## Documentation
+**[Download User Manual (v1.0 PDF)](RAFTcorr_user_manual_v1.0.pdf)**  
+*For a complete guide on installation, workflow, parameters, and troubleshooting.*
+
+## Features
+*   **Deep Learning Optical Flow**: Uses RAFT models (Large/Fine) for robust tracking even with large displacements or lighting changes.
+*   **CUDA Acceleration**: Optimized for NVIDIA GPUs to handle high-resolution images.
+*   **Virtual Extensometers (Probes)**: Extract time-series data from Points, Lines, and Areas.
+*   **Full-Field Strain**: Green-Lagrange and Engineering strain calculations with customizable virtual strain gauges (VSG).
+*   **Scientific Export**: Save results to MATLAB (`.mat`) or Python (`.npz`) formats with full metadata.
+
 ## Prerequisites
 
-- Python 3.8+
-- NVIDIA GPU with CUDA 11.8+/12.x (no CPU mode)
-- PyTorch with CUDA build
+- **OS**: Windows 10/11
+- **Python**: 3.8+
+- **GPU**: NVIDIA GPU with CUDA 11.8+ (Required)
 
-## Install
+## Installation
 
-```bash
-git clone https://github.com/zachtong/RAFTcorr.git
-cd RAFTcorr
-pip install -e .
-```
+1.  Clone the repository:
+    ```bash
+    git clone https://github.com/zachtong/RAFTcorr.git
+    cd RAFTcorr
+    ```
 
-Verify your environment:
-```bash
-python verify_installation.py
-```
+2.  Install dependencies:
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-## Run
-
-```bash
-python main_GUI.py
-```
+3.  Verify your GPU setup:
+    ```bash
+    python verify_installation.py
+    ```
 
 ## Quick Usage
 
-1. Select input folder (images) and output folder.
-2. Draw and confirm ROI on the first image.
-3. Choose processing mode (Accumulative / Incremental).
-4. Optionally adjust Advanced parameters (Safety Factor, Overlap, Smoothing).
-5. Click Run. The progress bar and counter update as frames process.
+1.  **Launch**: `python main_GUI.py`
+2.  **Input**: Select your image folder in the "Path Settings".
+3.  **Model**: Choose `RAFT-Large` (default) or `RAFT-Fine`.
+4.  **ROI**: Draw a Region of Interest (Rectangle/Polygon/Cut) on the reference image and click **Confirm ROI**.
+5.  **Run**: Click **Run** to start processing.
+6.  **Analysis**: 
+    *   Switch to the **Post-Processing** tab to calculate Strain.
+    *   Use **Probe Analysis** to plot displacement/strain over time.
+    *   Export data via the **Data Export** section.
 
-For a complete walkthrough and parameter explanations, see `USER_MANUAL.md`.
-
-## Configure (No Hardcoding)
-
-Customize branding, theme, and icons via `assets/app_config.json` (created in this repo):
-
+## Configuration (Optional)
+Customize branding and defaults via `assets/app_config.json`:
 ```json
 {
   "app_title": "RAFTcorr",
   "appearance_mode": "system",
-  "color_theme": "blue",
-  "icon_png": "assets/icons/app_icon.png",
-  "icon_ico": "assets/icons/app_icon.ico"
+  "color_theme": "blue"
 }
 ```
 
-The app applies these at startup (title, CTk appearance/theme, window icon).
-
-Scaffolded assets:
-- Icons folder: `assets/icons/` (auto‑generates a default icon if missing). Replace `app_icon.png` / `app_icon.ico` with your own.
-- Sample theme: `assets/themes/my_theme.json`. To use, set `"color_theme": "assets/themes/my_theme.json"` in `assets/app_config.json`.
-
-## Repository Layout
-
-- `main_GUI.py` — GUI app: ROI tools, parameters, progress, visualization.
-- `raft_dic_gui/processing.py` — ROI tiling, fusion, smoothing.
-- `raft_dic_gui/model.py` — RAFT model loader + inference.
-- `raft_dic_gui/preview.py` — tiling overlay helpers.
-- `assets/` — icons, themes, `app_config.json`.
-- `models/` — model checkpoint(s).
-
-## Modify / Extend
-
-- Presets (D_global and g_tile): `main_GUI.py:on_disp_preset_change`.
-- Pixel budget / single‑shot vs tiled: `raft_dic_gui/processing._choose_tile_size`.
-- Tiled fusion and guard band: `raft_dic_gui/processing.dic_over_roi_with_tiling`.
-- ROI metrics panel and overlay: `main_GUI.py:update_roi_metrics_text`, `draw_tiles_overlay`.
-- Progress UI: `main_GUI.py:process_images` (per‑frame updates with `update_idletasks`).
-
 ## Citation
-
-If this software assists your work, please cite RAFT and this repository. Example:
-
+If this software assists your work, please cite the underlying RAFT paper and this repository:
 ```bibtex
-TBD.
+@inproceedings{teed2020raft,
+  title={RAFT: Recurrent All-Pairs Field Transforms for Optical Flow},
+  author={Teed, Zachary and Deng, Jia},
+  booktitle={ECCV},
+  year={2020}
+}
 ```
 
 ## License
-
-MIT — see `LICENSE.md`.
+MIT License. See `LICENSE.md` for details.
 
 ## Acknowledgments
-
-- RAFT: https://github.com/princeton-vl/RAFT
+- RAFT Official Repo: https://github.com/princeton-vl/RAFT
