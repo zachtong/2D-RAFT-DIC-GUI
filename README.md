@@ -9,7 +9,7 @@ An interactive desktop GUI for 2D Digital Image Correlation (DIC) powered by the
 ## Features
 *   **Deep Learning Optical Flow**: Uses RAFT models (Large/Fine) for robust tracking even with large displacements or lighting changes.
 *   **CUDA Acceleration**: Optimized for NVIDIA GPUs to handle high-resolution images.
-*   **Virtual Extensometers (Probes)**: Extract time-series data from Points, Lines, and Areas.
+*   **Virtual Strain Gauge and Probe Analysis**: Extract time-series data from Points, Lines, and Areas.
 *   **Full-Field Strain**: Green-Lagrange and Engineering strain calculations with customizable virtual strain gauges (VSG).
 *   **Scientific Export**: Save results to MATLAB (`.mat`) or Python (`.npz`) formats with full metadata.
 
@@ -42,7 +42,7 @@ An interactive desktop GUI for 2D Digital Image Correlation (DIC) powered by the
 1.  **Launch**: `python main_GUI.py`
 2.  **Input**: Select your image folder in the "Path Settings".
 3.  **Model**: Choose `RAFT-Large` (default) or `RAFT-Fine`.
-4.  **ROI**: Draw a Region of Interest (Rectangle/Polygon/Cut) on the reference image and click **Confirm ROI**.
+4.  **ROI**: Draw a Region of Interest (Rectangle/Polygon/Circle) on the reference image and click **Confirm ROI**.
 5.  **Run**: Click **Run** to start processing.
 6.  **Analysis**: 
     *   Switch to the **Post-Processing** tab to calculate Strain.
@@ -60,18 +60,10 @@ Customize branding and defaults via `assets/app_config.json`:
 ```
 
 ## Citation
-If this software assists your work, please cite the underlying RAFT paper and this repository:
-```bibtex
-@inproceedings{teed2020raft,
-  title={RAFT: Recurrent All-Pairs Field Transforms for Optical Flow},
-  author={Teed, Zachary and Deng, Jia},
-  booktitle={ECCV},
-  year={2020}
-}
-```
+If this software assists your work, please cite the RAFTcorr repository. (Journal paper in preparation)
 
 ## License
 MIT License. See `LICENSE.md` for details.
 
 ## Acknowledgments
-- RAFT Official Repo: https://github.com/princeton-vl/RAFT
+- Original RAFT Official Repo: https://github.com/princeton-vl/RAFT
