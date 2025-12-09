@@ -2,8 +2,6 @@
 
 An interactive desktop GUI for 2D Digital Image Correlation (DIC) powered by the RAFT (Recurrent All-Pairs Field Transforms) optical flow network. This tool provides a robust, CUDA-accelerated workflow for calculating full-field displacement and strain from image sequences.
 
-![Demo](assets/RAFT_DIC_demo.gif)
-
 ## Documentation
 **[Download User Manual (v1.0 PDF)](RAFTcorr_user_manual_v1.0.pdf)**  
 *For a complete guide on installation, workflow, parameters, and troubleshooting.*
