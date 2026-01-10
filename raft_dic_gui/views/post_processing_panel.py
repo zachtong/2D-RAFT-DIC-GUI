@@ -355,6 +355,11 @@ class PostProcessingPanel(ttk.Frame):
         
         ttk.Button(content, text="Export Scientific Data (.mat/.npz)", 
                   command=lambda: self._trigger('export_scientific_data')).pack(fill="x", pady=5)
+        
+        ttk.Separator(content, orient="horizontal").pack(fill="x", pady=5)
+        
+        ttk.Button(content, text="Export Visualization Images...", 
+                  command=lambda: self._trigger('open_export_dialog')).pack(fill="x", pady=5)
 
     def update_probe_list(self, probes):
         """Update the probe list treeview."""

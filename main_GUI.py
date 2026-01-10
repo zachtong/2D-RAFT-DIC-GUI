@@ -251,6 +251,7 @@ class RAFTDICGUI:
         self.control_panel.post_processing_panel.callbacks['calculate_strain'] = self.calculate_strain
         self.control_panel.post_processing_panel.callbacks['update_post_preview'] = self.update_post_preview
         self.control_panel.post_processing_panel.callbacks['export_scientific_data'] = self._on_export_scientific_data
+        self.control_panel.post_processing_panel.callbacks['open_export_dialog'] = self._open_export_dialog
 
     def _on_probe_mode_changed(self, mode):
         """Handle probe mode change (point/line/area)."""
@@ -1367,6 +1368,114 @@ class RAFTDICGUI:
         finally:
             if hasattr(self.control_panel, 'status_label'):
                 self.control_panel.status_label.config(text="Ready")
+
+    def _open_export_dialog(self):
+        """Open the batch image export configuration dialog."""
+        from raft_dic_gui.views.export_dialog import ExportDialog
+        
+        # Check if we have results
+        if not self.displacement_results:
+            messagebox.showwarning("Warning", "No results to export. Please run analysis first.")
+            return
+        
+        # Collect default settings from current UI state
+        pp = self.control_panel.post_processing_panel
+        default_settings = {
+            'colormap': pp.vis_colormap.get(),
+            'alpha': float(pp.vis_alpha.get()) if pp.vis_alpha.get() else 0.7,
+            'display_mode': self.control_panel.background_mode.get(),
+        }
+        
+        # Get available components
+        components = ['u', 'v']
+        if hasattr(self, 'strain_results') and self.strain_results:
+            first_strain = next((s for s in self.strain_results if s), None)
+            if first_strain:
+                components.extend([k for k in first_strain.keys() if k not in components])
+        
+        # Get current component ranges from UI
+        current_ranges = dict(pp.component_ranges) if hasattr(pp, 'component_ranges') else {}
+        
+        print(f"[ImageExport] Opening dialog: {len(components)} components, {len(self.displacement_results)} frames")
+        
+        # Create and show dialog
+        dialog = ExportDialog(
+            self.root,
+            available_components=components,
+            total_frames=len(self.displacement_results),
+            default_settings=default_settings,
+            current_component_ranges=current_ranges,
+            on_export=self._execute_export
+        )
+    
+    def _execute_export(self, settings):
+        """Execute batch image export with the given settings."""
+        from raft_dic_gui.export_images import export_batch_images
+        import threading
+        
+        print(f"[ImageExport] Export requested with settings: {settings}")
+        
+        # Show progress in main window
+        progress = self.control_panel.progress
+        progress_text = self.control_panel.progress_text
+        
+        def _progress_callback(current, total, message):
+            """Update progress in UI."""
+            try:
+                percent = (current / total) * 100 if total > 0 else 0
+                self._ui_call(progress.configure, value=percent)
+                self._ui_call(progress_text.configure, text=message)
+            except Exception as e:
+                print(f"[ImageExport] Progress callback error: {e}")
+        
+        def _image_loader(frame_idx):
+            """Load background image for a frame."""
+            try:
+                if frame_idx < len(self.image_files):
+                    input_dir = self.control_panel.input_path.get()
+                    img_path = os.path.join(input_dir, self.image_files[frame_idx])
+                    return proc.load_and_convert_image(img_path)
+            except Exception as e:
+                print(f"[ImageExport] Error loading image for frame {frame_idx}: {e}")
+            return None
+        
+        def _export_thread():
+            """Run export in background thread."""
+            try:
+                self._ui_call(self._set_running_state, True)
+                
+                output_dir = export_batch_images(
+                    output_dir=settings['output_dir'],
+                    components=settings['components'],
+                    frame_range=settings['frame_range'],
+                    displacement_results=self.displacement_results,
+                    strain_results=getattr(self, 'strain_results', []),
+                    roi_rect=self.roi_rect,
+                    roi_mask=self.roi_mask,
+                    image_loader=_image_loader,
+                    settings=settings,
+                    deformed_view_cache=self.deformed_view_cache,
+                    progress_callback=_progress_callback
+                )
+                
+                self._ui_call(messagebox.showinfo, "Export Complete", 
+                            f"Successfully exported images to:\n{output_dir}")
+                
+            except Exception as e:
+                print(f"[ImageExport] Export error: {e}")
+                import traceback
+                traceback.print_exc()
+                self._ui_call(messagebox.showerror, "Export Error", f"Failed to export images: {str(e)}")
+            
+            finally:
+                self._ui_call(self._set_running_state, False)
+                self._ui_call(progress.configure, value=0)
+                self._ui_call(progress_text.configure, text="")
+        
+        # Start export in background thread
+        thread = threading.Thread(target=_export_thread, daemon=True)
+        thread.start()
+
 
 
 def main():
