@@ -56,6 +56,7 @@ from raft_dic_gui.config import DICConfig
 from raft_dic_gui.controller import DICProcessor
 from raft_dic_gui.views.control_panel import ControlPanel
 from raft_dic_gui.views.preview_panel import PreviewPanel
+from raft_dic_gui.deformed_view_cache import DeformedViewCache
 
 # Override future uses of CollapsibleFrame and ttk with CTk variants
 CollapsibleFrame = CTkCollapsibleFrame
@@ -206,6 +207,11 @@ class RAFTDICGUI:
         self.roi_rect = None
         self.current_probe_mode = 'point'
         
+        # Deformed View Cache (shared across tabs)
+        self.deformed_view_cache = DeformedViewCache(max_images=5)
+        self.deformed_view_cache.set_load_function(proc.load_and_convert_image)
+        self.preview_panel.set_deformed_view_cache(self.deformed_view_cache)
+        
         # Apply theme
         self.apply_theme()
 
@@ -314,6 +320,11 @@ class RAFTDICGUI:
                 count = 0
                 self.strain_results = [] # Clear previous results
                 
+                # Invalidate post component cache (strain data is changing)
+                if hasattr(self, 'deformed_view_cache') and self.deformed_view_cache:
+                    self.deformed_view_cache.post_component_cache.clear()
+                    print("[DeformedView] Cleared post_component_cache (strain recalculation)")
+                
                 for i, item in enumerate(self.displacement_results):
                     # Update progress
                     perc = (i / total) * 100
@@ -383,6 +394,11 @@ class RAFTDICGUI:
         try:
             # Get current settings
             pp = self.control_panel.post_processing_panel
+            
+            # Update display mode indicator
+            background_mode = self.control_panel.background_mode.get()
+            pp.update_display_mode_indicator(background_mode)
+            
             comp_name = pp.vis_component.get()
             
             # Get current frame from slider or entry
@@ -456,23 +472,101 @@ class RAFTDICGUI:
                 pp.post_vmin.set(f"{vmin:.4f}")
                 pp.post_vmax.set(f"{vmax:.4f}")
             
-            # Load background image
+            # Warp data if in deformed mode
+            display_data = data_map
+            if background_mode == 'deformed' and self.displacement_results and self.roi_rect:
+                # Check cache first
+                cached = self.deformed_view_cache.get_post_component(current_frame, comp_name)
+                if cached is not None:
+                    display_data = cached
+                else:
+                    # Need to warp the data
+                    try:
+                        # Get displacement for this frame
+                        if current_frame < len(self.displacement_results):
+                            disp = self.displacement_results[current_frame]
+                            if isinstance(disp, str):
+                                disp = np.load(disp)
+                            u_crop = disp[..., 0]
+                            v_crop = disp[..., 1]
+                            
+                            # Get output shape for warp
+                            if hasattr(self, '_cached_ref_img') and self._cached_ref_img is not None:
+                                output_shape = self._cached_ref_img.shape[:2]
+                            else:
+                                output_shape = (3648, 5472)  # fallback
+                            
+                            # Prepare data for warp (may need upsampling)
+                            data_to_warp = data_map
+                            if data_map.shape != u_crop.shape:
+                                # Strain is downsampled - upsample to match displacement
+                                import cv2
+                                target_h, target_w = u_crop.shape
+                                print(f"[DeformedView] Upsampling {comp_name}: {data_map.shape} -> ({target_h}, {target_w})")
+                                # Handle NaN values: replace with 0, interpolate, then restore NaN mask
+                                nan_mask = np.isnan(data_map)
+                                data_filled = np.nan_to_num(data_map, nan=0.0)
+                                data_upsampled = cv2.resize(data_filled.astype(np.float32), (target_w, target_h), 
+                                                          interpolation=cv2.INTER_LINEAR)
+                                # Upsample nan mask and apply
+                                nan_mask_upsampled = cv2.resize(nan_mask.astype(np.uint8), (target_w, target_h),
+                                                               interpolation=cv2.INTER_NEAREST) > 0
+                                data_upsampled[nan_mask_upsampled] = np.nan
+                                data_to_warp = data_upsampled
+                            
+                            print(f"[DeformedView] Warping post component {comp_name} for frame {current_frame}...")
+                            warped = self.deformed_view_cache.warp_data_forward(
+                                data_to_warp, u_crop, v_crop, self.roi_rect, output_shape
+                            )
+                            # Cache it
+                            self.deformed_view_cache.set_post_component(current_frame, comp_name, warped)
+                            display_data = warped
+                    except Exception as e:
+                        print(f"[DeformedView] Error warping post data: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        # Fall back to original data
+                        display_data = data_map
+            
+            # Load background image based on display mode
             bg_img = None
             if self.image_files:
-                if not hasattr(self, '_cached_ref_img') or self._cached_ref_img is None:
-                    try:
-                        input_dir = self.control_panel.input_path.get()
-                        img_path = os.path.join(input_dir, self.image_files[0])
-                        self._cached_ref_img = proc.load_and_convert_image(img_path)
-                    except Exception as e:
-                        print(f"[ERROR] Failed to load reference image: {e}")
-                        self._cached_ref_img = None
-                bg_img = self._cached_ref_img
+                if background_mode == 'deformed':
+                    # Use deformed frame image
+                    deformed_frame_idx = current_frame + 1
+                    if self.deformed_view_cache is not None:
+                        bg_img = self.deformed_view_cache.get_deformed_image(deformed_frame_idx)
+                    
+                    if bg_img is None:
+                        # Fallback to direct loading
+                        try:
+                            input_dir = self.control_panel.input_path.get()
+                            if deformed_frame_idx < len(self.image_files):
+                                img_path = os.path.join(input_dir, self.image_files[deformed_frame_idx])
+                                bg_img = proc.load_and_convert_image(img_path)
+                        except Exception as e:
+                            print(f"[DeformedView] Failed to load deformed image for post: {e}")
+                
+                if bg_img is None:
+                    # Reference mode or fallback
+                    if not hasattr(self, '_cached_ref_img') or self._cached_ref_img is None:
+                        try:
+                            input_dir = self.control_panel.input_path.get()
+                            img_path = os.path.join(input_dir, self.image_files[0])
+                            self._cached_ref_img = proc.load_and_convert_image(img_path)
+                        except Exception as e:
+                            print(f"[ERROR] Failed to load reference image: {e}")
+                            self._cached_ref_img = None
+                    bg_img = self._cached_ref_img
+            
+            # Determine roi_rect for display
+            # In deformed mode, we display full image (warped data covers full area)
+            display_roi = None if background_mode == 'deformed' else self.roi_rect
             
             # Update PreviewPanel
-            self.preview_panel.plot_post_data(data_map, comp_name, cmap, alpha, 
+            self.preview_panel.plot_post_data(display_data, comp_name, cmap, alpha, 
                                             background_image=bg_img, 
-                                            roi_rect=self.roi_rect,
+                                            roi_rect=display_roi,
                                             vmin=vmin, vmax=vmax,
                                             unit_label=unit_label)
             
@@ -928,6 +1022,16 @@ class RAFTDICGUI:
         self.displacement_results = []
         self.preview_panel.reset_state()
         
+        # Disable deformed mode (no results yet)
+        self.control_panel.disable_deformed_mode()
+        
+        # Invalidate and update deformed view cache
+        if hasattr(self, 'deformed_view_cache') and self.deformed_view_cache:
+            self.deformed_view_cache.invalidate_all(reason="new images loaded")
+            # Set full paths for cache
+            image_paths = [os.path.join(directory, f) for f in self.image_files]
+            self.deformed_view_cache.set_image_paths(image_paths)
+        
         # Populate key frame selector for incremental mode
         self.control_panel.populate_key_frames(len(self.image_files))
 
@@ -987,6 +1091,10 @@ class RAFTDICGUI:
     def _run_process(self):
         """Background processing task."""
         try:
+            # Invalidate deformed view cache (results will change)
+            if hasattr(self, 'deformed_view_cache') and self.deformed_view_cache:
+                self.deformed_view_cache.invalidate_coords_and_masks(reason="processing started")
+            
             mode = self.control_panel.mode.get()
             
             if mode == "incremental":
@@ -1079,6 +1187,9 @@ class RAFTDICGUI:
             self.preview_panel.notebook.tab(2, state="normal")
         except Exception:
             pass
+        
+        # Enable deformed mode option now that we have results
+        self.control_panel.enable_deformed_mode()
         
         self._update_results_ui(total_frames)
         # Auto-set ranges if enabled or first run

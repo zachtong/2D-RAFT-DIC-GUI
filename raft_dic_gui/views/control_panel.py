@@ -379,63 +379,35 @@ class ControlPanel(ttk.Frame):
         ttk.Entry(fixed_from_frame, textvariable=self.fixed_range_frame, width=5).grid(row=0, column=1, padx=(0,8))
         ttk.Button(fixed_from_frame, text="Apply", command=lambda: self._trigger('set_fixed_colorbar')).grid(row=0, column=2)
 
-        # Background Image Mode selection
-        bg_mode_frame = ttk.LabelFrame(vis_frame, text="Background Image Mode", padding=5)
+        # Background Image Mode selection (Global display mode)
+        bg_mode_frame = ttk.LabelFrame(vis_frame, text="Display Background", padding=5)
         bg_mode_frame.grid(row=7, column=0, sticky="ew", pady=5)
         bg_mode_frame.grid_columnconfigure(0, weight=1)
         
-        # Mode radio buttons
-        ttk.Radiobutton(bg_mode_frame, text="Reference Image", variable=self.background_mode, 
-                       value="reference", command=lambda: self._trigger('update_preview')).grid(row=0, column=0, sticky="w", padx=5, pady=2)
-        ttk.Radiobutton(bg_mode_frame, text="Deformed Image", variable=self.background_mode, 
-                       value="deformed", command=lambda: self._trigger('update_preview'), state='disabled').grid(row=0, column=1, sticky="w", padx=10, pady=2)
+        # Mode radio buttons - simple toggle
+        ttk.Radiobutton(bg_mode_frame, text="Reference Frame (Frame 1)", variable=self.background_mode, 
+                       value="reference", command=self._on_display_mode_change).grid(row=0, column=0, sticky="w", padx=5, pady=2)
+        self.deformed_radio = ttk.Radiobutton(bg_mode_frame, text="Current Deformed Frame", variable=self.background_mode, 
+                       value="deformed", command=self._on_display_mode_change, state='disabled')
+        self.deformed_radio.grid(row=1, column=0, sticky="w", padx=5, pady=2)
         
-        deformed_options_frame = ttk.Frame(bg_mode_frame)
-        deformed_options_frame.grid(row=2, column=0, sticky="ew", padx=5, pady=2)
+        # Info label for deformed mode (shown when deformed is selected)
+        self.deformed_info_label = ttk.Label(bg_mode_frame, 
+            text="ℹ️ Values mapped to deformed coordinates.\n   Underlying data remains in Lagrangian definition.",
+            foreground="gray", font=("TkDefaultFont", 8))
+        self.deformed_info_label.grid(row=2, column=0, sticky="w", padx=20, pady=2)
+        self.deformed_info_label.grid_remove()  # Hidden by default
         
-        ttk.Checkbutton(deformed_options_frame, text="Smooth Interpolation", 
-                        variable=self.use_smooth_interpolation,
-                        command=lambda: self._trigger('update_preview')).grid(row=0, column=0, sticky="w", padx=20)
-        
-        # Deformed visualization method options
-        ttk.Label(deformed_options_frame, text="Deformed Mode:").grid(row=1, column=0, sticky="w", padx=(20,4))
-        ttk.Radiobutton(deformed_options_frame, text="Heatmap", value="heatmap",
-                        variable=self.deform_display_mode,
-                        command=lambda: self._trigger('update_preview')).grid(row=1, column=1, sticky="w")
-        ttk.Radiobutton(deformed_options_frame, text="Quiver", value="quiver",
-                        variable=self.deform_display_mode,
-                        command=lambda: self._trigger('update_preview')).grid(row=1, column=2, sticky="w")
-
-        ttk.Label(deformed_options_frame, text="Interpolation:").grid(row=2, column=0, sticky="w", padx=(20,4))
-        interp_combo = ttk.Combobox(deformed_options_frame, textvariable=self.deform_interp,
-                                    values=["linear", "nearest", "rbf"], width=8, state='readonly')
-        interp_combo.grid(row=2, column=1, sticky="w")
-        interp_combo.bind('<<ComboboxSelected>>', lambda e: self._trigger('on_param_change'))
-
-        # Show deformed-options only when 'Deformed Image' is selected
-        def _update_deformed_options(*_):
+        # Update info label visibility when mode changes
+        def _update_info_visibility(*_):
             try:
                 if self.background_mode.get() == 'deformed':
-                    deformed_options_frame.grid()
+                    self.deformed_info_label.grid()
                 else:
-                    deformed_options_frame.grid_remove()
+                    self.deformed_info_label.grid_remove()
             except Exception:
                 pass
-        try:
-            _update_deformed_options()
-            self.background_mode.trace_add('write', lambda *args: _update_deformed_options())
-        except Exception:
-            pass
-
-        ttk.Checkbutton(deformed_options_frame, text="Show Deformed Boundary",
-                        variable=self.show_deformed_boundary,
-                        command=lambda: self._trigger('update_preview')).grid(row=3, column=0, columnspan=2, sticky="w", padx=(20,0))
-
-        ttk.Label(deformed_options_frame, text="Quiver Step:").grid(row=4, column=0, sticky="w", padx=(20,4))
-        quiver_entry = ttk.Entry(deformed_options_frame, textvariable=self.quiver_step, width=6)
-        quiver_entry.grid(row=4, column=1, sticky="w")
-        quiver_entry.bind('<Return>', lambda e: self._trigger('on_param_change'))
-        quiver_entry.bind('<FocusOut>', lambda e: self._trigger('on_param_change'))
+        self.background_mode.trace_add('write', _update_info_visibility)
         
         # Add separator
         ttk.Separator(control_frame, orient="horizontal").grid(row=5, column=0, sticky="ew", pady=5)
@@ -631,6 +603,29 @@ class ControlPanel(ttk.Frame):
             self.model_summary_text.set(f"Failed to inspect checkpoint: {exc}")
             if show_errors:
                 tk.messagebox.showerror("Model Inspection Failed", f"Could not read checkpoint metadata:\n{exc}")
+
+    def _on_display_mode_change(self):
+        """Handle display mode (reference/deformed) change."""
+        mode = self.background_mode.get()
+        print(f"[DeformedView] Display mode changed to: {mode}")
+        self._trigger('update_preview')
+    
+    def enable_deformed_mode(self):
+        """Enable deformed mode option after displacement computed."""
+        try:
+            self.deformed_radio.configure(state="normal")
+            print("[DeformedView] Deformed mode enabled")
+        except Exception as e:
+            print(f"[DeformedView] Error enabling deformed mode: {e}")
+    
+    def disable_deformed_mode(self):
+        """Disable and reset to reference mode."""
+        try:
+            self.background_mode.set("reference")
+            self.deformed_radio.configure(state="disabled")
+            print("[DeformedView] Deformed mode disabled, reset to reference")
+        except Exception as e:
+            print(f"[DeformedView] Error disabling deformed mode: {e}")
 
     def _on_mode_change(self):
         """Handle processing mode change (Accumulative/Incremental)."""

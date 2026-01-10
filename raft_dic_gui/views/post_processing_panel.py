@@ -113,38 +113,49 @@ class PostProcessingPanel(ttk.Frame):
         frame.pack(fill="x", padx=5, pady=5)
         content = frame.get_content_frame()
         
+        # Display Mode Indicator (read-only, synced with DIC tab)
+        mode_frame = ttk.Frame(content)
+        mode_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 5))
+        ttk.Label(mode_frame, text="Display Mode:").pack(side="left")
+        self.display_mode_label = ttk.Label(mode_frame, text="Reference Frame", 
+                                            foreground="gray", font=("TkDefaultFont", 9, "italic"))
+        self.display_mode_label.pack(side="left", padx=5)
+        Tooltip(self.display_mode_label, "Display mode is controlled from the DIC tab → Visualization Settings")
+        
+        ttk.Separator(content, orient="horizontal").grid(row=1, column=0, columnspan=2, sticky="ew", pady=3)
+        
         # Display Component Selector
-        ttk.Label(content, text="Display Component:").grid(row=0, column=0, sticky="w")
+        ttk.Label(content, text="Display Component:").grid(row=2, column=0, sticky="w")
         self.vis_component = tk.StringVar(value="exx")
         self.vis_comp_combo = ttk.Combobox(content, textvariable=self.vis_component, values=['u', 'v'], state="readonly")
-        self.vis_comp_combo.grid(row=0, column=1, sticky="ew")
+        self.vis_comp_combo.grid(row=2, column=1, sticky="ew")
         self.vis_comp_combo = ttk.Combobox(content, textvariable=self.vis_component, values=['u', 'v'], state="readonly")
-        self.vis_comp_combo.grid(row=0, column=1, sticky="ew")
+        self.vis_comp_combo.grid(row=2, column=1, sticky="ew")
         self.vis_comp_combo.bind("<<ComboboxSelected>>", lambda e: self._trigger('update_post_preview'))
         
-        ttk.Label(content, text="Colormap:").grid(row=1, column=0, sticky="w")
+        ttk.Label(content, text="Colormap:").grid(row=3, column=0, sticky="w")
         self.vis_colormap = tk.StringVar(value="turbo")
         cb = ttk.Combobox(content, textvariable=self.vis_colormap, values=["turbo", "viridis", "jet", "magma", "plasma", "inferno", "cividis", "RdYlBu", "coolwarm"])
-        cb.grid(row=1, column=1, sticky="ew")
+        cb.grid(row=3, column=1, sticky="ew")
         cb.bind("<<ComboboxSelected>>", lambda e: self._trigger('update_post_preview'))
         
-        ttk.Label(content, text="Transparency (0-1):").grid(row=2, column=0, sticky="w")
+        ttk.Label(content, text="Transparency (0-1):").grid(row=4, column=0, sticky="w")
         self.vis_alpha = tk.StringVar(value="0.7")
         alpha_entry = ttk.Entry(content, textvariable=self.vis_alpha, width=6)
-        alpha_entry.grid(row=2, column=1, sticky="w")
+        alpha_entry.grid(row=4, column=1, sticky="w")
         alpha_entry.bind('<Return>', lambda e: self._trigger('update_post_preview'))
         alpha_entry.bind('<FocusOut>', lambda e: self._trigger('update_post_preview'))
 
         # Physical Units
-        ttk.Separator(content, orient="horizontal").grid(row=3, column=0, columnspan=2, sticky="ew", pady=5)
+        ttk.Separator(content, orient="horizontal").grid(row=5, column=0, columnspan=2, sticky="ew", pady=5)
         
         self.use_physical_units = tk.BooleanVar(value=False)
         cb_phys = ttk.Checkbutton(content, text="Use Physical Units", variable=self.use_physical_units, 
                                 command=lambda: self._trigger('update_post_preview'))
-        cb_phys.grid(row=4, column=0, columnspan=2, sticky="w")
+        cb_phys.grid(row=6, column=0, columnspan=2, sticky="w")
         
         phys_frame = ttk.Frame(content)
-        phys_frame.grid(row=5, column=0, columnspan=2, sticky="ew", padx=20)
+        phys_frame.grid(row=7, column=0, columnspan=2, sticky="ew", padx=20)
         
         ttk.Label(phys_frame, text="Ratio (unit/px):").pack(side="left")
         self.physical_ratio = tk.StringVar(value="1.0")
@@ -160,7 +171,7 @@ class PostProcessingPanel(ttk.Frame):
         Tooltip(ratio_entry, "Physical units per pixel (e.g. mm/pixel)")
         
         # Color Range Controls
-        ttk.Separator(content, orient="horizontal").grid(row=6, column=0, columnspan=2, sticky="ew", pady=5)
+        ttk.Separator(content, orient="horizontal").grid(row=8, column=0, columnspan=2, sticky="ew", pady=5)
         
         self.post_fixed_range = tk.BooleanVar(value=False)
         self.post_vmin = tk.StringVar(value="")
@@ -414,3 +425,16 @@ class PostProcessingPanel(ttk.Frame):
         # If current selection is not in list, default to u
         if self.vis_component.get() not in full_list:
             self.vis_component.set('u')
+
+    def update_display_mode_indicator(self, mode: str):
+        """
+        Update the display mode indicator label.
+        
+        Args:
+            mode: 'reference' or 'deformed'
+        """
+        if hasattr(self, 'display_mode_label'):
+            if mode == 'deformed':
+                self.display_mode_label.configure(text="🔵 Deformed Frame", foreground="blue")
+            else:
+                self.display_mode_label.configure(text="Reference Frame", foreground="gray")

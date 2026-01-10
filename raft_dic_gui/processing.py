@@ -660,7 +660,8 @@ def _create_deformed_displacement_image_fast(img_crop, u_full, v_full, deformed_
 
 def prepare_visualization_data(displacement, reference_image, deformed_image, roi_rect, roi_mask,
                                preview_scale, interp_sample_step, background_mode,
-                               deform_display_mode, deform_interp, show_deformed_boundary, quiver_step):
+                               deform_display_mode, deform_interp, show_deformed_boundary, quiver_step,
+                               deformed_view_cache=None, frame_idx=None):
     """Prepare data for visualization without creating a figure"""
     print(f"[DEBUG] prepare_visualization_data: Mode={background_mode}, ROI={roi_rect}")
     data = {
@@ -696,134 +697,106 @@ def prepare_visualization_data(displacement, reference_image, deformed_image, ro
             data['error'] = str(e)
             return data
 
+    # Deformed mode: Show displacement WARPED to deformed frame coordinates
+    # Uses forward scatter: for each reference pixel, place its value at the deformed position
     try:
-        xmin, ymin, xmax, ymax = roi_rect
-        u = displacement[:, :, 0]
-        v = displacement[:, :, 1]
-        
-        roi_mask_crop = roi_mask[ymin:ymax, xmin:xmax] if roi_mask is not None else None
-        if roi_mask_crop is None:
-             # Fallback to reference
-             return prepare_visualization_data(displacement, reference_image, deformed_image, roi_rect, roi_mask,
-                               preview_scale, interp_sample_step, 'reference',
-                               deform_display_mode, deform_interp, show_deformed_boundary, quiver_step)
-
-        roi_h, roi_w = u.shape
-        Yg, Xg = np.mgrid[ymin:ymin+roi_h, xmin:xmin+roi_w]
-        
-        valid = roi_mask_crop & ~np.isnan(u) & ~np.isnan(v)
-        sstep = max(1, int(interp_sample_step))
-        if sstep > 1:
-            stride_mask = np.zeros_like(valid, dtype=bool)
-            stride_mask[::sstep, ::sstep] = True
-            valid = valid & stride_mask
-        if not np.any(valid):
-             return prepare_visualization_data(displacement, reference_image, deformed_image, roi_rect, roi_mask,
-                               preview_scale, interp_sample_step, 'reference',
-                               deform_display_mode, deform_interp, show_deformed_boundary, quiver_step)
-
-        x_def = (Xg[valid] + u[valid]).astype(np.float64)
-        y_def = (Yg[valid] + v[valid]).astype(np.float64)
-        pts = np.column_stack((x_def, y_def))
-
         h, w = deformed_image.shape[:2]
-        x0 = int(max(0, np.floor(x_def.min())))
-        x1 = int(min(w-1, np.ceil(x_def.max())))
-        y0 = int(max(0, np.floor(y_def.min())))
-        y1 = int(min(h-1, np.ceil(y_def.max())))
-        if x1 <= x0 or y1 <= y0:
-             return prepare_visualization_data(displacement, reference_image, deformed_image, roi_rect, roi_mask,
-                               preview_scale, interp_sample_step, 'reference',
-                               deform_display_mode, deform_interp, show_deformed_boundary, quiver_step)
-
-        Xq, Yq = np.meshgrid(np.arange(x0, x1+1), np.arange(y0, y1+1))
-
-        method = deform_interp
-        # Interpolate U
-        if method == 'rbf' and pts.shape[0] >= 10:
-            try:
-                rbf_u = Rbf(x_def, y_def, u[valid], function='multiquadric')
-                u_grid = rbf_u(Xq, Yq)
-            except Exception:
-                u_grid = griddata(pts, u[valid], (Xq, Yq), method='linear')
-        else:
-            u_grid = griddata(pts, u[valid], (Xq, Yq), method='linear')
-            if np.isnan(u_grid).all():
-                u_grid = griddata(pts, u[valid], (Xq, Yq), method='nearest')
-
-        # Interpolate V
-        if method == 'rbf' and pts.shape[0] >= 10:
-            try:
-                rbf_v = Rbf(x_def, y_def, v[valid], function='multiquadric')
-                v_grid = rbf_v(Xq, Yq)
-            except Exception:
-                v_grid = griddata(pts, v[valid], (Xq, Yq), method='linear')
-        else:
-            v_grid = griddata(pts, v[valid], (Xq, Yq), method='linear')
-            if np.isnan(v_grid).all():
-                v_grid = griddata(pts, v[valid], (Xq, Yq), method='nearest')
-
-        # Build deformed mask
-        mask_grid = np.zeros_like(u_grid, dtype=np.uint8)
-        xi = np.clip(np.round(x_def).astype(int) - x0, 0, (x1 - x0))
-        yi = np.clip(np.round(y_def).astype(int) - y0, 0, (y1 - y0))
-        mask_grid[yi, xi] = 1
-        try:
-            kernel = np.ones((3, 3), np.uint8)
-            mask_grid = cv2.morphologyEx(mask_grid, cv2.MORPH_CLOSE, kernel, iterations=1)
-        except Exception:
-            pass
         
-        # Prepare final data
-        img_crop = deformed_image[y0:y1+1, x0:x1+1]
-        u_full = np.full(img_crop.shape[:2], np.nan)
-        v_full = np.full(img_crop.shape[:2], np.nan)
+        # Check cache first
+        if deformed_view_cache is not None and frame_idx is not None:
+            cached = deformed_view_cache.get_warped_displacement(frame_idx)
+            if cached is not None:
+                print(f"[DeformedView] Using cached warped displacement for frame {frame_idx}")
+                data['img_crop'] = deformed_image
+                data['u_masked'] = np.ma.array(cached['u_warped'], mask=np.isnan(cached['u_warped']))
+                data['v_masked'] = np.ma.array(cached['v_warped'], mask=np.isnan(cached['v_warped']))
+                return data
         
-        valid_mask = (mask_grid > 0)
-        u_full[valid_mask] = u_grid[valid_mask]
-        v_full[valid_mask] = v_grid[valid_mask]
+        print(f"[DeformedView] Computing inverse warp for frame {frame_idx}...")
+        xmin, ymin, xmax, ymax = roi_rect
+        u_crop = displacement[:, :, 0]
+        v_crop = displacement[:, :, 1]
+        roi_h, roi_w = u_crop.shape
         
-        data['img_crop'] = img_crop
-        data['u_masked'] = np.ma.array(u_full, mask=~valid_mask)
-        data['v_masked'] = np.ma.array(v_full, mask=~valid_mask)
+        print(f"[DeformedView] ROI: ({xmin},{ymin}) to ({xmax},{ymax}), shape=({roi_h},{roi_w})")
         
-        if show_deformed_boundary:
-             # Find contours
-             try:
-                 contours, _ = cv2.findContours(mask_grid, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                 if contours:
-                     # Just take the largest one or all?
-                     # Flatten points
-                     all_pts = []
-                     for cnt in contours:
-                         pts = cnt.reshape(-1, 2)
-                         # Add offset
-                         pts += np.array([x0, y0])
-                         all_pts.append(pts)
-                     data['boundary_points'] = all_pts
-             except Exception:
-                 pass
-                 
-        if deform_display_mode == 'quiver':
-             # Generate quiver data on grid
-             qstep = max(1, int(quiver_step))
-             # Create a grid of points
-             h_c, w_c = img_crop.shape[:2]
-             y_q, x_q = np.mgrid[0:h_c:qstep, 0:w_c:qstep]
-             
-             # Filter by valid mask
-             valid_q = valid_mask[y_q, x_q]
-             
-             if np.any(valid_q):
-                 x_q = x_q[valid_q] + x0
-                 y_q = y_q[valid_q] + y0
-                 u_q = u_grid[y_q-y0, x_q-x0]
-                 v_q = v_grid[y_q-y0, x_q-x0]
-                 data['quiver_data'] = (x_q, y_q, u_q, v_q)
-
+        # Create coordinate grids for the ROI region
+        y_ref, x_ref = np.mgrid[ymin:ymax, xmin:xmax]
+        
+        # Compute deformed coordinates for each pixel in ROI
+        # x_def = x_ref + u, y_def = y_ref + v
+        x_def = (x_ref + u_crop).astype(np.float32)
+        y_def = (y_ref + v_crop).astype(np.float32)
+        
+        # Create output arrays (full image size) - initialize to 0 for accumulation
+        # (np.add.at cannot accumulate on NaN values)
+        u_warped = np.zeros((h, w), dtype=np.float32)
+        v_warped = np.zeros((h, w), dtype=np.float32)
+        count_map = np.zeros((h, w), dtype=np.float32)
+        
+        # Valid mask: not NaN
+        valid_mask = ~np.isnan(u_crop) & ~np.isnan(v_crop)
+        
+        # Get valid positions
+        x_def_valid = x_def[valid_mask]
+        y_def_valid = y_def[valid_mask]
+        u_valid = u_crop[valid_mask]
+        v_valid = v_crop[valid_mask]
+        
+        print(f"[DeformedView] Valid pixels: {len(u_valid)}")
+        
+        # Round to nearest integer coordinates
+        x_idx = np.round(x_def_valid).astype(np.int32)
+        y_idx = np.round(y_def_valid).astype(np.int32)
+        
+        # Filter to within bounds
+        in_bounds = (x_idx >= 0) & (x_idx < w) & (y_idx >= 0) & (y_idx < h)
+        x_idx = x_idx[in_bounds]
+        y_idx = y_idx[in_bounds]
+        u_valid = u_valid[in_bounds]
+        v_valid = v_valid[in_bounds]
+        
+        print(f"[DeformedView] In bounds: {len(u_valid)}")
+        
+        # Forward scatter: place values at deformed positions
+        # Use accumulation for averaging when multiple points land on same pixel
+        np.add.at(u_warped, (y_idx, x_idx), u_valid)
+        np.add.at(v_warped, (y_idx, x_idx), v_valid)
+        np.add.at(count_map, (y_idx, x_idx), 1.0)
+        
+        # Average where multiple values accumulated
+        nonzero = count_map > 0
+        u_warped[nonzero] /= count_map[nonzero]
+        v_warped[nonzero] /= count_map[nonzero]
+        u_warped[~nonzero] = np.nan
+        v_warped[~nonzero] = np.nan
+        
+        # Close small holes using morphological dilation on the mask
+        valid_warped = ~np.isnan(u_warped)
+        kernel = np.ones((3, 3), np.uint8)
+        dilated = cv2.dilate(valid_warped.astype(np.uint8), kernel, iterations=1)
+        
+        # For newly-filled pixels, interpolate from neighbors (simple approach: just keep as is)
+        # More sophisticated: use cv2.inpaint or scipy interpolation
+        
+        valid_count = np.sum(~np.isnan(u_warped))
+        print(f"[DeformedView] Warped valid pixels: {valid_count}")
+        
+        # Store in cache for future use
+        if deformed_view_cache is not None and frame_idx is not None:
+            deformed_view_cache.set_warped_displacement(frame_idx, u_warped, v_warped)
+        
+        data['img_crop'] = deformed_image
+        data['u_masked'] = np.ma.array(u_warped, mask=np.isnan(u_warped))
+        data['v_masked'] = np.ma.array(v_warped, mask=np.isnan(v_warped))
+        
+        print(f"[DeformedView] Deformed mode with inverse warp prepared.")
         return data
         
     except Exception as e:
+        print(f"[DeformedView] Error in deformed mode: {e}")
+        import traceback
+        traceback.print_exc()
         data['error'] = str(e)
         return data
 

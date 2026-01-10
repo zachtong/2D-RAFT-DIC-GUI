@@ -71,11 +71,19 @@ class PreviewPanel(ttk.Frame):
         
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
         
+        # Deformed view cache reference (set by main_GUI)
+        self.deformed_view_cache = None
+        
         self.create_widgets()
 
     def set_control_panel(self, control_panel):
         """Set the control panel reference."""
         self.control_panel = control_panel
+    
+    def set_deformed_view_cache(self, cache):
+        """Set the deformed view cache reference for optimized image loading."""
+        self.deformed_view_cache = cache
+        print(f"[DeformedView] PreviewPanel: Cache reference set")
 
     def _on_tab_changed(self, event):
         if self.callbacks.get('on_tab_changed'):
@@ -1281,12 +1289,25 @@ class PreviewPanel(ttk.Frame):
             # Load deformed image if needed
             deformed_image = self.current_image
             if cp.background_mode.get() == 'deformed':
-                if hasattr(self, 'image_files') and len(self.image_files) > current_frame + 1:
+                # Use cache if available, otherwise load directly
+                # Note: current_frame is 0-indexed result index, 
+                # but image index is current_frame + 1 (Frame 2 for result[0])
+                deformed_frame_idx = current_frame + 1
+                
+                if self.deformed_view_cache is not None:
+                    # Use cached image loading
+                    cached_img = self.deformed_view_cache.get_deformed_image(deformed_frame_idx)
+                    if cached_img is not None:
+                        deformed_image = cached_img
+                    else:
+                        print(f"[DeformedView] Warning: Failed to load cached image for frame {deformed_frame_idx}")
+                elif hasattr(self, 'image_files') and len(self.image_files) > deformed_frame_idx:
+                    # Fallback: direct loading
                     try:
-                        deformed_img_path = os.path.join(cp.input_path.get(), self.image_files[current_frame + 1])
+                        deformed_img_path = os.path.join(cp.input_path.get(), self.image_files[deformed_frame_idx])
                         deformed_image = proc.load_and_convert_image(deformed_img_path)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        print(f"[DeformedView] Error loading deformed image: {e}")
 
             # Physical Units Handling
             unit_label = "[px]"
@@ -1314,7 +1335,9 @@ class PreviewPanel(ttk.Frame):
                 cp.deform_display_mode.get(),
                 cp.deform_interp.get(),
                 cp.show_deformed_boundary.get(),
-                int(cp.quiver_step.get() or "10")
+                int(cp.quiver_step.get() or "10"),
+                deformed_view_cache=self.deformed_view_cache,
+                frame_idx=current_frame
             )
             
 
