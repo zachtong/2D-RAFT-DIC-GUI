@@ -384,15 +384,49 @@ class PreviewPanel(ttk.Frame):
             for x, y in scaled_points:
                 self.roi_canvas.create_oval(x-3, y-3, x+3, y+3, fill='red', outline='yellow')
 
-        # Draw mask overlay if exists
+        # Draw mask overlay if exists - use contour lines instead of RGBA overlay (MUCH faster)
         if self.roi_mask is not None:
-            # Create overlay
-            mask_overlay = np.zeros((h, w, 4), dtype=np.uint8)
-            mask_overlay[self.roi_mask] = [255, 255, 0, 64] # Yellow transparent
-            pil_mask = Image.fromarray(mask_overlay)
-            pil_mask = pil_mask.resize((new_w, new_h), Image.NEAREST)
-            self.mask_photo = ImageTk.PhotoImage(pil_mask)
-            self.roi_canvas.create_image(0, 0, image=self.mask_photo, anchor=tk.NW)
+            # Find contours only when mask changes (once per mask)
+            mask_id = id(self.roi_mask)
+            if not hasattr(self, '_mask_contours') or getattr(self, '_mask_id', None) != mask_id:
+                # Find ALL contours including holes using RETR_TREE
+                contours, hierarchy = cv2.findContours(self.roi_mask.astype(np.uint8), 
+                                                       cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+                self._mask_contours = contours
+                self._mask_hierarchy = hierarchy
+                self._mask_id = mask_id
+            
+            # Draw contours on canvas (fast - just lines, no PhotoImage!)
+            # hierarchy[i] = [next, prev, child, parent]
+            # parent == -1 means top-level (external) contour
+            hierarchy = self._mask_hierarchy
+            for i, contour in enumerate(self._mask_contours):
+                if len(contour) < 3:
+                    continue
+                
+                points = []
+                for p in contour:
+                    x = p[0][0] * self.zoom_factor
+                    y = p[0][1] * self.zoom_factor
+                    points.extend([x, y])
+                
+                if len(points) >= 6:  # At least 3 points for polygon
+                    # Check hierarchy to determine if this is an outer or inner (hole) contour
+                    # hierarchy[0][i][3] is parent index; -1 means no parent (outer contour)
+                    if hierarchy is not None and len(hierarchy) > 0:
+                        parent = hierarchy[0][i][3]
+                        if parent == -1:
+                            # Outer contour - yellow fill with stipple
+                            self.roi_canvas.create_polygon(points, fill='yellow', outline='yellow',
+                                                           stipple='gray25', width=1, tags='mask_contour')
+                        else:
+                            # Inner contour (hole) - draw as outline only, no fill
+                            self.roi_canvas.create_polygon(points, fill='', outline='red',
+                                                           width=1, tags='mask_hole')
+                    else:
+                        # No hierarchy info, just draw as outer
+                        self.roi_canvas.create_polygon(points, fill='yellow', outline='yellow',
+                                                       stipple='gray25', width=1, tags='mask_contour')
 
         self.draw_tiles_overlay()
         self.draw_rulers(new_w, new_h)
@@ -1055,6 +1089,9 @@ class PreviewPanel(ttk.Frame):
         self.roi_mask = None
         self.roi_points = []
         self.roi_rect = None
+        # Clear mask contour cache
+        self._mask_contours = None
+        self._mask_id = None
         self.draw_roi()
         self.confirm_roi_btn.grid()
 

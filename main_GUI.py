@@ -301,12 +301,6 @@ class RAFTDICGUI:
             
         print(f"[DEBUG] Strain Params: Method={method}, Size={vsg_size}, Order={poly_order}, Weight={weighting}, Step={step}")
         
-        # Check selected components
-        comps = {k: v.get() for k, v in pp.strain_components.items()}
-        if not any(comps.values()):
-            messagebox.showwarning("Warning", "Please select at least one strain component to calculate.")
-            return
-
         # Run calculation (Batch)
         self._set_running_state(True)
         
@@ -319,12 +313,6 @@ class RAFTDICGUI:
             try:
                 count = 0
                 self.strain_results = [] # Clear previous results
-                
-                # Update available components in UI
-                active_comps = [k for k, v in comps.items() if v]
-                self._ui_call(pp.vis_comp_combo.configure, values=active_comps)
-                if active_comps:
-                    self._ui_call(pp.vis_component.set, active_comps[0])
                 
                 for i, item in enumerate(self.displacement_results):
                     # Update progress
@@ -779,10 +767,8 @@ class RAFTDICGUI:
 
     def _update_roi_status_text(self):
         """Update the status text in PreviewPanel with VRAM and Tiling info."""
-        # Force cleanup to get accurate free memory reading
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            gc.collect()
+        # Note: Removed gc.collect() and empty_cache() here - they caused 10+ second freezes
+        # Memory info will be slightly less accurate but UI remains responsive
             
         try:
             # 1. Get GPU Info
@@ -1134,12 +1120,17 @@ class RAFTDICGUI:
         try:
             # Gather Metadata
             pp = self.control_panel.post_processing_panel
+            upsample_strain = pp.export_upsample_strain.get()
+            strain_step = int(pp.strain_step.get())
+            
             metadata = {
                 'vsg_size': int(pp.vsg_size.get()),
                 'strain_method': pp.strain_method.get(),
                 'poly_order': int(pp.poly_order.get()),
                 'weighting': pp.weighting.get(),
-                'strain_step': int(pp.strain_step.get()),
+                'strain_step': strain_step,
+                'strain_export_upsampled': upsample_strain,
+                'strain_upsampling_method': 'INTER_NEAREST' if (strain_step > 1 and upsample_strain) else 'none',
                 'use_physical_units': self.control_panel.use_physical_units.get(),
                 'physical_ratio': float(self.control_panel.physical_ratio.get()),
                 'physical_unit': self.control_panel.physical_unit.get(),
@@ -1155,7 +1146,8 @@ class RAFTDICGUI:
                 self.roi_rect,
                 metadata,
                 file_path,
-                image_files=getattr(self.processor, 'image_files', None)
+                image_files=getattr(self.processor, 'image_files', None),
+                upsample_strain=upsample_strain
             )
             
             messagebox.showinfo("Export Success", f"Successfully exported scientific data to:\n{saved_path}")

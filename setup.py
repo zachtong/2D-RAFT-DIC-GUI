@@ -175,6 +175,41 @@ class CustomInstallCommand(install):
         install_pytorch_with_cuda()
         install.run(self)
 
+class CustomDevelopCommand(develop):
+    """Custom develop command."""
+    def run(self):
+        install_pytorch_with_cuda()
+        develop.run(self)
+
+# Get CUDA extensions
+cuda_extensions = get_cuda_extensions()
+
+# Core dependencies (excluding PyTorch which is handled separately)
+INSTALL_REQUIRES = [
+    "numpy>=1.20.0",
+    "opencv-python>=4.5.0",
+    "Pillow>=8.0.0",
+    "scipy>=1.7.0",
+    "matplotlib>=3.4.0",
+    "tifffile>=2021.0.0",
+    "customtkinter>=5.0.0",
+    "numba>=0.56.0",  # For optimized rotation angle calculation
+]
+
+setup(
+    name="raftcorr",
+    version="1.0.0",
+    author="Zixiang (Zach) Tong, Lehu Bu",
+    author_email="zachtong@utexas.edu",
+    description="RAFTcorr: GPU-accelerated Digital Image Correlation using RAFT neural network",
+    long_description=read_readme(),
+    long_description_content_type="text/markdown",
+    url="https://github.com/zachtong/RAFTcorr",
+    packages=find_packages(),
+    python_requires=">=3.8",
+    
+    install_requires=INSTALL_REQUIRES,
+    
     # CUDA extensions
     ext_modules=cuda_extensions,
     

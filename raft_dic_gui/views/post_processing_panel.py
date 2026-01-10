@@ -16,15 +16,6 @@ class PostProcessingPanel(ttk.Frame):
         # State variables
         self.strain_method = tk.StringVar(value="green_lagrange")
         self.strain_sigma = tk.StringVar(value="0.0")
-        self.strain_components = {
-            'exx': tk.BooleanVar(value=True),
-            'eyy': tk.BooleanVar(value=True),
-            'exy': tk.BooleanVar(value=True),
-            'e1': tk.BooleanVar(value=False),
-            'e2': tk.BooleanVar(value=False),
-            'max_shear': tk.BooleanVar(value=False),
-            'von_mises': tk.BooleanVar(value=False),
-        }
         
         self.create_widgets()
 
@@ -92,10 +83,10 @@ class PostProcessingPanel(ttk.Frame):
         
         # Step
         ttk.Label(content, text="Step (px):").grid(row=r, column=0, sticky="w")
-        self.strain_step = tk.StringVar(value="1")
-        step_entry = ttk.Entry(content, textvariable=self.strain_step, width=6, state="disabled")
+        self.strain_step = tk.StringVar(value="15")
+        step_entry = ttk.Entry(content, textvariable=self.strain_step, width=6)
         step_entry.grid(row=r, column=1, sticky="w")
-        Tooltip(step_entry, "Calculation stride (Fixed to 1 for full resolution)")
+        Tooltip(step_entry, "Calculation stride: 1=full resolution, higher=faster but lower resolution")
         r += 1
         
         # Polynomial Order
@@ -112,16 +103,6 @@ class PostProcessingPanel(ttk.Frame):
         
         ttk.Separator(content, orient="horizontal").grid(row=r, column=0, columnspan=2, sticky="ew", pady=5)
         r += 1
-        
-        # Components
-        lbl = ttk.Label(content, text="Components to Calculate:")
-        lbl.grid(row=r, column=0, columnspan=2, sticky="w", pady=(0, 2))
-        r += 1
-        
-        for key, var in self.strain_components.items():
-            cb = ttk.Checkbutton(content, text=key.upper().replace('_', ' '), variable=var)
-            cb.grid(row=r, column=0, columnspan=2, sticky="w", padx=10)
-            r += 1
         
         # Calculate Button
         btn = ttk.Button(content, text="Calculate Strain", command=lambda: self._trigger('calculate_strain'))
@@ -352,6 +333,14 @@ class PostProcessingPanel(ttk.Frame):
         frame = CollapsibleFrame(self.sidebar_content, text="Data Export")
         frame.pack(fill="x", padx=5, pady=5)
         content = frame.get_content_frame()
+        
+        # Upsampling option
+        self.export_upsample_strain = tk.BooleanVar(value=True)
+        cb = ttk.Checkbutton(content, text="Upsample strain to full resolution", 
+                            variable=self.export_upsample_strain)
+        cb.pack(fill="x", pady=2, padx=5, anchor="w")
+        Tooltip(cb, "When checked: Strain data is upsampled to match displacement resolution (larger file)\n"
+                   "When unchecked: Strain is saved at native resolution (smaller file, step info in metadata)")
         
         ttk.Button(content, text="Export Scientific Data (.mat/.npz)", 
                   command=lambda: self._trigger('export_scientific_data')).pack(fill="x", pady=5)
