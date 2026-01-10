@@ -927,6 +927,9 @@ class RAFTDICGUI:
         self.roi_rect = None
         self.displacement_results = []
         self.preview_panel.reset_state()
+        
+        # Populate key frame selector for incremental mode
+        self.control_panel.populate_key_frames(len(self.image_files))
 
         # Update PreviewPanel
         self.preview_panel.set_image(img, img_path)
@@ -984,23 +987,84 @@ class RAFTDICGUI:
     def _run_process(self):
         """Background processing task."""
         try:
-            # Run processing
-            results = self.processor.run(
-                self.config,
-                self.roi_mask,
-                self.roi_rect
-            )
+            mode = self.control_panel.mode.get()
             
-            # Store results
-            self.displacement_results = results
-            
-            # Update UI with results
-            self._ui_call(self._on_processing_complete, len(results))
+            if mode == "incremental":
+                # Incremental processing mode
+                self._run_incremental_process()
+            else:
+                # Standard accumulative mode (default)
+                results = self.processor.run(
+                    self.config,
+                    self.roi_mask,
+                    self.roi_rect
+                )
+                
+                # Store results
+                self.displacement_results = results
+                
+                # Update UI with results
+                self._ui_call(self._on_processing_complete, len(results))
             
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             self._ui_call(messagebox.showerror, "Processing Error", str(e))
         finally:
             self._set_running_state(False)
+
+    def _run_incremental_process(self):
+        """Run incremental reference processing mode."""
+        # Get key frames from UI
+        key_frames = self.control_panel.get_selected_key_frames()
+        
+        if not key_frames or key_frames[0] != 1:
+            self._ui_call(messagebox.showerror, "Configuration Error", 
+                         "Incremental mode requires Frame 1 to be selected as a key frame.")
+            return
+        
+        # Build full image paths
+        input_dir = self.control_panel.input_path.get()
+        image_paths = [os.path.join(input_dir, f) for f in self.image_files]
+        
+        # Load model (same as DICProcessor.run does)
+        import raft_dic_gui.model as mdl
+        try:
+            model = mdl.load_model(self.config.model_path, device=self.config.device)
+        except Exception as e:
+            self._ui_call(messagebox.showerror, "Model Load Error", f"Failed to load model: {e}")
+            return
+        
+        # Progress callback
+        def progress_cb(frame_idx, total, message):
+            perc = (frame_idx / total) * 100
+            self._ui_call(self.control_panel.progress.configure, value=perc)
+            self._ui_call(self.control_panel.progress_text.configure, text=message)
+        
+        # Run incremental processing
+        results, warped_masks, segment_info = proc.run_incremental_processing(
+            model=model,
+            images=image_paths,
+            key_frames=key_frames,
+            roi_mask=self.roi_mask,
+            roi_rect=self.roi_rect,
+            device=self.config.device,
+            context_padding=self.config.context_padding,
+            tile_overlap=self.config.tile_overlap,
+            p_max_pixels=self.config.p_max_pixels,
+            use_smooth=self.config.use_smooth,
+            sigma=self.config.sigma,
+            iters=12,
+            progress_callback=progress_cb
+        )
+        
+        # Store results and extra data
+        self.displacement_results = results
+        self.warped_masks = warped_masks
+        self.segment_info = segment_info
+        
+        # Update UI
+        self._ui_call(self._on_processing_complete, len([r for r in results if r is not None]))
 
     def _on_processing_complete(self, total_frames):
         """Handle successful completion of processing."""
@@ -1094,7 +1158,10 @@ class RAFTDICGUI:
 
     def _on_export_scientific_data(self):
         """Handle scientific data export request."""
-        if not self.processor.displacement_results:
+        # Check both standard and incremental mode result locations
+        has_results = (hasattr(self.processor, 'displacement_results') and self.processor.displacement_results) or \
+                      (hasattr(self, 'displacement_results') and self.displacement_results)
+        if not has_results:
             messagebox.showwarning("Warning", "No results to export. Please run analysis first.")
             return
 
@@ -1135,19 +1202,48 @@ class RAFTDICGUI:
                 'physical_ratio': float(self.control_panel.physical_ratio.get()),
                 'physical_unit': self.control_panel.physical_unit.get(),
                 
-                'time_step': float(self.control_panel.time_step.get())
+                'time_step': float(self.control_panel.time_step.get()),
+                'processing_mode': self.control_panel.mode.get(),
+                
+                # Include key_frames and segments for both modes (empty for accumulative)
+                'key_frames': [],
+                'segments': []
             }
+            
+            # Add incremental mode specific metadata
+            if self.control_panel.mode.get() == "incremental" and hasattr(self, 'segment_info'):
+                metadata['key_frames'] = self.segment_info.get('key_frames', [])
+                metadata['segments'] = self.segment_info.get('segments', [])
+            
+            # Prepare warped masks for export if available (None for accumulative mode)
+            warped_masks = getattr(self, 'warped_masks', None)
+            
+            # Determine correct displacement results source
+            # For incremental mode: results in self.displacement_results
+            # For accumulative mode: results in self.processor.displacement_results
+            if self.control_panel.mode.get() == "incremental":
+                displacement_data = getattr(self, 'displacement_results', [])
+            else:
+                displacement_data = getattr(self.processor, 'displacement_results', [])
+            
+            # Fallback: try the other location if empty
+            if not displacement_data:
+                displacement_data = getattr(self, 'displacement_results', []) or \
+                                   getattr(self.processor, 'displacement_results', [])
+            
+            print(f"[Export] Mode: {self.control_panel.mode.get()}, displacement_data length: {len(displacement_data) if displacement_data else 0}")
             
             # Call processing function
             saved_path = proc.save_scientific_results(
-                self.processor.displacement_results,
+                displacement_data,
                 self.strain_results,
                 self.roi_mask,
                 self.roi_rect,
                 metadata,
                 file_path,
                 image_files=getattr(self.processor, 'image_files', None),
-                upsample_strain=upsample_strain
+                upsample_strain=upsample_strain,
+                warped_masks=warped_masks
             )
             
             messagebox.showinfo("Export Success", f"Successfully exported scientific data to:\n{saved_path}")

@@ -180,9 +180,43 @@ class ControlPanel(ttk.Frame):
         
         # Mode radio buttons laid out horizontally
         ttk.Radiobutton(mode_content, text="Accumulative", variable=self.mode,
-                       value="accumulative").grid(row=0, column=0, sticky="w", padx=20, pady=2)
+                       value="accumulative", command=self._on_mode_change).grid(row=0, column=0, sticky="w", padx=20, pady=2)
         ttk.Radiobutton(mode_content, text="Incremental", variable=self.mode,
-                       value="incremental", state="disabled").grid(row=0, column=1, sticky="w", padx=10, pady=2)
+                       value="incremental", command=self._on_mode_change).grid(row=0, column=1, sticky="w", padx=10, pady=2)
+        
+        # Key Frame Selector (shown only for incremental mode)
+        self.key_frame_container = ttk.LabelFrame(mode_content, text="Key Frames (Reference Update Points)", padding=5)
+        self.key_frame_container.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(5, 0))
+        self.key_frame_container.grid_columnconfigure(0, weight=1)
+        
+        # Info label
+        ttk.Label(self.key_frame_container, text="Select frames to use as new references:").grid(
+            row=0, column=0, columnspan=3, sticky="w", pady=(0, 5))
+        
+        # Scrollable frame for checkboxes (will be populated when images are loaded)
+        self.key_frame_scroll_frame = ttk.Frame(self.key_frame_container)
+        self.key_frame_scroll_frame.grid(row=1, column=0, columnspan=3, sticky="ew")
+        
+        # Placeholder label (shown when no images loaded)
+        self.key_frame_placeholder = ttk.Label(self.key_frame_scroll_frame, 
+                                                text="Load images to see available frames",
+                                                foreground="gray")
+        self.key_frame_placeholder.pack(pady=10)
+        
+        # Quick selection buttons
+        btn_frame = ttk.Frame(self.key_frame_container)
+        btn_frame.grid(row=2, column=0, columnspan=3, sticky="w", pady=(5, 0))
+        ttk.Button(btn_frame, text="Every N Frames:", width=14, 
+                  command=self._select_every_n_frames).pack(side="left")
+        self.every_n_entry = ttk.Entry(btn_frame, width=5)
+        self.every_n_entry.insert(0, "50")
+        self.every_n_entry.pack(side="left", padx=5)
+        
+        # Initially hide key frame selector (show only when incremental mode)
+        self.key_frame_container.grid_remove()
+        
+        # Storage for key frame checkboxes
+        self.key_frame_vars = {}  # frame_index -> BooleanVar
         
         # Add separator
         ttk.Separator(control_frame, orient="horizontal").grid(row=3, column=0, sticky="ew", pady=5)
@@ -597,3 +631,79 @@ class ControlPanel(ttk.Frame):
             self.model_summary_text.set(f"Failed to inspect checkpoint: {exc}")
             if show_errors:
                 tk.messagebox.showerror("Model Inspection Failed", f"Could not read checkpoint metadata:\n{exc}")
+
+    def _on_mode_change(self):
+        """Handle processing mode change (Accumulative/Incremental)."""
+        mode = self.mode.get()
+        if mode == "incremental":
+            self.key_frame_container.grid()
+        else:
+            self.key_frame_container.grid_remove()
+    
+    def populate_key_frames(self, num_frames: int):
+        """
+        Populate key frame checkboxes based on loaded image count.
+        
+        Args:
+            num_frames: Total number of frames in the sequence
+        """
+        # Clear existing checkboxes
+        for widget in self.key_frame_scroll_frame.winfo_children():
+            widget.destroy()
+        self.key_frame_vars.clear()
+        
+        if num_frames <= 0:
+            self.key_frame_placeholder = ttk.Label(self.key_frame_scroll_frame, 
+                                                    text="Load images to see available frames",
+                                                    foreground="gray")
+            self.key_frame_placeholder.pack(pady=10)
+            return
+        
+        # Create scrollable frame with checkboxes
+        # Use a fixed-width container for horizontal wrapping
+        container = ttk.Frame(self.key_frame_scroll_frame)
+        container.pack(fill="x", expand=True)
+        
+        # Create checkboxes (wrap every 10 frames to a new row)
+        row_frame = None
+        frames_per_row = 8
+        
+        for i in range(1, num_frames + 1):
+            if (i - 1) % frames_per_row == 0:
+                row_frame = ttk.Frame(container)
+                row_frame.pack(fill="x", pady=1)
+            
+            var = tk.BooleanVar(value=(i == 1))  # Frame 1 is default checked
+            self.key_frame_vars[i] = var
+            
+            cb = ttk.Checkbutton(row_frame, text=str(i), variable=var, width=4)
+            cb.pack(side="left", padx=2)
+    
+    def _select_every_n_frames(self):
+        """Select key frames at regular intervals."""
+        try:
+            n = int(self.every_n_entry.get())
+            if n <= 0:
+                return
+        except ValueError:
+            return
+        
+        # Clear all except frame 1
+        for frame_idx, var in self.key_frame_vars.items():
+            if frame_idx == 1:
+                var.set(True)  # Always keep frame 1
+            elif (frame_idx - 1) % n == 0:
+                var.set(True)
+            else:
+                var.set(False)
+    
+    def get_selected_key_frames(self) -> list:
+        """
+        Get list of selected key frame indices.
+        
+        Returns:
+            List of frame indices (1-indexed) that are selected as key frames
+        """
+        selected = [frame_idx for frame_idx, var in self.key_frame_vars.items() if var.get()]
+        return sorted(selected)
+
