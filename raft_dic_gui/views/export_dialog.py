@@ -399,7 +399,21 @@ class ExportDialog(ctk.CTkToplevel):
             'include_colorbar': self.include_colorbar.get(),
             'include_title': self.include_title.get(),
             'frame_range': frame_range,
-            'components': components
+            'components': components,
+            # Pass through physical units settings from default_settings
+            'use_physical_units': self.default_settings.get('use_physical_units', False),
+            'physical_ratio': self.default_settings.get('physical_ratio', 1.0),
+            'physical_unit': self.default_settings.get('physical_unit', 'mm'),
+            'fps': self.default_settings.get('fps', 1.0),
+            # Pass through arrow settings
+            'show_quiver': self.default_settings.get('show_quiver', False),
+            'show_streamlines': self.default_settings.get('show_streamlines', False),
+            'arrow_spacing': self.default_settings.get('arrow_spacing', 100),
+            'arrow_scale': self.default_settings.get('arrow_scale', 100),
+            'arrow_color': self.default_settings.get('arrow_color', 'white'),
+            'arrow_width': self.default_settings.get('arrow_width', 1.0),
+            # Pass through log scale setting
+            'use_log_scale': self.default_settings.get('use_log_scale', False),
         }
     
     def _on_export_clicked(self):

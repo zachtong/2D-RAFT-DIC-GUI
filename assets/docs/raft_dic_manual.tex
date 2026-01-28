@@ -10,7 +10,7 @@
 
 \geometry{a4paper, margin=1in}
 
-\title{\textbf{RAFTcorr User Manual v1.0}}
+\title{\textbf{RAFTcorr User Manual v1.2}}
 \author{Zixiang (Zach) Tong}
 \date{\today}
 
@@ -30,6 +30,7 @@ RAFTcorr is a 2D Digital Image Correlation (DIC) software powered by the RAFT (R
     \item Python 3.8+
     \item \textbf{GPU Requirement}: An NVIDIA GPU is mandatory. The RAFT architecture relies heavily on specific CUDA kernels (Correlation Layer) that are not available on CPU.
     \item \textbf{CUDA Support}: CUDA 11.8+ is recommended for optimal compatibility with modern PyTorch.
+    \item \textbf{Numba}: Required for optimized strain calculation (installed automatically via \texttt{pip install}).
 \end{itemize}
 
 \subsection{Setup}
@@ -94,7 +95,11 @@ Before running, you must define the Region of Interest (ROI) on the reference im
 
 \subsection{Step 4: Processing Parameters}
 \begin{itemize}
-    \item \textbf{Mode}: Currently supports \textbf{Accumulative} mode, where every frame is correlated against the first (reference) frame. Incremental mode is currently disabled.
+    \item \textbf{Mode}:
+    \begin{itemize}
+        \item \textbf{Accumulative}: Every frame is correlated against the first (reference) frame. Best for small-to-moderate deformations.
+        \item \textbf{Incremental} (New in v1.1): For large deformations, specify key frames where the reference is updated. Displacements are accumulated in original coordinates. Enter comma-separated frame numbers (e.g., ``1, 50, 100'').
+    \end{itemize}
     \item \textbf{Smoothing}: Enable Gaussian smoothing and set \textbf{Sigma} (default 2.0) to filter high-frequency noise from the displacement field.
     \item \textbf{Advanced - Tiling}: These settings handle processing of large images that exceed GPU memory.
     \begin{itemize}
@@ -134,7 +139,11 @@ Click the \textbf{Run} button. The progress bar will indicate the status.
     \begin{itemize}
         \item \textbf{Colormap}: Select a color scheme (e.g., turbo, jet).
         \item \textbf{Transparency}: Adjust overlay opacity (0-1).
-        \item \textbf{Background Image Mode}: Toggle between underlaying the "Reference Image" (static) or the "Deformed Image" (dynamic). (Currently, only supports the static mode)
+        \item \textbf{Background Image Mode} (New in v1.1): Toggle between:
+        \begin{itemize}
+            \item \textbf{Reference Image}: Data overlaid on the static reference frame.
+            \item \textbf{Deformed Image}: Data overlaid on the corresponding deformed frame, showing where material points actually move. Useful for validating tracking accuracy.
+        \end{itemize}
     \end{itemize}
     \item \textbf{Physical Units}:
     \begin{itemize}
@@ -236,6 +245,38 @@ Scalar parameters recording the analysis settings are also saved:
     \item \texttt{use\_physical\_units}: Boolean flag (1/0).
     \item \texttt{strain\_method}, \texttt{vsg\_size}, \texttt{strain\_step}: Strain calculation parameters.
     \item \texttt{time\_step}: Time interval between frames ($dt$).
+\end{itemize}
+
+\subsection{Batch Image Export (New in v1.1)}
+Export visualization images for all frames to create figures for publications or animations:
+\begin{enumerate}
+    \item In the Post-Processing panel, click \textbf{Export Images}.
+    \item Select components to export (U, V, $\varepsilon_{xx}$, Velocity, Magnitude, etc.).
+    \item Configure options:
+    \begin{itemize}
+        \item \textbf{Frame Range}: All frames or custom range.
+        \item \textbf{Format}: PNG (raster), SVG or PDF (vector).
+        \item \textbf{Display Mode}: Reference or Deformed view.
+        \item \textbf{Colormap, Alpha, Color Range}: Visual customization.
+        \item \textbf{Include Colorbar/Title}: Toggle annotations.
+    \end{itemize}
+    \item Click \textbf{Export}. Images are saved to a timestamped folder with a settings JSON file for reproducibility.
+\end{enumerate}
+
+\subsection{Velocity Visualization (New in v1.2)}
+Overlay velocity arrows or streamlines on exported images:
+\begin{itemize}
+    \item \textbf{Quiver (Arrows)}: Direction-only arrows showing flow direction. All arrows have uniform length; color indicates magnitude.
+    \item \textbf{Streamlines}: Continuous flow lines following velocity field.
+    \item \textbf{Export Consistency}: Exported images match GUI preview exactly---same arrow density, size, and line width (WYSIWYG).
+\end{itemize}
+
+Parameters:
+\begin{itemize}
+    \item \textbf{Spacing}: Distance between arrows (in pixels). Smaller values = denser arrows.
+    \item \textbf{Scale}: Controls arrow size. Larger values = larger arrows.
+    \item \textbf{Color}: Arrow/streamline color (white, black, or custom).
+    \item \textbf{Line Width}: Thickness of arrows/streamlines.
 \end{itemize}
 
 \section{Troubleshooting}

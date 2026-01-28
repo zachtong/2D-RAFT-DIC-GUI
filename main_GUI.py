@@ -414,19 +414,57 @@ class RAFTDICGUI:
             
             # Get data for this frame
             data_map = None
-            if comp_name in ['u', 'v']:
-                # Displacement
-                idx = 0 if comp_name == 'u' else 1
+            if comp_name == 'u':
+                # Displacement U
                 if current_frame < len(self.displacement_results):
                     d = self.displacement_results[current_frame]
                     if isinstance(d, str):
                         d = np.load(d)
-                    data_map = d[..., idx]
+                    data_map = d[..., 0]
+            elif comp_name == 'v':
+                # Displacement V
+                if current_frame < len(self.displacement_results):
+                    d = self.displacement_results[current_frame]
+                    if isinstance(d, str):
+                        d = np.load(d)
+                    data_map = d[..., 1]
+            elif comp_name == 'magnitude':
+                # Displacement Magnitude = sqrt(u^2 + v^2)
+                if current_frame < len(self.displacement_results):
+                    d = self.displacement_results[current_frame]
+                    if isinstance(d, str):
+                        d = np.load(d)
+                    data_map = np.sqrt(d[..., 0]**2 + d[..., 1]**2)
+            elif comp_name == 'velocity':
+                # Velocity = |delta(U,V)| * fps
+                try:
+                    fps = float(pp.frame_rate.get()) if pp.frame_rate.get() else 1.0
+                except ValueError:
+                    fps = 1.0
+                if current_frame < len(self.displacement_results):
+                    d_curr = self.displacement_results[current_frame]
+                    if isinstance(d_curr, str):
+                        d_curr = np.load(d_curr)
+                    if current_frame > 0:
+                        d_prev = self.displacement_results[current_frame - 1]
+                        if isinstance(d_prev, str):
+                            d_prev = np.load(d_prev)
+                        du = d_curr[..., 0] - d_prev[..., 0]
+                        dv = d_curr[..., 1] - d_prev[..., 1]
+                        data_map = np.sqrt(du**2 + dv**2) * fps
+                        # Store velocity direction for arrow visualization
+                        self._velocity_du = du * fps
+                        self._velocity_dv = dv * fps
+                    else:
+                        # First frame: velocity = 0
+                        data_map = np.zeros_like(d_curr[..., 0])
+                        self._velocity_du = np.zeros_like(d_curr[..., 0])
+                        self._velocity_dv = np.zeros_like(d_curr[..., 0])
             else:
-                # Strain
-                if current_frame < len(self.strain_results):
+                # Strain components
+                if hasattr(self, 'strain_results') and current_frame < len(self.strain_results):
                     s = self.strain_results[current_frame]
-                    if comp_name in s:
+                    if s and comp_name in s:
                         data_map = s[comp_name]
                         
             if data_map is None:
@@ -440,9 +478,9 @@ class RAFTDICGUI:
             except ValueError:
                 alpha = 0.7
                 
-            # Physical Units Handling
+            # Physical Units and Unit Label Handling
             unit_label = ""
-            if comp_name in ['u', 'v']:
+            if comp_name in ['u', 'v', 'magnitude']:
                 unit_label = "[px]"
                 if pp.use_physical_units.get():
                     try:
@@ -451,7 +489,25 @@ class RAFTDICGUI:
                         data_map = data_map * ratio
                         unit_label = f"[{unit}]"
                     except ValueError:
-                        pass # Keep as pixels if ratio is invalid
+                        pass  # Keep as pixels if ratio is invalid
+            elif comp_name == 'velocity':
+                try:
+                    fps = float(pp.frame_rate.get()) if pp.frame_rate.get() else 1.0
+                except ValueError:
+                    fps = 1.0
+                if pp.use_physical_units.get():
+                    try:
+                        ratio = float(pp.physical_ratio.get())
+                        unit = pp.physical_unit.get()
+                        data_map = data_map * ratio
+                        unit_label = f"[{unit}/s]" if fps != 1.0 else f"[{unit}/frame]"
+                    except ValueError:
+                        unit_label = "[px/s]" if fps != 1.0 else "[px/frame]"
+                else:
+                    unit_label = "[px/s]" if fps != 1.0 else "[px/frame]"
+            
+            # Log Scale Flag (for LogNorm colorbar - data is NOT transformed)
+            use_log_norm = pp.use_log_scale.get() if hasattr(pp, 'use_log_scale') else False
                 
             # Range handling
             vmin, vmax = None, None
@@ -564,12 +620,40 @@ class RAFTDICGUI:
             # In deformed mode, we display full image (warped data covers full area)
             display_roi = None if background_mode == 'deformed' else self.roi_rect
             
+            # Build velocity vectors dict for arrows (only for velocity component)
+            velocity_vectors = None
+            if comp_name == 'velocity' and hasattr(self, '_velocity_du') and hasattr(self, '_velocity_dv'):
+                try:
+                    show_quiver = pp.show_quiver.get() if hasattr(pp, 'show_quiver') else False
+                    show_streamlines = pp.show_streamlines.get() if hasattr(pp, 'show_streamlines') else False
+                    
+                    if show_quiver or show_streamlines:
+                        spacing = int(pp.arrow_spacing.get()) if hasattr(pp, 'arrow_spacing') else 30
+                        scale = float(pp.arrow_scale.get()) if hasattr(pp, 'arrow_scale') else 1.0
+                        color = pp.arrow_color.get() if hasattr(pp, 'arrow_color') else 'white'
+                        line_width = float(pp.arrow_width.get()) if hasattr(pp, 'arrow_width') and pp.arrow_width.get() else 1.0
+                        
+                        velocity_vectors = {
+                            'du': self._velocity_du,
+                            'dv': self._velocity_dv,
+                            'show_quiver': show_quiver,
+                            'show_streamlines': show_streamlines,
+                            'spacing': spacing,
+                            'scale': scale,
+                            'color': color,
+                            'line_width': line_width
+                        }
+                except Exception as e:
+                    print(f"[VelocityArrows] Error building velocity vectors: {e}")
+            
             # Update PreviewPanel
             self.preview_panel.plot_post_data(display_data, comp_name, cmap, alpha, 
                                             background_image=bg_img, 
                                             roi_rect=display_roi,
                                             vmin=vmin, vmax=vmax,
-                                            unit_label=unit_label)
+                                            unit_label=unit_label,
+                                            use_log_norm=use_log_norm,
+                                            velocity_vectors=velocity_vectors)
             
             # Update Controls
             if hasattr(self.preview_panel, 'post_frame_slider'):
@@ -1384,10 +1468,24 @@ class RAFTDICGUI:
             'colormap': pp.vis_colormap.get(),
             'alpha': float(pp.vis_alpha.get()) if pp.vis_alpha.get() else 0.7,
             'display_mode': self.control_panel.background_mode.get(),
+            # Physical units settings
+            'use_physical_units': pp.use_physical_units.get() if hasattr(pp, 'use_physical_units') else False,
+            'physical_ratio': float(pp.physical_ratio.get()) if hasattr(pp, 'physical_ratio') and pp.physical_ratio.get() else 1.0,
+            'physical_unit': pp.physical_unit.get() if hasattr(pp, 'physical_unit') else 'mm',
+            'fps': float(pp.frame_rate.get()) if hasattr(pp, 'frame_rate') and pp.frame_rate.get() else 1.0,
+            # Arrow settings
+            'show_quiver': pp.show_quiver.get() if hasattr(pp, 'show_quiver') else False,
+            'show_streamlines': pp.show_streamlines.get() if hasattr(pp, 'show_streamlines') else False,
+            'arrow_spacing': int(pp.arrow_spacing.get()) if hasattr(pp, 'arrow_spacing') and pp.arrow_spacing.get() else 100,
+            'arrow_scale': float(pp.arrow_scale.get()) if hasattr(pp, 'arrow_scale') and pp.arrow_scale.get() else 100,
+            'arrow_color': pp.arrow_color.get() if hasattr(pp, 'arrow_color') else 'white',
+            'arrow_width': float(pp.arrow_width.get()) if hasattr(pp, 'arrow_width') and pp.arrow_width.get() else 1.0,
+            # Log scale
+            'use_log_scale': pp.use_log_scale.get() if hasattr(pp, 'use_log_scale') else False,
         }
         
-        # Get available components
-        components = ['u', 'v']
+        # Get available components (always include magnitude and velocity for displacement-derived quantities)
+        components = ['u', 'v', 'magnitude', 'velocity']
         if hasattr(self, 'strain_results') and self.strain_results:
             first_strain = next((s for s in self.strain_results if s), None)
             if first_strain:

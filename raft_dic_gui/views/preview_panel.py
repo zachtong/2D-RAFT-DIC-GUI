@@ -1395,8 +1395,22 @@ class PreviewPanel(ttk.Frame):
         except Exception as e:
             print(f"Error updating preview: {e}")
 
-    def plot_post_data(self, data_map, title, colormap, alpha, background_image=None, roi_rect=None, vmin=None, vmax=None, unit_label="[px]"):
-        """Plot post-processing data (e.g., strain) on the post_canvas."""
+    def plot_post_data(self, data_map, title, colormap, alpha, background_image=None, roi_rect=None, vmin=None, vmax=None, unit_label="[px]", use_log_norm=False, velocity_vectors=None):
+        """Plot post-processing data (e.g., strain) on the post_canvas.
+        
+        Args:
+            velocity_vectors: Optional dict with keys:
+                - 'du', 'dv': velocity components (H, W)
+                - 'show_quiver': bool
+                - 'show_streamlines': bool
+                - 'spacing': int (pixel spacing for quiver)
+                - 'scale': float (arrow scale factor)
+                - 'color': str (arrow color)
+        """
+        from matplotlib.colors import LogNorm
+        from matplotlib.ticker import LogFormatterMathtext
+        import numpy as np
+        
         if self.post_ax is None:
             return
             
@@ -1415,10 +1429,107 @@ class PreviewPanel(ttk.Frame):
             xmin, ymin, xmax, ymax = roi_rect
             extent = [xmin, xmax, ymax, ymin]
         
+        # Determine normalization
+        norm = None
+        if use_log_norm:
+            # For log norm, we need positive vmin/vmax
+            # Clamp to small positive value if needed
+            log_vmin = vmin if vmin is not None and vmin > 0 else 1e-10
+            log_vmax = vmax if vmax is not None and vmax > 0 else 1.0
+            # Ensure vmin < vmax
+            if log_vmin >= log_vmax:
+                log_vmin = log_vmax / 1000
+            norm = LogNorm(vmin=log_vmin, vmax=log_vmax)
+            # Don't pass vmin/vmax separately when using norm
+            vmin, vmax = None, None
+        
         # Plot data
-        im = self.post_ax.imshow(data_map, cmap=colormap, alpha=alpha, extent=extent, vmin=vmin, vmax=vmax)
+        im = self.post_ax.imshow(data_map, cmap=colormap, alpha=alpha, extent=extent, vmin=vmin, vmax=vmax, norm=norm)
         self.post_ax.set_title(title.upper())
         self.post_ax.set_axis_off()
+        
+        # Plot velocity arrows if provided
+        if velocity_vectors is not None:
+            du = velocity_vectors.get('du')
+            dv = velocity_vectors.get('dv')
+            
+            if du is not None and dv is not None:
+                h, w = du.shape
+                spacing = velocity_vectors.get('spacing', 30)
+                scale = velocity_vectors.get('scale', 1.0)
+                color = velocity_vectors.get('color', 'white')
+                
+                # Determine coordinate system based on roi_rect
+                if roi_rect is not None:
+                    x_offset, y_offset = roi_rect[0], roi_rect[1]
+                else:
+                    x_offset, y_offset = 0, 0
+                
+                # Create coordinate grids
+                y_coords = np.arange(0, h, spacing) + y_offset
+                x_coords = np.arange(0, w, spacing) + x_offset
+                X, Y = np.meshgrid(x_coords, y_coords)
+                
+                # Sample velocity at grid points
+                y_idx = np.arange(0, h, spacing)
+                x_idx = np.arange(0, w, spacing)
+                U = du[np.ix_(y_idx, x_idx)]
+                V = dv[np.ix_(y_idx, x_idx)]
+                
+                # Handle NaN values
+                valid = ~(np.isnan(U) | np.isnan(V))
+                
+                # Get line width from velocity_vectors
+                line_width = velocity_vectors.get('line_width', 1.0)
+                
+                # Quiver plot
+                if velocity_vectors.get('show_quiver', False) and np.any(valid):
+                    # Normalize U, V to unit vectors (uniform arrow length)
+                    # Color already indicates magnitude, so arrow length should be constant
+                    magnitude = np.sqrt(U**2 + V**2)
+                    magnitude[magnitude == 0] = 1  # Avoid division by zero
+                    U_norm = U / magnitude
+                    V_norm = V / magnitude
+                    
+                    # Scale factor: larger scale = smaller arrows
+                    # We want scale to be intuitive (larger = bigger arrows)
+                    quiver_scale = 1.0 / (scale + 0.001)  # Invert for matplotlib convention
+                    # Width is relative to axis units - scale with line_width
+                    quiver_width = 0.003 * line_width
+                    
+                    # DEBUG: Log quiver parameters for comparison with export
+                    print(f"[GUI Quiver] scale={scale}, quiver_scale={quiver_scale:.6f}, quiver_width={quiver_width:.6f}, line_width={line_width}")
+                    print(f"[GUI Quiver] data shape: h={h}, w={w}, spacing={spacing}, arrow_count={len(X[valid])}")
+                    
+                    self.post_ax.quiver(X[valid], Y[valid], U_norm[valid], V_norm[valid],
+                                       color=color, scale=quiver_scale, scale_units='xy',
+                                       width=quiver_width, headwidth=4, headlength=5, alpha=0.9)
+                
+                # Streamlines
+                if velocity_vectors.get('show_streamlines', False):
+                    try:
+                        # Streamplot needs regular grid coordinates
+                        x_stream = np.arange(w) + x_offset
+                        y_stream = np.arange(h) + y_offset
+                        
+                        # Replace NaN with 0 for streamplot
+                        du_filled = np.nan_to_num(du, nan=0.0)
+                        # Negate dv to match image coordinate system (Y increases downward)
+                        dv_filled = -np.nan_to_num(dv, nan=0.0)
+                        
+                        # Density controls streamline spacing
+                        density = max(0.5, 30.0 / spacing)
+                        
+                        # Scale arrowsize based on image dimensions and scale parameter
+                        base_arrowsize = max(h, w) / 500.0
+                        arrowsize = base_arrowsize * (scale / 50.0)
+                        arrowsize = max(0.5, min(arrowsize, 5.0))
+                        
+                        self.post_ax.streamplot(x_stream, y_stream, du_filled, dv_filled,
+                                               color=color, density=density, linewidth=line_width,
+                                               arrowsize=arrowsize, arrowstyle='->')
+                    except Exception as e:
+                        print(f"[Streamplot] Error: {e}")
         
         # Force full image view if background is present
         if background_image is not None:
@@ -1437,6 +1548,11 @@ class PreviewPanel(ttk.Frame):
             self.post_cax.clear()
             
         cb = self.post_fig.colorbar(im, cax=self.post_cax)
+        
+        # Format colorbar ticks for log scale (show as 10^0, 10^1, etc.)
+        if use_log_norm:
+            cb.ax.yaxis.set_major_formatter(LogFormatterMathtext())
+        
         cb.set_label(f"{title.upper()} {unit_label}")
         
         self.post_canvas.draw()

@@ -170,6 +170,15 @@ class PostProcessingPanel(ttk.Frame):
         unit_cb.bind("<<ComboboxSelected>>", lambda e: self._trigger('update_post_preview'))
         Tooltip(ratio_entry, "Physical units per pixel (e.g. mm/pixel)")
         
+        # Frame Rate (for velocity calculation)
+        ttk.Label(phys_frame, text="FPS:").pack(side="left", padx=(10, 0))
+        self.frame_rate = tk.StringVar(value="1.0")
+        fps_entry = ttk.Entry(phys_frame, textvariable=self.frame_rate, width=6)
+        fps_entry.pack(side="left", padx=2)
+        fps_entry.bind('<Return>', lambda e: self._trigger('update_post_preview'))
+        fps_entry.bind('<FocusOut>', lambda e: self._trigger('update_post_preview'))
+        Tooltip(fps_entry, "Frame rate (Hz) for velocity calculation.\nDefault 1.0 = velocity in [displacement/frame]")
+        
         # Color Range Controls
         ttk.Separator(content, orient="horizontal").grid(row=8, column=0, columnspan=2, sticky="ew", pady=5)
         
@@ -182,10 +191,10 @@ class PostProcessingPanel(ttk.Frame):
         
         cb_fixed = ttk.Checkbutton(content, text="Fixed Color Range", variable=self.post_fixed_range, 
                                  command=lambda: self._trigger('update_post_preview'))
-        cb_fixed.grid(row=7, column=0, columnspan=2, sticky="w")
+        cb_fixed.grid(row=9, column=0, columnspan=2, sticky="w")
         
         range_frame = ttk.Frame(content)
-        range_frame.grid(row=8, column=0, columnspan=2, sticky="ew")
+        range_frame.grid(row=10, column=0, columnspan=2, sticky="ew")
         
         ttk.Label(range_frame, text="Min:").pack(side="left", padx=2)
         v_min_entry = ttk.Entry(range_frame, textvariable=self.post_vmin, width=8)
@@ -198,6 +207,71 @@ class PostProcessingPanel(ttk.Frame):
         v_max_entry.pack(side="left", padx=2)
         v_max_entry.bind('<Return>', lambda e: self._trigger('update_post_preview'))
         v_max_entry.bind('<FocusOut>', lambda e: self._trigger('update_post_preview'))
+        
+        # Log Scale Option
+        self.use_log_scale = tk.BooleanVar(value=False)
+        cb_log = ttk.Checkbutton(content, text="Use Log₁₀ Scale", variable=self.use_log_scale, 
+                                 command=lambda: self._trigger('update_post_preview'))
+        cb_log.grid(row=11, column=0, columnspan=2, sticky="w")
+        Tooltip(cb_log, "Apply log₁₀ transform to data before colormap.\nUseful for viewing data spanning multiple orders of magnitude.\nNote: Values ≤0 will be masked.")
+        
+        # Velocity Arrows Section
+        ttk.Separator(content, orient="horizontal").grid(row=12, column=0, columnspan=2, sticky="ew", pady=5)
+        
+        ttk.Label(content, text="Velocity Arrows:", font=("TkDefaultFont", 9, "bold")).grid(row=13, column=0, columnspan=2, sticky="w")
+        
+        # Show Quiver Arrows
+        self.show_quiver = tk.BooleanVar(value=False)
+        cb_quiver = ttk.Checkbutton(content, text="Show Quiver Arrows", variable=self.show_quiver,
+                                    command=lambda: self._trigger('update_post_preview'))
+        cb_quiver.grid(row=14, column=0, columnspan=2, sticky="w")
+        Tooltip(cb_quiver, "Display velocity direction as local arrow vectors.\nOnly active for 'velocity' component.")
+        
+        # Show Streamlines
+        self.show_streamlines = tk.BooleanVar(value=False)
+        cb_stream = ttk.Checkbutton(content, text="Show Streamlines", variable=self.show_streamlines,
+                                    command=lambda: self._trigger('update_post_preview'))
+        cb_stream.grid(row=15, column=0, columnspan=2, sticky="w")
+        Tooltip(cb_stream, "Display velocity field as continuous flow lines.\nOnly active for 'velocity' component.")
+        
+        # Arrow parameters frame
+        arrow_frame = ttk.Frame(content)
+        arrow_frame.grid(row=16, column=0, columnspan=2, sticky="ew", padx=20)
+        
+        ttk.Label(arrow_frame, text="Spacing:").pack(side="left")
+        self.arrow_spacing = tk.StringVar(value="100")
+        spacing_entry = ttk.Entry(arrow_frame, textvariable=self.arrow_spacing, width=5)
+        spacing_entry.pack(side="left", padx=2)
+        spacing_entry.bind('<Return>', lambda e: self._trigger('update_post_preview'))
+        spacing_entry.bind('<FocusOut>', lambda e: self._trigger('update_post_preview'))
+        Tooltip(spacing_entry, "Pixel spacing between arrows (Quiver)\nAlso affects streamline density")
+        
+        ttk.Label(arrow_frame, text="Scale:").pack(side="left", padx=(10, 0))
+        self.arrow_scale = tk.StringVar(value="100")
+        scale_entry = ttk.Entry(arrow_frame, textvariable=self.arrow_scale, width=5)
+        scale_entry.pack(side="left", padx=2)
+        scale_entry.bind('<Return>', lambda e: self._trigger('update_post_preview'))
+        scale_entry.bind('<FocusOut>', lambda e: self._trigger('update_post_preview'))
+        Tooltip(scale_entry, "Arrow length scale factor (Quiver only)\nLarger = longer arrows")
+        
+        ttk.Label(arrow_frame, text="Color:").pack(side="left", padx=(10, 0))
+        self.arrow_color = tk.StringVar(value="white")
+        color_cb = ttk.Combobox(arrow_frame, textvariable=self.arrow_color, 
+                                values=["white", "black", "red", "cyan", "yellow"], width=6, state="readonly")
+        color_cb.pack(side="left", padx=2)
+        color_cb.bind("<<ComboboxSelected>>", lambda e: self._trigger('update_post_preview'))
+        
+        # Second row for line width
+        arrow_frame2 = ttk.Frame(content)
+        arrow_frame2.grid(row=17, column=0, columnspan=2, sticky="ew", padx=20, pady=(2, 0))
+        
+        ttk.Label(arrow_frame2, text="Line Width:").pack(side="left")
+        self.arrow_width = tk.StringVar(value="1.0")
+        width_entry = ttk.Entry(arrow_frame2, textvariable=self.arrow_width, width=5)
+        width_entry.pack(side="left", padx=2)
+        width_entry.bind('<Return>', lambda e: self._trigger('update_post_preview'))
+        width_entry.bind('<FocusOut>', lambda e: self._trigger('update_post_preview'))
+        Tooltip(width_entry, "Line thickness for arrows and streamlines")
 
     def _create_probes_section(self):
         frame = CollapsibleFrame(self.sidebar_content, text="Virtual Extensometers")
@@ -421,8 +495,8 @@ class PostProcessingPanel(ttk.Frame):
 
     def update_component_list(self, components):
         """Update the values in the display component dropdown."""
-        # Always include u and v
-        base = ['u', 'v']
+        # Always include u, v, magnitude, velocity as base components
+        base = ['u', 'v', 'magnitude', 'velocity']
         # Add new components, avoiding duplicates
         full_list = base + [c for c in components if c not in base]
         self.vis_comp_combo['values'] = full_list

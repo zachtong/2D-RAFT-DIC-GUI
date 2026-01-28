@@ -1,0 +1,2 @@
+[console_scripts]
+raftcorr = main_GUI:main
