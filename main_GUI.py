@@ -197,6 +197,7 @@ class RAFTDICGUI:
         self._setup_callbacks()
         # Initialize state
         self.displacement_results = []
+        self.magnitude_results = []  # Pre-computed magnitude for all frames
         self.current_image = None
         self.image_files = []
         self.roi_mask = None
@@ -429,12 +430,9 @@ class RAFTDICGUI:
                         d = np.load(d)
                     data_map = d[..., 1]
             elif comp_name == 'magnitude':
-                # Displacement Magnitude = sqrt(u^2 + v^2)
-                if current_frame < len(self.displacement_results):
-                    d = self.displacement_results[current_frame]
-                    if isinstance(d, str):
-                        d = np.load(d)
-                    data_map = np.sqrt(d[..., 0]**2 + d[..., 1]**2)
+                # Use pre-computed magnitude
+                if current_frame < len(self.magnitude_results):
+                    data_map = self.magnitude_results[current_frame]
             elif comp_name == 'velocity':
                 # Velocity = |delta(U,V)| * fps
                 try:
@@ -774,6 +772,7 @@ class RAFTDICGUI:
             self.kymo_cb = None
         
         # Get data source based on component
+        pp = self.control_panel.post_processing_panel
         data_list = []
         if comp_name in ['u', 'v']:
             # Extract displacement component
@@ -782,13 +781,36 @@ class RAFTDICGUI:
                 if isinstance(d, str):
                     d = np.load(d)
                 data_list.append(d[..., idx])
+        elif comp_name == 'magnitude':
+            # Use pre-computed magnitude
+            data_list = list(self.magnitude_results)
+        elif comp_name == 'velocity':
+            # Real-time calculation with current fps
+            try:
+                fps = float(pp.frame_rate.get()) if pp.frame_rate.get() else 1.0
+            except ValueError:
+                fps = 1.0
+            for i, d in enumerate(self.displacement_results):
+                if isinstance(d, str):
+                    d = np.load(d)
+                if i > 0:
+                    d_prev = self.displacement_results[i-1]
+                    if isinstance(d_prev, str):
+                        d_prev = np.load(d_prev)
+                    du = d[..., 0] - d_prev[..., 0]
+                    dv = d[..., 1] - d_prev[..., 1]
+                    vel = np.sqrt(du**2 + dv**2) * fps
+                else:
+                    vel = np.zeros_like(d[..., 0])
+                data_list.append(vel)
         else:
             # Extract strain component
-            for s in self.strain_results:
-                if comp_name in s:
-                    data_list.append(s[comp_name])
-                else:
-                    data_list.append(None)
+            if hasattr(self, 'strain_results'):
+                for s in self.strain_results:
+                    if s and comp_name in s:
+                        data_list.append(s[comp_name])
+                    else:
+                        data_list.append(None)
                     
         # Calculate scale factors and offset
         scale_factors = (1.0, 1.0)
@@ -1108,6 +1130,7 @@ class RAFTDICGUI:
         self.roi_mask = None
         self.roi_rect = None
         self.displacement_results = []
+        self.magnitude_results = []
         self.preview_panel.reset_state()
         
         # Disable deformed mode (no results yet)
@@ -1265,6 +1288,13 @@ class RAFTDICGUI:
     def _on_processing_complete(self, total_frames):
         """Handle successful completion of processing."""
         messagebox.showinfo("Done", "Processing complete!")
+        
+        # Pre-compute magnitude for all frames
+        self.magnitude_results = []
+        for d in self.displacement_results:
+            if isinstance(d, str):
+                d = np.load(d)
+            self.magnitude_results.append(np.sqrt(d[..., 0]**2 + d[..., 1]**2))
         
         # Pass results to preview panel
         self.preview_panel.set_results(self.displacement_results, self.image_files)
