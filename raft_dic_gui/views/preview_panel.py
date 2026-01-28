@@ -1459,8 +1459,12 @@ class PreviewPanel(ttk.Frame):
                 scale = velocity_vectors.get('scale', 1.0)
                 color = velocity_vectors.get('color', 'white')
                 
-                # Determine coordinate system based on roi_rect
-                if roi_rect is not None:
+                # Determine coordinate system
+                # In Deformed mode, roi_rect may be None but we still need offset
+                # Check velocity_vectors for roi_offset first (set by post_processing_panel)
+                if 'roi_offset' in velocity_vectors:
+                    x_offset, y_offset = velocity_vectors['roi_offset']
+                elif roi_rect is not None:
                     x_offset, y_offset = roi_rect[0], roi_rect[1]
                 else:
                     x_offset, y_offset = 0, 0

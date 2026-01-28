@@ -641,7 +641,10 @@ class RAFTDICGUI:
                             'spacing': spacing,
                             'scale': scale,
                             'color': color,
-                            'line_width': line_width
+                            'line_width': line_width,
+                            # Pass roi_offset for proper positioning in Deformed mode
+                            # (data is ROI-sized but needs to be placed at ROI position)
+                            'roi_offset': (self.roi_rect[0], self.roi_rect[1]) if self.roi_rect else (0, 0)
                         }
                 except Exception as e:
                     print(f"[VelocityArrows] Error building velocity vectors: {e}")

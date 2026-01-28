@@ -133,6 +133,10 @@ def render_single_frame(
                 else:
                     x_offset, y_offset = 0, 0
                 
+                # DEBUG: Log positioning info
+                _log(f"[Quiver Debug] du.shape={du.shape}, x_offset={x_offset}, y_offset={y_offset}")
+                _log(f"[Quiver Debug] roi_rect={roi_rect}, extent={extent}")
+                
                 # Create coordinate grids and sample data using same spacing
                 y_idx = np.arange(0, vh, sample_spacing)
                 x_idx = np.arange(0, vw, sample_spacing)
