@@ -229,6 +229,8 @@ Assuming an image sequence of $N$ frames and an ROI size of $H \times W$:
 \hline
 \textbf{Variable Name} & \textbf{Dimensions} & \textbf{Description} \\ \hline
 \texttt{U}, \texttt{V} & $N \times H \times W$ & Horizontal/Vertical displacement fields. \\ \hline
+\texttt{Magnitude} & $N \times H \times W$ & Displacement magnitude $\sqrt{U^2 + V^2}$. \\ \hline
+\texttt{Velocity} & $N \times H \times W$ & Velocity magnitude (frame-to-frame change / dt). \\ \hline
 \texttt{exx}, \texttt{eyy}, \texttt{exy...} & $N \times H \times W$ & Strain tensor components (if calculated). \\ \hline
 \texttt{e\_von\_mises} & $N \times H \times W$ & Von Mises equivalent strain. \\ \hline
 \texttt{X\_ref}, \texttt{Y\_ref} & $H \times W$ & Pixel coordinates of the Reference ROI (Meshgrid). \\ \hline

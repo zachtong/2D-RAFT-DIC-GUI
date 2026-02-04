@@ -1430,13 +1430,29 @@ def save_scientific_results(displacement_results, strain_results, roi_mask, roi_
                             if k in s:
                                 strain_stacks[k][t] = s[k].astype(np.float32)
 
-
-        # 3. Save based on extension
+        # 3. Compute derived quantities
+        # Magnitude = sqrt(U^2 + V^2)
+        Magnitude_stack = np.sqrt(U_stack**2 + V_stack**2)
+        
+        # Velocity = frame-to-frame displacement change magnitude
+        # Vel[t] = |D[t] - D[t-1]| / dt
+        Velocity_stack = np.zeros_like(U_stack)
+        dt = metadata.get('time_step', 1.0)
+        if dt <= 0:
+            dt = 1.0
+        for t in range(1, T):
+            du = U_stack[t] - U_stack[t-1]
+            dv = V_stack[t] - V_stack[t-1]
+            Velocity_stack[t] = np.sqrt(du**2 + dv**2) / dt
+        
+        # 4. Save based on extension
         ext = os.path.splitext(file_path)[1].lower()
         
         save_dict = {
             'U': U_stack,
             'V': V_stack,
+            'Magnitude': Magnitude_stack,
+            'Velocity': Velocity_stack,
             'X_ref': X_ref,
             'Y_ref': Y_ref,
             'ROI_mask': mask_crop,
