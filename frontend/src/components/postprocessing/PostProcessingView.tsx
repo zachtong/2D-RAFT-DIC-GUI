@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useAppStore } from "@/stores/appStore";
 import { renderUrl } from "@/api/displacement";
 import { strainRenderUrl } from "@/api/strain";
 import { arrowRenderUrl } from "@/api/arrows";
+import { addPoint, addLine, listProbes } from "@/api/probes";
 import { ColorbarOverlay } from "@/components/shared/ColorbarOverlay";
 import { useColorRange } from "@/hooks/useColorRange";
 import type { StrainComponent } from "@/types/api";
@@ -52,11 +53,95 @@ export function PostProcessingView() {
   const probes = useAppStore((s) => s.probes);
   const viewZoom = useAppStore((s) => s.viewZoom);
 
+  const placingMode = useAppStore((s) => s.probePlacingMode);
+  const placingFirst = useAppStore((s) => s.probePlacingFirst);
+  const setPlacingMode = useAppStore((s) => s.setProbePlacingMode);
+  const setPlacingFirst = useAppStore((s) => s.setProbePlacingFirst);
+  const setProbes = useAppStore((s) => s.setProbes);
+  const updateVis = useAppStore((s) => s.updateVisSettings);
+
+  const imgRef = useRef<HTMLImageElement>(null);
+  // Remember the background before entering placement mode so we can restore it
+  const savedBgRef = useRef<"reference" | "deformed" | null>(null);
+
   const showArrows =
     displayComponent === "velocity" &&
     (arrows.showQuiver || arrows.showStreamlines);
 
   const autoRange = useColorRange(currentFrame, displayComponent, hasResults);
+
+  // Convert screen click coordinates to image pixel coordinates
+  const screenToImage = useCallback(
+    (clientX: number, clientY: number): [number, number] | null => {
+      const img = imgRef.current;
+      if (!img) return null;
+      const rect = img.getBoundingClientRect();
+      const sx = clientX - rect.left;
+      const sy = clientY - rect.top;
+      const scaleX = img.naturalWidth / rect.width;
+      const scaleY = img.naturalHeight / rect.height;
+      const ix = Math.round(sx * scaleX);
+      const iy = Math.round(sy * scaleY);
+      if (ix < 0 || ix >= img.naturalWidth || iy < 0 || iy >= img.naturalHeight) return null;
+      return [ix, iy];
+    }, []
+  );
+
+  // Handle click on image area for probe placement
+  const handleImageClick = useCallback(async (e: React.MouseEvent) => {
+    if (!placingMode) return;
+    const pt = screenToImage(e.clientX, e.clientY);
+    if (!pt) return;
+
+    try {
+      if (placingMode === "point") {
+        await addPoint(pt[0], pt[1]);
+        const updated = await listProbes();
+        setProbes(updated);
+        setPlacingMode(null);
+      } else if (placingMode === "line") {
+        if (!placingFirst) {
+          setPlacingFirst(pt);
+        } else {
+          await addLine(placingFirst, pt);
+          const updated = await listProbes();
+          setProbes(updated);
+          setPlacingMode(null);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to place probe:", err);
+    }
+  }, [placingMode, placingFirst, screenToImage, setProbes, setPlacingMode, setPlacingFirst]);
+
+  // Force reference background during probe placement so click coordinates
+  // are always in the reference frame (displacement field coordinate system).
+  useEffect(() => {
+    if (placingMode) {
+      // Entering placement mode — save current bg and force reference
+      if (vis.background !== "reference") {
+        savedBgRef.current = vis.background;
+        updateVis({ background: "reference" });
+      }
+    } else {
+      // Exiting placement mode — restore previous bg
+      if (savedBgRef.current) {
+        updateVis({ background: savedBgRef.current });
+        savedBgRef.current = null;
+      }
+    }
+  }, [placingMode, updateVis]); // deliberately omit vis.background to avoid loop
+
+  // Escape key cancels placement mode
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && placingMode) {
+        setPlacingMode(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [placingMode, setPlacingMode]);
 
   const { unit: colorbarUnit, scale: colorbarScale } = useMemo(
     () =>
@@ -124,13 +209,18 @@ export function PostProcessingView() {
       </div>
 
       {/* Main visualization */}
-      <div className="flex-1 relative flex items-center justify-center bg-[var(--background)]">
+      <div className="flex-1 relative flex items-center justify-center bg-[var(--background)] overflow-hidden">
         {/* Shared wrapper — main image sizes the box, overlay fills it */}
         <div
           className="relative max-w-full max-h-full"
-          style={viewZoom !== 1 ? { transform: `scale(${viewZoom})` } : undefined}
+          style={{
+            ...(viewZoom !== 1 ? { transform: `scale(${viewZoom})` } : {}),
+            cursor: placingMode ? "crosshair" : undefined,
+          }}
+          onClick={handleImageClick}
         >
           <img
+            ref={imgRef}
             src={src}
             alt={`${displayComponent} frame ${currentFrame}`}
             className="block max-w-full max-h-full"
@@ -157,7 +247,63 @@ export function PostProcessingView() {
               draggable={false}
             />
           )}
+
+          {/* SVG overlay for probe markers — viewBox matches image natural size */}
+          {imgRef.current && (
+            <svg
+              className="absolute inset-0 w-full h-full pointer-events-none"
+              viewBox={`0 0 ${imgRef.current.naturalWidth} ${imgRef.current.naturalHeight}`}
+              preserveAspectRatio="xMidYMid meet"
+            >
+              {probes.map((probe) => {
+                if (probe.type === "point") {
+                  const [x, y] = probe.coords as [number, number];
+                  return (
+                    <circle
+                      key={`p-${probe.id}`}
+                      cx={x}
+                      cy={y}
+                      r={5}
+                      fill={probe.color}
+                      stroke="white"
+                      strokeWidth={1.5}
+                      opacity={0.9}
+                    />
+                  );
+                }
+                if (probe.type === "line") {
+                  const [[x1, y1], [x2, y2]] = probe.coords as [[number, number], [number, number]];
+                  return (
+                    <g key={`l-${probe.id}`}>
+                      <line x1={x1} y1={y1} x2={x2} y2={y2}
+                        stroke={probe.color} strokeWidth={2} opacity={0.9} />
+                      <circle cx={x1} cy={y1} r={4} fill={probe.color} stroke="white" strokeWidth={1} />
+                      <circle cx={x2} cy={y2} r={4} fill={probe.color} stroke="white" strokeWidth={1} />
+                    </g>
+                  );
+                }
+                return null;
+              })}
+              {/* Pending first endpoint for line placement */}
+              {placingFirst && (
+                <circle cx={placingFirst[0]} cy={placingFirst[1]} r={5}
+                  fill="none" stroke="white" strokeWidth={2} strokeDasharray="3,3" />
+              )}
+            </svg>
+          )}
         </div>
+
+        {/* Placement mode indicator */}
+        {placingMode && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 bg-[var(--primary)]/90 px-3 py-1 rounded text-[11px] text-white">
+            {placingMode === "point"
+              ? "Click to place point probe"
+              : placingFirst
+                ? "Click to place second endpoint"
+                : "Click to place first endpoint"}
+            <span className="ml-2 opacity-70">(Esc to cancel)</span>
+          </div>
+        )}
 
         {/* Loading overlay — centered on image area */}
         {imgLoading && (
@@ -177,28 +323,6 @@ export function PostProcessingView() {
           scaleFactor={colorbarScale}
           logScale={vis.logScale}
         />
-
-        {/* SVG overlay for probe markers */}
-        <svg className="absolute inset-0 w-full h-full pointer-events-none">
-          {probes.map((probe) => {
-            if (probe.type === "point") {
-              const coords = probe.coords as [number, number];
-              return (
-                <circle
-                  key={`p-${probe.id}`}
-                  cx="50%"
-                  cy="50%"
-                  r={5}
-                  fill={probe.color}
-                  stroke="white"
-                  strokeWidth={1}
-                  opacity={0.8}
-                />
-              );
-            }
-            return null;
-          })}
-        </svg>
       </div>
     </div>
   );

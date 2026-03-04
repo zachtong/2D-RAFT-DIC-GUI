@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import {
   LineChart,
   Line,
@@ -12,11 +12,6 @@ import {
 import { useAppStore } from "@/stores/appStore";
 import { getTimeSeries, getExtensometer } from "@/api/probes";
 
-const COLORS = [
-  "#3b82f6", "#ef4444", "#22c55e", "#f59e0b",
-  "#8b5cf6", "#ec4899", "#06b6d4", "#f97316",
-];
-
 interface ChartPoint {
   frame: number;
   [key: string]: number | null;
@@ -27,16 +22,31 @@ export function TimeSeriesChart() {
   const currentFrame = useAppStore((s) => s.currentFrame);
   const displayComponent = useAppStore((s) => s.displayComponent);
   const setCurrentFrame = useAppStore((s) => s.setCurrentFrame);
+  const activeProbeTab = useAppStore((s) => s.activeProbeTab);
   const [data, setData] = useState<ChartPoint[]>([]);
-  const [mode, setMode] = useState<"component" | "extensometer">("component");
+  const [lineMode, setLineMode] = useState<"value" | "strain">("value");
+  const [metric, setMetric] = useState<"avg" | "max" | "min">("avg");
 
   const pointProbes = probes.filter((p) => p.type === "point");
   const lineProbes = probes.filter((p) => p.type === "line");
-  const hasProbes = pointProbes.length > 0 || lineProbes.length > 0;
 
-  // Fetch time series data
+  // Build a color lookup: probe id → color
+  const probeColorMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const p of probes) {
+      map[String(p.id)] = p.color;
+    }
+    return map;
+  }, [probes]);
+
+  // Determine what probes to show based on the active tab
+  const showPointData = activeProbeTab === "point" && pointProbes.length > 0;
+  const showLineData = activeProbeTab === "line" && lineProbes.length > 0;
+  const hasData = showPointData || showLineData;
+
+  // Fetch time series data based on active tab
   useEffect(() => {
-    if (!hasProbes) {
+    if (!hasData) {
       setData([]);
       return;
     }
@@ -45,8 +55,8 @@ export function TimeSeriesChart() {
 
     const fetchData = async () => {
       try {
-        if (mode === "extensometer" && lineProbes.length > 0) {
-          // Fetch extensometer data for each line probe
+        if (showLineData && lineMode === "strain") {
+          // Extensometer: engineering strain for each line probe
           const results = await Promise.all(
             lineProbes.map((p) => getExtensometer(p.id))
           );
@@ -57,15 +67,15 @@ export function TimeSeriesChart() {
           for (let i = 0; i < frames; i++) {
             const point: ChartPoint = { frame: i + 1 };
             results.forEach((r, idx) => {
-              point[`line_${lineProbes[idx].id}_strain`] = r.strains[i];
+              point[`line_${lineProbes[idx].id}`] = r.strains[i];
             });
             chartData.push(point);
           }
           setData(chartData);
         } else {
-          // Fetch component time series for point probes
-          const probeType = pointProbes.length > 0 ? "point" : "line";
-          const result = await getTimeSeries(displayComponent, probeType, "avg");
+          // Component value time series
+          const probeType = showPointData ? "point" : "line";
+          const result = await getTimeSeries(displayComponent, probeType, metric);
           if (cancelled) return;
 
           const frames = Object.values(result.series)[0]?.length ?? 0;
@@ -86,46 +96,71 @@ export function TimeSeriesChart() {
 
     fetchData();
     return () => { cancelled = true; };
-  }, [hasProbes, pointProbes.length, lineProbes.length, displayComponent, mode]);
+  }, [hasData, showPointData, showLineData, pointProbes.length, lineProbes.length, displayComponent, lineMode, metric]);
 
-  if (!hasProbes || data.length === 0) return null;
+  if (!hasData || data.length === 0) return null;
 
   const seriesKeys = Object.keys(data[0] || {}).filter((k) => k !== "frame");
 
-  const title = mode === "extensometer"
-    ? "Virtual Extensometer — Engineering Strain"
-    : `Time Series — ${displayComponent.toUpperCase()}`;
+  // Resolve the color for a series key like "probe_3" or "line_2"
+  const getColorForKey = (key: string): string => {
+    const match = key.match(/(?:probe|line)_(\d+)/);
+    if (match) {
+      const id = match[1];
+      if (probeColorMap[id]) return probeColorMap[id];
+    }
+    return "#888";
+  };
+
+  const title = showLineData && lineMode === "strain"
+    ? "Engineering Strain over Time"
+    : `${displayComponent.toUpperCase()} over Time`;
 
   return (
-    <div className="h-[180px] border-t border-[var(--border)] bg-[var(--card)] px-2 pt-1 pb-2">
+    <div className="h-full border-t border-[var(--border)] bg-[var(--card)] px-2 pt-1 pb-2">
       <div className="flex items-center justify-between mb-1">
         <span className="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">
           {title}
         </span>
-        {lineProbes.length > 0 && (
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setMode("component")}
-              className={`px-2 py-0.5 rounded text-[9px] ${
-                mode === "component"
-                  ? "bg-[var(--primary)] text-white"
-                  : "text-[var(--muted-foreground)] hover:bg-[var(--secondary)]"
-              }`}
+        <div className="flex items-center gap-1">
+          {/* Line tab: toggle between value & strain modes */}
+          {showLineData && (
+            <>
+              <button
+                onClick={() => setLineMode("value")}
+                className={`px-2 py-0.5 rounded text-[9px] ${
+                  lineMode === "value"
+                    ? "bg-[var(--primary)] text-white"
+                    : "text-[var(--muted-foreground)] hover:bg-[var(--secondary)]"
+                }`}
+              >
+                Value
+              </button>
+              <button
+                onClick={() => setLineMode("strain")}
+                className={`px-2 py-0.5 rounded text-[9px] ${
+                  lineMode === "strain"
+                    ? "bg-[var(--primary)] text-white"
+                    : "text-[var(--muted-foreground)] hover:bg-[var(--secondary)]"
+                }`}
+              >
+                Strain
+              </button>
+            </>
+          )}
+          {/* Metric selector: only for value mode with line probes */}
+          {showLineData && lineMode === "value" && (
+            <select
+              value={metric}
+              onChange={(e) => setMetric(e.target.value as "avg" | "max" | "min")}
+              className="px-1.5 py-0.5 rounded text-[9px] bg-[var(--input)] border border-[var(--border)] text-[var(--foreground)]"
             >
-              Component
-            </button>
-            <button
-              onClick={() => setMode("extensometer")}
-              className={`px-2 py-0.5 rounded text-[9px] ${
-                mode === "extensometer"
-                  ? "bg-[var(--primary)] text-white"
-                  : "text-[var(--muted-foreground)] hover:bg-[var(--secondary)]"
-              }`}
-            >
-              Extensometer
-            </button>
-          </div>
-        )}
+              <option value="avg">Avg</option>
+              <option value="max">Max</option>
+              <option value="min">Min</option>
+            </select>
+          )}
+        </div>
       </div>
       <ResponsiveContainer width="100%" height="85%">
         <LineChart
@@ -158,12 +193,12 @@ export function TimeSeriesChart() {
             stroke="var(--primary)"
             strokeDasharray="3 3"
           />
-          {seriesKeys.map((key, i) => (
+          {seriesKeys.map((key) => (
             <Line
               key={key}
               type="monotone"
               dataKey={key}
-              stroke={COLORS[i % COLORS.length]}
+              stroke={getColorForKey(key)}
               dot={false}
               strokeWidth={1.5}
               connectNulls

@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { CollapsibleSection } from "@/components/shared/CollapsibleSection";
 import { SegmentedControl } from "@/components/shared/SegmentedControl";
 import { useAppStore } from "@/stores/appStore";
@@ -9,10 +8,16 @@ type ProbeTab = "Point" | "Line" | "Area";
 export function ProbePanel() {
   const probes = useAppStore((s) => s.probes);
   const setProbes = useAppStore((s) => s.setProbes);
-  const [tab, setTab] = useState<ProbeTab>("Point");
+  const placingMode = useAppStore((s) => s.probePlacingMode);
+  const setPlacingMode = useAppStore((s) => s.setProbePlacingMode);
+  const activeProbeTab = useAppStore((s) => s.activeProbeTab);
+  const setActiveProbeTab = useAppStore((s) => s.setActiveProbeTab);
+
+  const tab = (activeProbeTab.charAt(0).toUpperCase() + activeProbeTab.slice(1)) as ProbeTab;
+  const setTab = (v: string) => setActiveProbeTab(v.toLowerCase() as "point" | "line" | "area");
 
   const filteredProbes = probes.filter(
-    (p) => p.type === tab.toLowerCase()
+    (p) => p.type === activeProbeTab
   );
 
   const handleClear = async () => {
@@ -44,8 +49,22 @@ export function ProbePanel() {
       />
 
       <div className="flex gap-1 mt-1">
-        <button className="flex-1 px-2 py-1 bg-[var(--secondary)] hover:bg-[var(--secondary)]/80 rounded text-[10px] text-[var(--foreground)]">
-          + Add
+        <button
+          onClick={() => {
+            if (tab === "Area") return;
+            const mode = tab.toLowerCase() as "point" | "line";
+            setPlacingMode(placingMode === mode ? null : mode);
+          }}
+          disabled={tab === "Area"}
+          className={`flex-1 px-2 py-1 rounded text-[10px] ${
+            tab === "Area"
+              ? "bg-[var(--secondary)]/50 text-[var(--muted-foreground)] cursor-not-allowed"
+              : placingMode === tab.toLowerCase()
+                ? "bg-[var(--primary)] text-white ring-1 ring-[var(--primary)]"
+                : "bg-[var(--secondary)] hover:bg-[var(--secondary)]/80 text-[var(--foreground)]"
+          }`}
+        >
+          {placingMode === tab.toLowerCase() ? "Placing..." : "+ Add"}
         </button>
         <button
           onClick={() => {

@@ -1,3 +1,4 @@
+import { useRef, useState } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { StrainControls } from "@/components/postprocessing/StrainControls";
 import { VisualizationControls } from "@/components/postprocessing/VisualizationControls";
@@ -7,8 +8,12 @@ import { ExportDialog } from "@/components/postprocessing/ExportDialog";
 import { PostProcessingView } from "@/components/postprocessing/PostProcessingView";
 import { FramePlayback } from "@/components/displacement/FramePlayback";
 import { TimeSeriesChart } from "@/components/postprocessing/TimeSeriesChart";
+import { ResizableSplitter } from "@/components/postprocessing/ResizableSplitter";
 
 export function PostProcessingPage() {
+  const splitContainerRef = useRef<HTMLDivElement>(null);
+  const [topRatio, setTopRatio] = useState(0.7);
+
   return (
     <div className="flex flex-1 overflow-hidden">
       <Sidebar>
@@ -20,9 +25,19 @@ export function PostProcessingPage() {
           <ExportDialog />
         </div>
       </Sidebar>
-      <div className="flex-1 flex flex-col">
-        <PostProcessingView />
-        <TimeSeriesChart />
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <div ref={splitContainerRef} className="flex-1 flex flex-col overflow-hidden">
+          <div style={{ flex: `0 0 ${topRatio * 100}%` }} className="overflow-hidden flex flex-col">
+            <PostProcessingView />
+          </div>
+          <ResizableSplitter
+            containerRef={splitContainerRef}
+            onRatioChange={setTopRatio}
+          />
+          <div style={{ flex: 1 }} className="overflow-hidden min-h-[120px]">
+            <TimeSeriesChart />
+          </div>
+        </div>
         <FramePlayback />
       </div>
     </div>

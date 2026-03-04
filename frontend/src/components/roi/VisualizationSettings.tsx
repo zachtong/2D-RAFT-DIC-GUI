@@ -221,7 +221,7 @@ export function VisualizationSettings() {
               onChange={() => update({ background: "reference" })}
               className="accent-[var(--primary)] w-3 h-3"
             />
-            <span className="text-[11px] text-[var(--foreground)]">Reference Frame</span>
+            <span className={`text-[11px] ${vis.background === "reference" ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]"}`}>Reference Frame</span>
           </label>
           <label className="flex items-center gap-2 cursor-pointer">
             <input
@@ -231,7 +231,7 @@ export function VisualizationSettings() {
               onChange={() => update({ background: "deformed" })}
               className="accent-[var(--primary)] w-3 h-3"
             />
-            <span className="text-[11px] text-[var(--muted-foreground)]">Deformed Frame</span>
+            <span className={`text-[11px] ${vis.background === "deformed" ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]"}`}>Deformed Frame</span>
           </label>
         </div>
       </CollapsibleSection>

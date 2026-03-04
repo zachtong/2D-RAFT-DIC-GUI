@@ -69,6 +69,9 @@ interface AppState {
 
   // Probes
   probes: ProbeData[];
+  activeProbeTab: "point" | "line" | "area";
+  probePlacingMode: "point" | "line" | null;
+  probePlacingFirst: [number, number] | null;
 
   // View zoom (shared by displacement + postprocessing)
   viewZoom: number;
@@ -93,6 +96,9 @@ interface AppState {
   updateVisSettings: (partial: Partial<VisSettings>) => void;
   updateArrowSettings: (partial: Partial<ArrowSettings>) => void;
   setProbes: (probes: ProbeData[]) => void;
+  setActiveProbeTab: (tab: "point" | "line" | "area") => void;
+  setProbePlacingMode: (mode: "point" | "line" | null) => void;
+  setProbePlacingFirst: (pt: [number, number] | null) => void;
   setExport: (active: boolean, progress?: number) => void;
   zoomIn: () => void;
   zoomOut: () => void;
@@ -146,6 +152,9 @@ export const useAppStore = create<AppState>((set) => ({
     streamQuality: 4,
   },
   probes: [],
+  activeProbeTab: "point",
+  probePlacingMode: null,
+  probePlacingFirst: null,
   viewZoom: 1,
   exportActive: false,
   exportProgress: 0,
@@ -177,6 +186,9 @@ export const useAppStore = create<AppState>((set) => ({
   updateArrowSettings: (partial) =>
     set((s) => ({ arrowSettings: { ...s.arrowSettings, ...partial } })),
   setProbes: (probes) => set({ probes }),
+  setActiveProbeTab: (tab) => set({ activeProbeTab: tab }),
+  setProbePlacingMode: (mode) => set({ probePlacingMode: mode, probePlacingFirst: null }),
+  setProbePlacingFirst: (pt) => set({ probePlacingFirst: pt }),
   setExport: (active, progress = 0) =>
     set({ exportActive: active, exportProgress: progress }),
   zoomIn: () => set((s) => ({ viewZoom: Math.min(s.viewZoom * 1.25, 5) })),
