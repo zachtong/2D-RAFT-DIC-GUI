@@ -9,6 +9,7 @@ __pycache__/
 
 # Legacy and Large Files
 legacy_archive/
+_backup_tkinter/
 models/*
 !models/active/
 
