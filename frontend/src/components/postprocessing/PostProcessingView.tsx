@@ -61,8 +61,24 @@ export function PostProcessingView() {
   const updateVis = useAppStore((s) => s.updateVisSettings);
 
   const imgRef = useRef<HTMLImageElement>(null);
+  const imageAreaRef = useRef<HTMLDivElement>(null);
   // Remember the background before entering placement mode so we can restore it
   const savedBgRef = useRef<"reference" | "deformed" | null>(null);
+
+  // Track container size via ResizeObserver for explicit pixel constraints on the image.
+  // CSS percentage-based max-height doesn't resolve correctly through flex/auto-height chains,
+  // so we measure the container and apply pixel values directly.
+  const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    const el = imageAreaRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const { width, height } = entries[0].contentRect;
+      setContainerSize({ w: Math.round(width), h: Math.round(height) });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const showArrows =
     displayComponent === "velocity" &&
@@ -194,7 +210,7 @@ export function PostProcessingView() {
     : renderUrl(currentFrame, renderParams);
 
   return (
-    <div className="flex-1 flex flex-col">
+    <div className="flex-1 flex flex-col min-h-0">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-1.5 bg-[var(--card)] border-b border-[var(--border)]">
         <div className="flex items-center gap-2">
@@ -208,89 +224,95 @@ export function PostProcessingView() {
         </span>
       </div>
 
-      {/* Main visualization */}
-      <div className="flex-1 relative flex items-center justify-center bg-[var(--background)] overflow-hidden">
-        {/* Shared wrapper — main image sizes the box, overlay fills it */}
-        <div
-          className="relative max-w-full max-h-full"
-          style={{
-            ...(viewZoom !== 1 ? { transform: `scale(${viewZoom})` } : {}),
-            cursor: placingMode ? "crosshair" : undefined,
-          }}
-          onClick={handleImageClick}
-        >
-          <img
-            ref={imgRef}
-            src={src}
-            alt={`${displayComponent} frame ${currentFrame}`}
-            className="block max-w-full max-h-full"
-            draggable={false}
-            onLoad={() => {
-              if (loadTimerRef.current) clearTimeout(loadTimerRef.current);
-              setImgLoading(false);
+      {/* Main visualization — relative container with absolute inner to break percentage chain */}
+      <div ref={imageAreaRef} className="flex-1 relative bg-[var(--background)] overflow-hidden min-h-0">
+        {/* Absolute fill layer — gives children explicit pixel dimensions */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          {/* Shared wrapper — explicit pixel max-height from ResizeObserver */}
+          <div
+            className="relative"
+            style={{
+              maxWidth: containerSize.w > 0 ? `${containerSize.w}px` : "100%",
+              maxHeight: containerSize.h > 0 ? `${containerSize.h}px` : "100%",
+              ...(viewZoom !== 1 ? { transform: `scale(${viewZoom})` } : {}),
+              cursor: placingMode ? "crosshair" : undefined,
             }}
-          />
-          {showArrows && currentFrame > 0 && (
+            onClick={handleImageClick}
+          >
             <img
-              src={arrowRenderUrl(currentFrame, {
-                show_quiver: arrows.showQuiver,
-                show_streamlines: arrows.showStreamlines,
-                spacing: arrows.spacing,
-                scale: arrows.scale,
-                color: arrows.color,
-                line_width: arrows.lineWidth,
-                background: vis.background,
-                stream_ds: arrows.streamQuality,
-              })}
-              alt="velocity arrows"
-              className="absolute inset-0 w-full h-full pointer-events-none"
+              ref={imgRef}
+              src={src}
+              alt={`${displayComponent} frame ${currentFrame}`}
+              className="block max-w-full"
+              style={{ maxHeight: containerSize.h > 0 ? `${containerSize.h}px` : undefined }}
               draggable={false}
+              onLoad={() => {
+                if (loadTimerRef.current) clearTimeout(loadTimerRef.current);
+                setImgLoading(false);
+              }}
             />
-          )}
+            {showArrows && currentFrame > 0 && (
+              <img
+                src={arrowRenderUrl(currentFrame, {
+                  show_quiver: arrows.showQuiver,
+                  show_streamlines: arrows.showStreamlines,
+                  spacing: arrows.spacing,
+                  scale: arrows.scale,
+                  color: arrows.color,
+                  line_width: arrows.lineWidth,
+                  background: vis.background,
+                  stream_ds: arrows.streamQuality,
+                })}
+                alt="velocity arrows"
+                className="absolute inset-0 w-full h-full pointer-events-none"
+                draggable={false}
+              />
+            )}
 
-          {/* SVG overlay for probe markers — viewBox matches image natural size */}
-          {imgRef.current && (
-            <svg
-              className="absolute inset-0 w-full h-full pointer-events-none"
-              viewBox={`0 0 ${imgRef.current.naturalWidth} ${imgRef.current.naturalHeight}`}
-              preserveAspectRatio="xMidYMid meet"
-            >
-              {probes.map((probe) => {
-                if (probe.type === "point") {
-                  const [x, y] = probe.coords as [number, number];
-                  return (
-                    <circle
-                      key={`p-${probe.id}`}
-                      cx={x}
-                      cy={y}
-                      r={5}
-                      fill={probe.color}
-                      stroke="white"
-                      strokeWidth={1.5}
-                      opacity={0.9}
-                    />
-                  );
-                }
-                if (probe.type === "line") {
-                  const [[x1, y1], [x2, y2]] = probe.coords as [[number, number], [number, number]];
-                  return (
-                    <g key={`l-${probe.id}`}>
-                      <line x1={x1} y1={y1} x2={x2} y2={y2}
-                        stroke={probe.color} strokeWidth={2} opacity={0.9} />
-                      <circle cx={x1} cy={y1} r={4} fill={probe.color} stroke="white" strokeWidth={1} />
-                      <circle cx={x2} cy={y2} r={4} fill={probe.color} stroke="white" strokeWidth={1} />
-                    </g>
-                  );
-                }
-                return null;
-              })}
-              {/* Pending first endpoint for line placement */}
-              {placingFirst && (
-                <circle cx={placingFirst[0]} cy={placingFirst[1]} r={5}
-                  fill="none" stroke="white" strokeWidth={2} strokeDasharray="3,3" />
-              )}
-            </svg>
-          )}
+            {/* SVG overlay for probe markers — viewBox matches image natural size */}
+            {imgRef.current && (
+              <svg
+                className="absolute inset-0 w-full h-full pointer-events-none"
+                viewBox={`0 0 ${imgRef.current.naturalWidth} ${imgRef.current.naturalHeight}`}
+                preserveAspectRatio="xMidYMid meet"
+              >
+                {probes.map((probe) => {
+                  if (probe.type === "point") {
+                    const [x, y] = probe.coords as [number, number];
+                    return (
+                      <circle
+                        key={`p-${probe.id}`}
+                        cx={x}
+                        cy={y}
+                        r={5}
+                        fill={probe.color}
+                        stroke="white"
+                        strokeWidth={1.5}
+                        opacity={0.9}
+                      />
+                    );
+                  }
+                  if (probe.type === "line") {
+                    const [[x1, y1], [x2, y2]] = probe.coords as [[number, number], [number, number]];
+                    return (
+                      <g key={`l-${probe.id}`}>
+                        <line x1={x1} y1={y1} x2={x2} y2={y2}
+                          stroke={probe.color} strokeWidth={2} opacity={0.9} />
+                        <circle cx={x1} cy={y1} r={4} fill={probe.color} stroke="white" strokeWidth={1} />
+                        <circle cx={x2} cy={y2} r={4} fill={probe.color} stroke="white" strokeWidth={1} />
+                      </g>
+                    );
+                  }
+                  return null;
+                })}
+                {/* Pending first endpoint for line placement */}
+                {placingFirst && (
+                  <circle cx={placingFirst[0]} cy={placingFirst[1]} r={5}
+                    fill="none" stroke="white" strokeWidth={2} strokeDasharray="3,3" />
+                )}
+              </svg>
+            )}
+          </div>
         </div>
 
         {/* Placement mode indicator */}
