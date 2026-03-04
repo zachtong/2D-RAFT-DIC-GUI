@@ -2,6 +2,7 @@
 
 import sys
 import os
+import argparse
 import webbrowser
 import threading
 
@@ -13,6 +14,15 @@ from flask import send_from_directory
 
 
 def main():
+    parser = argparse.ArgumentParser(description="RAFTcorr production server")
+    parser.add_argument("--host", default="127.0.0.1",
+                        help="Bind address (default: 127.0.0.1, use 0.0.0.0 for Colab)")
+    parser.add_argument("--port", type=int, default=5000,
+                        help="Port number (default: 5000)")
+    parser.add_argument("--no-browser", action="store_true",
+                        help="Do not open a browser window on startup")
+    args = parser.parse_args()
+
     app = create_app()
 
     # Serve the built React frontend
@@ -32,17 +42,16 @@ def main():
             return send_from_directory(frontend_dist, path)
         return send_from_directory(frontend_dist, "index.html")
 
-    host = "127.0.0.1"
-    port = 5000
+    host = args.host
+    port = args.port
     url = f"http://{host}:{port}"
 
-    # Open browser after a short delay
-    def open_browser():
-        import time
-        time.sleep(1.5)
-        webbrowser.open(url)
-
-    threading.Thread(target=open_browser, daemon=True).start()
+    if not args.no_browser:
+        def open_browser():
+            import time
+            time.sleep(1.5)
+            webbrowser.open(url)
+        threading.Thread(target=open_browser, daemon=True).start()
 
     print(f"Starting RAFTcorr production server at {url}")
     socketio.run(app, host=host, port=port, debug=False, use_reloader=False)
