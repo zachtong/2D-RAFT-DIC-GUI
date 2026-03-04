@@ -1,0 +1,92 @@
+"""Helpers for converting numpy arrays to JSON-safe and PNG formats."""
+
+import io
+from typing import Any, Dict, Optional, Tuple
+
+import numpy as np
+from flask import Response
+
+
+def ndarray_to_png_bytes(
+    arr: np.ndarray,
+    colormap: str = "turbo",
+    vmin: Optional[float] = None,
+    vmax: Optional[float] = None,
+) -> bytes:
+    """Convert a 2D numpy array to PNG bytes using matplotlib colormap + PIL."""
+    from PIL import Image
+    import matplotlib.cm as cm
+    import matplotlib.colors as mcolors
+
+    finite = arr[np.isfinite(arr)]
+    if vmin is None:
+        vmin = float(finite.min()) if finite.size > 0 else 0.0
+    if vmax is None:
+        vmax = float(finite.max()) if finite.size > 0 else 1.0
+    if vmin >= vmax:
+        vmax = vmin + 1e-10
+
+    cmap = cm.get_cmap(colormap)
+    norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+    colored = cmap(norm(np.nan_to_num(arr, nan=0.0)))  # (H, W, 4) float [0,1]
+    rgb = (colored[:, :, :3] * 255).astype(np.uint8)
+
+    pil_img = Image.fromarray(rgb, "RGB")
+    buf = io.BytesIO()
+    pil_img.save(buf, format="PNG")
+    buf.seek(0)
+    return buf.read()
+
+
+def image_to_png_bytes(img: np.ndarray) -> bytes:
+    """Convert an image array (grayscale or RGB) to PNG bytes using PIL."""
+    from PIL import Image
+
+    if img.dtype != np.uint8:
+        if img.max() <= 1.0:
+            img = (img * 255).astype(np.uint8)
+        else:
+            img = img.astype(np.uint8)
+
+    if img.ndim == 2:
+        pil_img = Image.fromarray(img)
+    else:
+        pil_img = Image.fromarray(img)
+
+    buf = io.BytesIO()
+    pil_img.save(buf, format="PNG")
+    buf.seek(0)
+    return buf.read()
+
+
+def png_response(png_bytes: bytes) -> Response:
+    """Wrap PNG bytes in a Flask Response with no-cache headers."""
+    resp = Response(png_bytes, mimetype="image/png")
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
+
+
+def ndarray_to_json(arr: np.ndarray) -> Dict[str, Any]:
+    """Convert a numpy array to a JSON-serializable dict."""
+    return {
+        "data": arr.tolist(),
+        "shape": list(arr.shape),
+        "dtype": str(arr.dtype),
+    }
+
+
+def frame_data_to_json(
+    arr: np.ndarray,
+    vmin: Optional[float] = None,
+    vmax: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Convert frame displacement/strain data to JSON with stats."""
+    finite = arr[np.isfinite(arr)]
+    return {
+        "data": arr.tolist(),
+        "shape": list(arr.shape),
+        "vmin": float(vmin if vmin is not None else (finite.min() if finite.size > 0 else 0)),
+        "vmax": float(vmax if vmax is not None else (finite.max() if finite.size > 0 else 0)),
+        "mean": float(finite.mean()) if finite.size > 0 else 0,
+    }

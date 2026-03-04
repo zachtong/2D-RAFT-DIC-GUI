@@ -1,0 +1,185 @@
+import { CollapsibleSection } from "@/components/shared/CollapsibleSection";
+import { FieldRow } from "@/components/shared/FieldRow";
+import { Toggle } from "@/components/shared/Toggle";
+import { SmallInput } from "@/components/shared/SmallInput";
+import { SelectField } from "@/components/shared/SelectField";
+import { SliderField } from "@/components/shared/SliderField";
+import { ColormapBar } from "@/components/shared/ColormapBar";
+import { useAppStore } from "@/stores/appStore";
+import type { DisplayComponent } from "@/types/api";
+
+const DISPLACEMENT_COMPONENTS: { value: DisplayComponent; label: string }[] = [
+  { value: "u", label: "U (horizontal)" },
+  { value: "v", label: "V (vertical)" },
+  { value: "magnitude", label: "Magnitude" },
+  { value: "velocity", label: "Velocity" },
+];
+
+const STRAIN_COMPONENTS: { value: DisplayComponent; label: string }[] = [
+  { value: "exx", label: "εxx" },
+  { value: "eyy", label: "εyy" },
+  { value: "exy", label: "εxy" },
+  { value: "e1", label: "ε1 (principal)" },
+  { value: "e2", label: "ε2 (principal)" },
+  { value: "max_shear", label: "Max Shear" },
+  { value: "von_mises", label: "Von Mises" },
+  { value: "rotation", label: "Rotation" },
+];
+
+const UNIT_OPTIONS = [
+  { value: "px", label: "px" },
+  { value: "mm", label: "mm" },
+  { value: "µm", label: "µm" },
+  { value: "m", label: "m" },
+];
+
+const COLORMAP_OPTIONS = [
+  { value: "turbo", label: "Turbo" },
+  { value: "viridis", label: "Viridis" },
+  { value: "jet", label: "Jet" },
+  { value: "coolwarm", label: "Coolwarm" },
+  { value: "plasma", label: "Plasma" },
+  { value: "inferno", label: "Inferno" },
+];
+
+export function VisualizationControls() {
+  const displayComponent = useAppStore((s) => s.displayComponent);
+  const setDisplayComponent = useAppStore((s) => s.setDisplayComponent);
+  const hasStrain = useAppStore((s) => s.hasStrain);
+  const vis = useAppStore((s) => s.visSettings);
+  const update = useAppStore((s) => s.updateVisSettings);
+
+  const physicalEnabled = vis.physicalEnabled;
+
+  const allComponents = [
+    ...DISPLACEMENT_COMPONENTS,
+    ...(hasStrain ? STRAIN_COMPONENTS : []),
+  ];
+
+  return (
+    <>
+      <CollapsibleSection title="Visualization Controls">
+        <FieldRow label="Display">
+          <SelectField
+            value={displayComponent}
+            options={allComponents}
+            onChange={(v) => setDisplayComponent(v as DisplayComponent)}
+          />
+        </FieldRow>
+
+        <FieldRow label="Colormap">
+          <SelectField
+            value={vis.colormap}
+            options={COLORMAP_OPTIONS}
+            onChange={(v) => update({ colormap: v })}
+          />
+        </FieldRow>
+        <ColormapBar colormap={vis.colormap} />
+
+        <FieldRow label="Opacity">
+          <SliderField
+            value={vis.alpha}
+            onChange={(v) => update({ alpha: v })}
+            min={0}
+            max={1}
+            step={0.05}
+          />
+        </FieldRow>
+
+        <div className="h-px bg-[var(--border)] my-1" />
+
+        <FieldRow label="Fixed Color Range">
+          <Toggle
+            checked={vis.fixedRange}
+            onChange={(v) => update({ fixedRange: v })}
+          />
+        </FieldRow>
+        {vis.fixedRange && (
+          <div className="flex items-center gap-1">
+            <SmallInput
+              value={vis.vminU}
+              onChange={(v) => update({ vminU: v })}
+              placeholder="min"
+            />
+            <span className="text-[10px] text-[var(--muted-foreground)]">—</span>
+            <SmallInput
+              value={vis.vmaxU}
+              onChange={(v) => update({ vmaxU: v })}
+              placeholder="max"
+            />
+          </div>
+        )}
+
+        <FieldRow label="Log Scale">
+          <Toggle
+            checked={vis.logScale}
+            onChange={(v) => update({ logScale: v })}
+          />
+        </FieldRow>
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Physical Units" defaultOpen={false}>
+        <FieldRow label="Enable">
+          <Toggle
+            checked={physicalEnabled}
+            onChange={(v) => update({ physicalEnabled: v })}
+          />
+        </FieldRow>
+        {physicalEnabled && (
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]">
+              <SmallInput
+                value={String(vis.physicalRatio)}
+                onChange={(v) => {
+                  const n = parseFloat(v);
+                  if (!isNaN(n) && n > 0) update({ physicalRatio: n });
+                }}
+                className="w-12"
+              />
+              <SelectField
+                value={vis.physicalUnit}
+                options={UNIT_OPTIONS}
+                onChange={(v) => update({ physicalUnit: v })}
+              />
+              <span>= 1 px</span>
+            </div>
+            <FieldRow label="FPS">
+              <SmallInput
+                value={String(vis.fps)}
+                onChange={(v) => {
+                  const n = parseFloat(v);
+                  if (!isNaN(n) && n > 0) update({ fps: n });
+                }}
+              />
+            </FieldRow>
+          </div>
+        )}
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Background" defaultOpen={false}>
+        <div className="space-y-1">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="pp-bg"
+              checked={vis.background === "reference"}
+              onChange={() => update({ background: "reference" })}
+              className="accent-[var(--primary)] w-3 h-3"
+            />
+            <span className="text-[11px] text-[var(--foreground)]">Reference Frame</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="pp-bg"
+              checked={vis.background === "deformed"}
+              onChange={() => update({ background: "deformed" })}
+              className="accent-[var(--primary)] w-3 h-3"
+            />
+            <span className="text-[11px] text-[var(--muted-foreground)]">Deformed Frame</span>
+          </label>
+        </div>
+      </CollapsibleSection>
+    </>
+  );
+}
