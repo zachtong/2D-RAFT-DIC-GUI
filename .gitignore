@@ -1,5 +1,8 @@
 000_strain_display/
 
+# Worktrees
+.worktrees/
+
 # Python
 __pycache__/
 *.pyc
