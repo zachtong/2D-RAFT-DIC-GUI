@@ -54,7 +54,8 @@ def main():
         threading.Thread(target=open_browser, daemon=True).start()
 
     print(f"Starting RAFTcorr production server at {url}")
-    socketio.run(app, host=host, port=port, debug=False, use_reloader=False)
+    socketio.run(app, host=host, port=port, debug=False, use_reloader=False,
+                 allow_unsafe_werkzeug=True)
 
 
 if __name__ == "__main__":
