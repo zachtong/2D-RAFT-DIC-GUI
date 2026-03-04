@@ -21,8 +21,11 @@ def browse_directory():
 
     # Default: return filesystem roots / home
     if not path:
-        home = os.path.expanduser("~")
-        path = home
+        # On Colab, files live under /content/ (not /root/)
+        if os.path.isdir("/content"):
+            path = "/content"
+        else:
+            path = os.path.expanduser("~")
 
     if not os.path.isdir(path):
         return jsonify({"error": f"Not a directory: {path}"}), 400
