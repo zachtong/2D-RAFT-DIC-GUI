@@ -166,6 +166,8 @@ export const useAppStore = create<AppState>((set) => ({
 
   resetSession: () =>
     set({
+      imageWidth: 0,
+      imageHeight: 0,
       roiConfirmed: false,
       processingActive: false,
       processingPaused: false,
