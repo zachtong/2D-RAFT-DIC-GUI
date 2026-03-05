@@ -12,17 +12,23 @@ GPU-accelerated 2D Digital Image Correlation (DIC) powered by the RAFT optical f
 ```bash
 git clone https://github.com/zachtong/RAFTcorr.git
 cd RAFTcorr
+```
+
+**Windows (one-click):** Double-click **`install.bat`**, then **`run.bat`**.
+
+**Command line:**
+```bash
+conda create -n raftcorr python=3.10 -y
+conda activate raftcorr
 pip install -e .
 python run_prod.py
 ```
-
-On Windows, you can double-click **`install.bat`** then **`run.bat`** instead.
 
 The browser opens automatically to `http://localhost:5000`.
 
 ### Prerequisites
 
-- Python 3.8+
+- [Anaconda](https://www.anaconda.com/download) or [Miniconda](https://docs.anaconda.com/miniconda/)
 - NVIDIA GPU with CUDA 11.8+ (required)
 - NVIDIA driver installed (`nvidia-smi` should work)
 

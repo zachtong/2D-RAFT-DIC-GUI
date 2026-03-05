@@ -1,4 +1,5 @@
 @echo off
+call conda activate raftcorr
 python run_prod.py
 if %errorlevel% neq 0 (
     echo.
