@@ -1,6 +1,7 @@
 """Image loading and serving endpoints."""
 
 import os
+import re
 
 from flask import Blueprint, jsonify, request
 
@@ -54,19 +55,26 @@ def browse_directory():
     })
 
 
+def _natural_sort_key(s: str):
+    """Split filename into text/number parts for natural ordering."""
+    return [int(p) if p.isdigit() else p.lower() for p in re.split(r"(\d+)", s)]
+
+
 @images_bp.route("/load", methods=["POST"])
 def load_images():
     """Load images from a directory path."""
     data = request.get_json(force=True)
     directory = data.get("dir", "").strip()
+    natural_sort = data.get("natural_sort", False)
 
     if not directory or not os.path.isdir(directory):
         return jsonify({"error": "Invalid or missing directory"}), 400
 
-    files = sorted(
+    image_files = [
         f for f in os.listdir(directory)
         if f.lower().endswith(IMAGE_EXTENSIONS)
-    )
+    ]
+    files = sorted(image_files, key=_natural_sort_key if natural_sort else str.lower)
     if not files:
         return jsonify({"error": "No supported image files found in directory"}), 400
 

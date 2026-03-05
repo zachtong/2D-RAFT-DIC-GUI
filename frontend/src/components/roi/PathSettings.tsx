@@ -30,9 +30,12 @@ export function PathSettings() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [browserOpen, setBrowserOpen] = useState(false);
+  const [naturalSort, setNaturalSort] = useState(false);
+  const [showFileList, setShowFileList] = useState(false);
 
-  const handleLoad = async (overridePath?: string) => {
+  const handleLoad = async (overridePath?: string, sortOverride?: boolean) => {
     const dir = (overridePath ?? dirInput).trim();
+    const useNaturalSort = sortOverride ?? naturalSort;
     if (!dir) {
       setError("Please enter a directory path");
       toast("error", "Please enter a directory path");
@@ -41,7 +44,7 @@ export function PathSettings() {
     setLoading(true);
     setError("");
     try {
-      const result = await loadImages(dir);
+      const result = await loadImages(dir, useNaturalSort);
       // Explicitly clear backend ROI + probes + frontend state
       await Promise.all([
         clearRoi().catch(() => {}),
@@ -111,6 +114,25 @@ export function PathSettings() {
         </div>
       </div>
 
+      {/* Natural sort toggle */}
+      <label className="flex items-center gap-1.5 cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={naturalSort}
+          onChange={(e) => {
+            const checked = e.target.checked;
+            setNaturalSort(checked);
+            if (imageFiles.length > 0) {
+              handleLoad(undefined, checked);
+            }
+          }}
+          className="accent-[var(--primary)] w-3 h-3"
+        />
+        <span className="text-[10px] text-[var(--muted-foreground)]">
+          Natural sort (image1, image2, ... image11)
+        </span>
+      </label>
+
       <FileBrowser
         open={browserOpen}
         onClose={() => setBrowserOpen(false)}
@@ -126,9 +148,26 @@ export function PathSettings() {
       )}
 
       {imageFiles.length > 0 && (
-        <p className="text-[10px] text-[var(--muted-foreground)]">
-          {imageFiles.length} images loaded
-        </p>
+        <div className="flex flex-col gap-1">
+          <button
+            onClick={() => setShowFileList(!showFileList)}
+            className="text-[10px] text-[var(--muted-foreground)] hover:text-[var(--foreground)] text-left flex items-center gap-1"
+          >
+            <span className="text-[8px]">{showFileList ? "\u25BC" : "\u25B6"}</span>
+            {imageFiles.length} images loaded
+            {naturalSort ? " (natural sort)" : " (lexicographic)"}
+          </button>
+          {showFileList && (
+            <div className="max-h-32 overflow-y-auto border border-[#3a3d45] rounded bg-[var(--input)] p-1">
+              {imageFiles.map((f, i) => (
+                <div key={i} className="text-[9px] text-[var(--muted-foreground)] font-mono leading-tight px-1">
+                  <span className="text-[var(--primary)] mr-1">{String(i).padStart(3, "\u00A0")}</span>
+                  {f}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {models.length > 0 && (

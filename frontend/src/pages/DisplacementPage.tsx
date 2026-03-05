@@ -11,7 +11,7 @@ export function DisplacementPage() {
           <VisualizationSettings />
         </div>
       </Sidebar>
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col overflow-hidden">
         <DisplacementView />
         <FramePlayback />
       </div>

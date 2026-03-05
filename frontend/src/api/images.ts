@@ -18,8 +18,8 @@ export async function browseDirectory(path: string): Promise<BrowseResult> {
   return data;
 }
 
-export async function loadImages(dir: string): Promise<ImageLoadResult> {
-  const { data } = await client.post<ImageLoadResult>("/images/load", { dir });
+export async function loadImages(dir: string, naturalSort = false): Promise<ImageLoadResult> {
+  const { data } = await client.post<ImageLoadResult>("/images/load", { dir, natural_sort: naturalSort });
   return data;
 }
 
