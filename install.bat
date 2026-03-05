@@ -16,13 +16,18 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-:: Create conda environment
-echo Creating conda environment "raftcorr" with Python 3.10...
-call conda create -n raftcorr python=3.10 -y
-if %errorlevel% neq 0 (
-    echo [ERROR] Failed to create conda environment.
-    pause
-    exit /b 1
+:: Create conda environment (skip if already exists)
+call conda info --envs | findstr /c:"raftcorr" >nul 2>&1
+if %errorlevel% equ 0 (
+    echo Environment "raftcorr" already exists, updating...
+) else (
+    echo Creating conda environment "raftcorr" with Python 3.10...
+    call conda create -n raftcorr python=3.10 -y
+    if %errorlevel% neq 0 (
+        echo [ERROR] Failed to create conda environment.
+        pause
+        exit /b 1
+    )
 )
 
 :: Activate and install
