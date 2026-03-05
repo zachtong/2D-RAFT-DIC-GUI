@@ -6,14 +6,14 @@
 # Python
 __pycache__/
 *.pyc
+*.egg-info/
 
 # Legacy and Large Files
 legacy_archive/
 _backup_tkinter/
+assets/
 models/*
 !models/active/
 
-# Documentation and Examples
-# docs/
-assets/demo/
+# Examples (large image datasets)
 examples/
