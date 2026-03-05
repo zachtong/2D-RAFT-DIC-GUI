@@ -213,7 +213,7 @@ export function RoiCanvas() {
             src={`${referenceImageUrl()}?v=${encodeURIComponent(imageFiles[0] ?? "")}`}
             alt="Reference"
             draggable={false}
-            className="absolute top-0 left-0 select-none"
+            className="absolute top-0 left-0 select-none max-w-none"
             style={{
               transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
               transformOrigin: "0 0",
@@ -227,7 +227,7 @@ export function RoiCanvas() {
               src={maskUrl}
               alt="ROI Mask"
               draggable={false}
-              className="absolute top-0 left-0 select-none pointer-events-none"
+              className="absolute top-0 left-0 select-none pointer-events-none max-w-none"
               style={{
                 transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
                 transformOrigin: "0 0",
