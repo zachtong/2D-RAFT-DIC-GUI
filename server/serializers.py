@@ -1,6 +1,7 @@
 """Helpers for converting numpy arrays to JSON-safe and PNG formats."""
 
 import io
+import os
 from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
@@ -12,8 +13,9 @@ def ndarray_to_png_bytes(
     colormap: str = "turbo",
     vmin: Optional[float] = None,
     vmax: Optional[float] = None,
+    jpeg: bool = False,
 ) -> bytes:
-    """Convert a 2D numpy array to PNG bytes using matplotlib colormap + PIL."""
+    """Convert a 2D numpy array to image bytes using matplotlib colormap + PIL."""
     from PIL import Image
     import matplotlib.cm as cm
     import matplotlib.colors as mcolors
@@ -33,13 +35,16 @@ def ndarray_to_png_bytes(
 
     pil_img = Image.fromarray(rgb, "RGB")
     buf = io.BytesIO()
-    pil_img.save(buf, format="PNG")
+    if jpeg:
+        pil_img.save(buf, format="JPEG", quality=80)
+    else:
+        pil_img.save(buf, format="PNG")
     buf.seek(0)
     return buf.read()
 
 
-def image_to_png_bytes(img: np.ndarray) -> bytes:
-    """Convert an image array (grayscale or RGB) to PNG bytes using PIL."""
+def image_to_png_bytes(img: np.ndarray, jpeg: bool = False) -> bytes:
+    """Convert an image array (grayscale or RGB) to image bytes using PIL."""
     from PIL import Image
 
     if img.dtype != np.uint8:
@@ -54,17 +59,38 @@ def image_to_png_bytes(img: np.ndarray) -> bytes:
         pil_img = Image.fromarray(img)
 
     buf = io.BytesIO()
-    pil_img.save(buf, format="PNG")
+    if jpeg:
+        if pil_img.mode != "RGB":
+            pil_img = pil_img.convert("RGB")
+        pil_img.save(buf, format="JPEG", quality=80)
+    else:
+        pil_img.save(buf, format="PNG")
     buf.seek(0)
     return buf.read()
 
 
-def png_response(png_bytes: bytes) -> Response:
-    """Wrap PNG bytes in a Flask Response with no-cache headers."""
-    resp = Response(png_bytes, mimetype="image/png")
+def image_response(img_bytes: bytes, jpeg: bool = False) -> Response:
+    """Wrap image bytes in a Flask Response with cache headers."""
+    mimetype = "image/jpeg" if jpeg else "image/png"
+    resp = Response(img_bytes, mimetype=mimetype)
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     resp.headers["Pragma"] = "no-cache"
     return resp
+
+
+def png_response(png_bytes: bytes) -> Response:
+    """Wrap image bytes in a Flask Response. Auto-converts to JPEG when
+    RAFTCORR_COMPRESS=1 is set (e.g. on Colab) to reduce transfer size."""
+    if os.environ.get("RAFTCORR_COMPRESS") == "1":
+        from PIL import Image
+        img = Image.open(io.BytesIO(png_bytes))
+        if img.mode == "RGBA":
+            img = img.convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=80)
+        buf.seek(0)
+        return image_response(buf.read(), jpeg=True)
+    return image_response(png_bytes, jpeg=False)
 
 
 def ndarray_to_json(arr: np.ndarray) -> Dict[str, Any]:
