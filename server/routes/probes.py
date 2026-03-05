@@ -43,13 +43,16 @@ def _build_data_list(component: str) -> list:
             elif component == "v":
                 data_list.append(disp[:, :, 1])
             elif component == "magnitude":
-                data_list.append(calculate_displacement_magnitude(disp))
+                data_list.append(calculate_displacement_magnitude(disp[:, :, 0], disp[:, :, 1]))
             elif component == "velocity":
                 if i == 0:
                     data_list.append(np.zeros(disp.shape[:2]))
                 else:
                     prev = session.displacement_results[i - 1]
-                    data_list.append(calculate_velocity_field(disp, prev))
+                    data_list.append(calculate_velocity_field(
+                        disp[:, :, 0], disp[:, :, 1],
+                        prev[:, :, 0], prev[:, :, 1],
+                    ))
     else:
         # Strain component
         for s in session.strain_results:
