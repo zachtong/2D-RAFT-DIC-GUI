@@ -16,7 +16,7 @@ def _ensure_mask():
     if session.reference_image is None:
         return False
     h, w = session.reference_image.shape[:2]
-    if session.roi_mask is None:
+    if session.roi_mask is None or session.roi_mask.shape != (h, w):
         session.roi_mask = np.zeros((h, w), dtype=bool)
     return True
 
@@ -42,7 +42,8 @@ def _update_rect():
 def _apply_shape(new_mask_bool: np.ndarray, mode: str):
     """Apply a shape mask using add or cut mode."""
     with session._lock:
-        _ensure_mask()
+        if not _ensure_mask():
+            return jsonify({"error": "No reference image loaded"}), 400
         if mode == "cut":
             session.roi_mask = session.roi_mask & ~new_mask_bool
         else:

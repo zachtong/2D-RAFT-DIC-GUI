@@ -3,8 +3,11 @@ import { CollapsibleSection } from "@/components/shared/CollapsibleSection";
 import { FieldRow } from "@/components/shared/FieldRow";
 import { SelectField } from "@/components/shared/SelectField";
 import { useAppStore } from "@/stores/appStore";
+import { useRoiStore } from "@/stores/roiStore";
 import { useToast } from "@/components/shared/Toast";
 import { loadImages } from "@/api/images";
+import { clearRoi } from "@/api/roi";
+import { clearProbes } from "@/api/probes";
 import { listModels, describeModel, selectModel } from "@/api/models";
 import { FolderOpen, FolderSearch } from "lucide-react";
 import { FileBrowser } from "@/components/shared/FileBrowser";
@@ -13,10 +16,13 @@ export function PathSettings() {
   const imageDir = useAppStore((s) => s.imageDir);
   const setImageDir = useAppStore((s) => s.setImageDir);
   const setImageFiles = useAppStore((s) => s.setImageFiles);
+  const resetSession = useAppStore((s) => s.resetSession);
   const imageFiles = useAppStore((s) => s.imageFiles);
   const selectedModel = useAppStore((s) => s.selectedModel);
   const setModel = useAppStore((s) => s.setModel);
   const modelMetadata = useAppStore((s) => s.modelMetadata);
+  const resetRoi = useRoiStore((s) => s.setMaskUrl);
+  const clearDrawing = useRoiStore((s) => s.setDrawingMode);
 
   const { toast } = useToast();
   const [models, setModels] = useState<{ value: string; label: string }[]>([]);
@@ -36,6 +42,14 @@ export function PathSettings() {
     setError("");
     try {
       const result = await loadImages(dir);
+      // Explicitly clear backend ROI + probes + frontend state
+      await Promise.all([
+        clearRoi().catch(() => {}),
+        clearProbes().catch(() => {}),
+      ]);
+      resetSession();
+      resetRoi(null);
+      clearDrawing(null);
       setDirInput(dir);
       setImageDir(dir);
       setImageFiles(result.files, result.width, result.height);

@@ -81,6 +81,7 @@ interface AppState {
   exportProgress: number;
 
   // Actions
+  resetSession: () => void;
   setImageDir: (dir: string) => void;
   setImageFiles: (files: string[], w: number, h: number) => void;
   setModel: (path: string, meta: ModelMetadata | null) => void;
@@ -159,6 +160,29 @@ export const useAppStore = create<AppState>((set) => ({
   exportActive: false,
   exportProgress: 0,
 
+  resetSession: () =>
+    set({
+      roiConfirmed: false,
+      processingActive: false,
+      processingPaused: false,
+      processingProgress: 0,
+      processingCurrent: 0,
+      processingTotal: 0,
+      hasResults: false,
+      numFrames: 0,
+      currentFrame: 0,
+      hasStrain: false,
+      strainComputing: false,
+      strainProgress: 0,
+      strainComponents: [],
+      displayComponent: "u",
+      probes: [],
+      probePlacingMode: null,
+      probePlacingFirst: null,
+      viewZoom: 1,
+      exportActive: false,
+      exportProgress: 0,
+    }),
   setImageDir: (dir) => set({ imageDir: dir }),
   setImageFiles: (files, w, h) =>
     set({ imageFiles: files, imageWidth: w, imageHeight: h }),

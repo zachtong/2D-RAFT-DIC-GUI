@@ -75,6 +75,9 @@ def load_images():
     ref_img = load_and_convert_image(ref_path)
 
     with session._lock:
+        # Reset previous session state (ROI, probes, results, caches)
+        session.reset()
+
         session.image_dir = directory
         session.image_files = files
         session.reference_image = ref_img
