@@ -192,13 +192,15 @@ INSTALL_REQUIRES = [
     "scipy>=1.7.0",
     "matplotlib>=3.4.0",
     "tifffile>=2021.0.0",
-    "customtkinter>=5.0.0",
-    "numba>=0.56.0",  # For optimized rotation angle calculation
+    "numba>=0.56.0",
+    "flask>=2.0.0",
+    "flask-cors>=3.0.0",
+    "flask-socketio>=5.0.0",
 ]
 
 setup(
     name="raftcorr",
-    version="1.0.0",
+    version="2.0.0",
     author="Zixiang (Zach) Tong, Lehu Bu",
     author_email="zachtong@utexas.edu",
     description="RAFTcorr: GPU-accelerated Digital Image Correlation using RAFT neural network",
@@ -215,7 +217,7 @@ setup(
     
     entry_points={
         "console_scripts": [
-            "raftcorr=main_GUI:main",
+            "raftcorr=run_prod:main",
         ],
     },
     
