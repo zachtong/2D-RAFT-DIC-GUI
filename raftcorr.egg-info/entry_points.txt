@@ -1,2 +1,2 @@
 [console_scripts]
-raftcorr = main_GUI:main
+raftcorr = run_prod:main
