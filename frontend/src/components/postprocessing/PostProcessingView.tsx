@@ -3,7 +3,7 @@ import { useAppStore } from "@/stores/appStore";
 import { renderUrl } from "@/api/displacement";
 import { strainRenderUrl } from "@/api/strain";
 import { arrowRenderUrl } from "@/api/arrows";
-import { addPoint, addLine, listProbes } from "@/api/probes";
+import { addPoint, addLine, addArea, listProbes } from "@/api/probes";
 import { ColorbarOverlay } from "@/components/shared/ColorbarOverlay";
 import { useColorRange } from "@/hooks/useColorRange";
 import type { StrainComponent } from "@/types/api";
@@ -59,15 +59,19 @@ export function PostProcessingView() {
   const setPlacingFirst = useAppStore((s) => s.setProbePlacingFirst);
   const setProbes = useAppStore((s) => s.setProbes);
   const updateVis = useAppStore((s) => s.updateVisSettings);
+  const areaPolyPoints = useAppStore((s) => s.areaPolyPoints);
+  const addAreaPolyPoint = useAppStore((s) => s.addAreaPolyPoint);
+  const clearAreaPolyPoints = useAppStore((s) => s.clearAreaPolyPoints);
 
   const imgRef = useRef<HTMLImageElement>(null);
   const imageAreaRef = useRef<HTMLDivElement>(null);
   // Remember the background before entering placement mode so we can restore it
   const savedBgRef = useRef<"reference" | "deformed" | null>(null);
 
+  // Mouse position for live preview (local state — 60fps updates shouldn't trigger global re-renders)
+  const [mousePos, setMousePos] = useState<[number, number] | null>(null);
+
   // Track container size via ResizeObserver for explicit pixel constraints on the image.
-  // CSS percentage-based max-height doesn't resolve correctly through flex/auto-height chains,
-  // so we measure the container and apply pixel values directly.
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
   useEffect(() => {
     const el = imageAreaRef.current;
@@ -103,6 +107,18 @@ export function PostProcessingView() {
     }, []
   );
 
+  // Track mouse position for live preview during area/line placement
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!placingMode?.startsWith("area") && placingMode !== "line") return;
+    if (placingMode === "area-rect" || placingMode === "area-circle" || placingMode === "line") {
+      if (!placingFirst) return;
+    } else if (placingMode === "area-poly") {
+      if (areaPolyPoints.length === 0) return;
+    }
+    const pt = screenToImage(e.clientX, e.clientY);
+    if (pt) setMousePos(pt);
+  }, [placingMode, placingFirst, areaPolyPoints.length, screenToImage]);
+
   // Handle click on image area for probe placement
   const handleImageClick = useCallback(async (e: React.MouseEvent) => {
     if (!placingMode) return;
@@ -123,24 +139,64 @@ export function PostProcessingView() {
           const updated = await listProbes();
           setProbes(updated);
           setPlacingMode(null);
+          setMousePos(null);
         }
+      } else if (placingMode === "area-rect") {
+        if (!placingFirst) {
+          setPlacingFirst(pt);
+        } else {
+          const [x0, y0] = placingFirst;
+          const [x1, y1] = pt;
+          await addArea("rect", [Math.min(x0, x1), Math.min(y0, y1), Math.max(x0, x1), Math.max(y0, y1)]);
+          const updated = await listProbes();
+          setProbes(updated);
+          setPlacingMode(null);
+          setMousePos(null);
+        }
+      } else if (placingMode === "area-circle") {
+        if (!placingFirst) {
+          setPlacingFirst(pt);
+        } else {
+          const [cx, cy] = placingFirst;
+          const r = Math.sqrt((pt[0] - cx) ** 2 + (pt[1] - cy) ** 2);
+          await addArea("circle", [cx, cy, Math.round(r)]);
+          const updated = await listProbes();
+          setProbes(updated);
+          setPlacingMode(null);
+          setMousePos(null);
+        }
+      } else if (placingMode === "area-poly") {
+        addAreaPolyPoint(pt[0], pt[1]);
       }
     } catch (err) {
       console.error("Failed to place probe:", err);
     }
-  }, [placingMode, placingFirst, screenToImage, setProbes, setPlacingMode, setPlacingFirst]);
+  }, [placingMode, placingFirst, screenToImage, setProbes, setPlacingMode, setPlacingFirst, addAreaPolyPoint]);
 
-  // Force reference background during probe placement so click coordinates
-  // are always in the reference frame (displacement field coordinate system).
+  // Double-click closes polygon
+  const handleDoubleClick = useCallback(async (e: React.MouseEvent) => {
+    if (placingMode !== "area-poly" || areaPolyPoints.length < 3) return;
+    e.preventDefault();
+    try {
+      await addArea("poly", areaPolyPoints);
+      const updated = await listProbes();
+      setProbes(updated);
+    } catch (err) {
+      console.error("Failed to place area poly:", err);
+    }
+    setPlacingMode(null);
+    clearAreaPolyPoints();
+    setMousePos(null);
+  }, [placingMode, areaPolyPoints, setProbes, setPlacingMode, clearAreaPolyPoints]);
+
+  // Force reference background during probe placement
   useEffect(() => {
     if (placingMode) {
-      // Entering placement mode — save current bg and force reference
       if (vis.background !== "reference") {
         savedBgRef.current = vis.background;
         updateVis({ background: "reference" });
       }
     } else {
-      // Exiting placement mode — restore previous bg
       if (savedBgRef.current) {
         updateVis({ background: savedBgRef.current });
         savedBgRef.current = null;
@@ -153,11 +209,13 @@ export function PostProcessingView() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape" && placingMode) {
         setPlacingMode(null);
+        clearAreaPolyPoints();
+        setMousePos(null);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [placingMode, setPlacingMode]);
+  }, [placingMode, setPlacingMode, clearAreaPolyPoints]);
 
   const { unit: colorbarUnit, scale: colorbarScale } = useMemo(
     () =>
@@ -171,8 +229,7 @@ export function PostProcessingView() {
     [displayComponent, vis.physicalEnabled, vis.physicalUnit, vis.physicalRatio, vis.fps]
   );
 
-  // Loading indicator: only shows if image takes >150ms to load (cold cache).
-  // Cached frames load instantly, so the timer is cleared before it fires.
+  // Loading indicator
   const [imgLoading, setImgLoading] = useState(false);
   const loadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -209,6 +266,20 @@ export function PostProcessingView() {
     ? strainRenderUrl(currentFrame, renderParams)
     : renderUrl(currentFrame, renderParams);
 
+  // Placement banner text
+  const getBannerText = () => {
+    if (placingMode === "point") return "Click to place point probe";
+    if (placingMode === "line") return placingFirst ? "Click to place second endpoint" : "Click to place first endpoint";
+    if (placingMode === "area-rect") return placingFirst ? "Click second corner" : "Click first corner of rectangle";
+    if (placingMode === "area-circle") return placingFirst ? "Click to set radius" : "Click center of circle";
+    if (placingMode === "area-poly") {
+      return areaPolyPoints.length < 3
+        ? `Click to add points (${areaPolyPoints.length}/3 min)`
+        : `${areaPolyPoints.length} points — double-click to close`;
+    }
+    return "";
+  };
+
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {/* Header */}
@@ -224,11 +295,9 @@ export function PostProcessingView() {
         </span>
       </div>
 
-      {/* Main visualization — relative container with absolute inner to break percentage chain */}
+      {/* Main visualization */}
       <div ref={imageAreaRef} className="flex-1 relative bg-[var(--background)] overflow-hidden min-h-0">
-        {/* Absolute fill layer — gives children explicit pixel dimensions */}
         <div className="absolute inset-0 flex items-center justify-center">
-          {/* Shared wrapper — explicit pixel max-height from ResizeObserver */}
           <div
             className="relative"
             style={{
@@ -238,6 +307,8 @@ export function PostProcessingView() {
               cursor: placingMode ? "crosshair" : undefined,
             }}
             onClick={handleImageClick}
+            onDoubleClick={handleDoubleClick}
+            onMouseMove={handleMouseMove}
           >
             <img
               ref={imgRef}
@@ -269,7 +340,7 @@ export function PostProcessingView() {
               />
             )}
 
-            {/* SVG overlay for probe markers — viewBox matches image natural size */}
+            {/* SVG overlay for probe markers */}
             {imgRef.current && (
               <svg
                 className="absolute inset-0 w-full h-full pointer-events-none"
@@ -282,13 +353,8 @@ export function PostProcessingView() {
                     return (
                       <circle
                         key={`p-${probe.id}`}
-                        cx={x}
-                        cy={y}
-                        r={5}
-                        fill={probe.color}
-                        stroke="white"
-                        strokeWidth={1.5}
-                        opacity={0.9}
+                        cx={x} cy={y} r={5}
+                        fill={probe.color} stroke="white" strokeWidth={1.5} opacity={0.9}
                       />
                     );
                   }
@@ -303,11 +369,93 @@ export function PostProcessingView() {
                       </g>
                     );
                   }
+                  if (probe.type === "area") {
+                    const { shape, data: d } = probe.coords as { shape: string; data: unknown };
+                    if (shape === "rect") {
+                      const [x0, y0, x1, y1] = d as number[];
+                      return (
+                        <rect key={`a-${probe.id}`}
+                          x={x0} y={y0} width={x1 - x0} height={y1 - y0}
+                          fill={probe.color} fillOpacity={0.15}
+                          stroke={probe.color} strokeWidth={2} strokeDasharray="6 3" opacity={0.9}
+                        />
+                      );
+                    }
+                    if (shape === "circle") {
+                      const [cx, cy, r] = d as number[];
+                      return (
+                        <circle key={`a-${probe.id}`}
+                          cx={cx} cy={cy} r={r}
+                          fill={probe.color} fillOpacity={0.15}
+                          stroke={probe.color} strokeWidth={2} strokeDasharray="6 3" opacity={0.9}
+                        />
+                      );
+                    }
+                    if (shape === "poly") {
+                      const pts = (d as [number, number][]).map(p => `${p[0]},${p[1]}`).join(" ");
+                      return (
+                        <polygon key={`a-${probe.id}`}
+                          points={pts}
+                          fill={probe.color} fillOpacity={0.15}
+                          stroke={probe.color} strokeWidth={2} strokeDasharray="6 3" opacity={0.9}
+                        />
+                      );
+                    }
+                  }
                   return null;
                 })}
+
                 {/* Pending first endpoint for line placement */}
-                {placingFirst && (
-                  <circle cx={placingFirst[0]} cy={placingFirst[1]} r={5}
+                {placingMode === "line" && placingFirst && (
+                  <>
+                    <circle cx={placingFirst[0]} cy={placingFirst[1]} r={5}
+                      fill="none" stroke="white" strokeWidth={2} strokeDasharray="3,3" />
+                    {mousePos && (
+                      <line x1={placingFirst[0]} y1={placingFirst[1]} x2={mousePos[0]} y2={mousePos[1]}
+                        stroke="white" strokeWidth={1.5} strokeDasharray="6 3" opacity={0.7} />
+                    )}
+                  </>
+                )}
+
+                {/* Live preview: rect */}
+                {placingMode === "area-rect" && placingFirst && mousePos && (
+                  <rect
+                    x={Math.min(placingFirst[0], mousePos[0])}
+                    y={Math.min(placingFirst[1], mousePos[1])}
+                    width={Math.abs(mousePos[0] - placingFirst[0])}
+                    height={Math.abs(mousePos[1] - placingFirst[1])}
+                    fill="white" fillOpacity={0.1}
+                    stroke="white" strokeWidth={1.5} strokeDasharray="6 3"
+                  />
+                )}
+
+                {/* Live preview: circle */}
+                {placingMode === "area-circle" && placingFirst && mousePos && (
+                  <circle
+                    cx={placingFirst[0]} cy={placingFirst[1]}
+                    r={Math.sqrt((mousePos[0] - placingFirst[0]) ** 2 + (mousePos[1] - placingFirst[1]) ** 2)}
+                    fill="white" fillOpacity={0.1}
+                    stroke="white" strokeWidth={1.5} strokeDasharray="6 3"
+                  />
+                )}
+
+                {/* Live preview: polygon */}
+                {placingMode === "area-poly" && areaPolyPoints.length > 0 && (
+                  <>
+                    <polyline
+                      points={[...areaPolyPoints, ...(mousePos ? [mousePos] : [])]
+                        .map(p => `${p[0]},${p[1]}`).join(" ")}
+                      fill="none" stroke="white" strokeWidth={1.5} strokeDasharray="6 3"
+                    />
+                    {areaPolyPoints.map((p, i) => (
+                      <circle key={i} cx={p[0]} cy={p[1]} r={3} fill="white" />
+                    ))}
+                  </>
+                )}
+
+                {/* First point marker for rect/circle */}
+                {(placingMode === "area-rect" || placingMode === "area-circle") && placingFirst && (
+                  <circle cx={placingFirst[0]} cy={placingFirst[1]} r={4}
                     fill="none" stroke="white" strokeWidth={2} strokeDasharray="3,3" />
                 )}
               </svg>
@@ -318,16 +466,12 @@ export function PostProcessingView() {
         {/* Placement mode indicator */}
         {placingMode && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 bg-[var(--primary)]/90 px-3 py-1 rounded text-[11px] text-white">
-            {placingMode === "point"
-              ? "Click to place point probe"
-              : placingFirst
-                ? "Click to place second endpoint"
-                : "Click to place first endpoint"}
+            {getBannerText()}
             <span className="ml-2 opacity-70">(Esc to cancel)</span>
           </div>
         )}
 
-        {/* Loading overlay — centered on image area */}
+        {/* Loading overlay */}
         {imgLoading && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div className="flex items-center gap-2 bg-black/60 backdrop-blur-sm text-white px-4 py-2 rounded-lg">

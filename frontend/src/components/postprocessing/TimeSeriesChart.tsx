@@ -29,6 +29,7 @@ export function TimeSeriesChart() {
 
   const pointProbes = probes.filter((p) => p.type === "point");
   const lineProbes = probes.filter((p) => p.type === "line");
+  const areaProbes = probes.filter((p) => p.type === "area");
 
   // Build a color lookup: probe id → color
   const probeColorMap = useMemo(() => {
@@ -42,7 +43,8 @@ export function TimeSeriesChart() {
   // Determine what probes to show based on the active tab
   const showPointData = activeProbeTab === "point" && pointProbes.length > 0;
   const showLineData = activeProbeTab === "line" && lineProbes.length > 0;
-  const hasData = showPointData || showLineData;
+  const showAreaData = activeProbeTab === "area" && areaProbes.length > 0;
+  const hasData = showPointData || showLineData || showAreaData;
 
   // Fetch time series data based on active tab
   useEffect(() => {
@@ -73,8 +75,9 @@ export function TimeSeriesChart() {
           }
           setData(chartData);
         } else {
-          // Component value time series
-          const probeType = showPointData ? "point" : "line";
+          // Component value time series (point, line value mode, or area)
+          const probeType = showPointData ? "point" : showLineData ? "line" : "area";
+          const keyPrefix = showAreaData ? "area" : "probe";
           const result = await getTimeSeries(displayComponent, probeType, metric);
           if (cancelled) return;
 
@@ -83,7 +86,7 @@ export function TimeSeriesChart() {
           for (let i = 0; i < frames; i++) {
             const point: ChartPoint = { frame: i + 1 };
             for (const [id, values] of Object.entries(result.series)) {
-              point[`probe_${id}`] = values[i];
+              point[`${keyPrefix}_${id}`] = values[i];
             }
             chartData.push(point);
           }
@@ -96,15 +99,15 @@ export function TimeSeriesChart() {
 
     fetchData();
     return () => { cancelled = true; };
-  }, [hasData, showPointData, showLineData, pointProbes.length, lineProbes.length, displayComponent, lineMode, metric]);
+  }, [hasData, showPointData, showLineData, showAreaData, pointProbes.length, lineProbes.length, areaProbes.length, displayComponent, lineMode, metric]);
 
   if (!hasData || data.length === 0) return null;
 
   const seriesKeys = Object.keys(data[0] || {}).filter((k) => k !== "frame");
 
-  // Resolve the color for a series key like "probe_3" or "line_2"
+  // Resolve the color for a series key like "probe_3", "line_2", or "area_1"
   const getColorForKey = (key: string): string => {
-    const match = key.match(/(?:probe|line)_(\d+)/);
+    const match = key.match(/(?:probe|line|area)_(\d+)/);
     if (match) {
       const id = match[1];
       if (probeColorMap[id]) return probeColorMap[id];
@@ -114,7 +117,9 @@ export function TimeSeriesChart() {
 
   const title = showLineData && lineMode === "strain"
     ? "Engineering Strain over Time"
-    : `${displayComponent.toUpperCase()} over Time`;
+    : showAreaData
+      ? `Area ${displayComponent.toUpperCase()} over Time`
+      : `${displayComponent.toUpperCase()} over Time`;
 
   return (
     <div className="h-full border-t border-[var(--border)] bg-[var(--card)] px-2 pt-1 pb-2">
@@ -148,8 +153,8 @@ export function TimeSeriesChart() {
               </button>
             </>
           )}
-          {/* Metric selector: only for value mode with line probes */}
-          {showLineData && lineMode === "value" && (
+          {/* Metric selector: for line value mode or area probes */}
+          {((showLineData && lineMode === "value") || showAreaData) && (
             <select
               value={metric}
               onChange={(e) => setMetric(e.target.value as "avg" | "max" | "min")}

@@ -70,8 +70,9 @@ interface AppState {
   // Probes
   probes: ProbeData[];
   activeProbeTab: "point" | "line" | "area";
-  probePlacingMode: "point" | "line" | null;
+  probePlacingMode: "point" | "line" | "area-rect" | "area-circle" | "area-poly" | null;
   probePlacingFirst: [number, number] | null;
+  areaPolyPoints: [number, number][];
 
   // View zoom (shared by displacement + postprocessing)
   viewZoom: number;
@@ -98,8 +99,10 @@ interface AppState {
   updateArrowSettings: (partial: Partial<ArrowSettings>) => void;
   setProbes: (probes: ProbeData[]) => void;
   setActiveProbeTab: (tab: "point" | "line" | "area") => void;
-  setProbePlacingMode: (mode: "point" | "line" | null) => void;
+  setProbePlacingMode: (mode: "point" | "line" | "area-rect" | "area-circle" | "area-poly" | null) => void;
   setProbePlacingFirst: (pt: [number, number] | null) => void;
+  addAreaPolyPoint: (x: number, y: number) => void;
+  clearAreaPolyPoints: () => void;
   setExport: (active: boolean, progress?: number) => void;
   zoomIn: () => void;
   zoomOut: () => void;
@@ -156,6 +159,7 @@ export const useAppStore = create<AppState>((set) => ({
   activeProbeTab: "point",
   probePlacingMode: null,
   probePlacingFirst: null,
+  areaPolyPoints: [],
   viewZoom: 1,
   exportActive: false,
   exportProgress: 0,
@@ -179,6 +183,7 @@ export const useAppStore = create<AppState>((set) => ({
       probes: [],
       probePlacingMode: null,
       probePlacingFirst: null,
+      areaPolyPoints: [],
       viewZoom: 1,
       exportActive: false,
       exportProgress: 0,
@@ -211,8 +216,10 @@ export const useAppStore = create<AppState>((set) => ({
     set((s) => ({ arrowSettings: { ...s.arrowSettings, ...partial } })),
   setProbes: (probes) => set({ probes }),
   setActiveProbeTab: (tab) => set({ activeProbeTab: tab }),
-  setProbePlacingMode: (mode) => set({ probePlacingMode: mode, probePlacingFirst: null }),
+  setProbePlacingMode: (mode) => set({ probePlacingMode: mode, probePlacingFirst: null, areaPolyPoints: [] }),
   setProbePlacingFirst: (pt) => set({ probePlacingFirst: pt }),
+  addAreaPolyPoint: (x, y) => set((s) => ({ areaPolyPoints: [...s.areaPolyPoints, [x, y]] })),
+  clearAreaPolyPoints: () => set({ areaPolyPoints: [] }),
   setExport: (active, progress = 0) =>
     set({ exportActive: active, exportProgress: progress }),
   zoomIn: () => set((s) => ({ viewZoom: Math.min(s.viewZoom * 1.25, 5) })),
