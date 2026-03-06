@@ -79,6 +79,16 @@ def calculate():
             from raft_dic_gui.strain import accumulate_rotation
             results = accumulate_rotation(results)
 
+            # Compute max strain for large-deformation warning
+            max_strain = 0.0
+            for r in results:
+                if r is not None:
+                    for comp in ['exx', 'eyy', 'exy']:
+                        if comp in r and r[comp] is not None:
+                            finite = r[comp][np.isfinite(r[comp])]
+                            if finite.size > 0:
+                                max_strain = max(max_strain, float(np.max(np.abs(finite))))
+
             with session._lock:
                 session.strain_results = results
                 session.result_version += 1
@@ -89,6 +99,8 @@ def calculate():
             socketio.emit("strain:complete", {
                 "num_frames": len(results),
                 "components": STRAIN_COMPONENTS,
+                "max_strain": round(max_strain, 6),
+                "method": method,
             })
 
         except Exception as e:

@@ -54,9 +54,15 @@ export function useSocket() {
     socket.on("strain:progress", (d: { percent: number }) => {
       setStrainComputing(true, d.percent);
     });
-    socket.on("strain:complete", (d: { num_frames: number; components: string[] }) => {
+    socket.on("strain:complete", (d: { num_frames: number; components: string[]; max_strain?: number; method?: string }) => {
       setStrain(true, d.components);
       toast("success", `Strain computed — ${d.components.length} components`);
+      if (d.method === "engineering" && d.max_strain != null && d.max_strain > 0.05) {
+        toast("warning",
+          `Large deformation detected (max ${(d.max_strain * 100).toFixed(1)}%). ` +
+          `Consider using Green-Lagrange strain for better accuracy.`
+        );
+      }
     });
     socket.on("strain:error", (d: { error: string }) => {
       setStrainComputing(false);

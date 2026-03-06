@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, createContext, useContext, type ReactNode } from "react";
 import { X } from "lucide-react";
 
-type ToastType = "success" | "error" | "info";
+type ToastType = "success" | "error" | "info" | "warning";
 
 interface ToastItem {
   id: number;
@@ -47,14 +47,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
 function ToastItem({ item, onDismiss }: { item: ToastItem; onDismiss: (id: number) => void }) {
   useEffect(() => {
-    const timer = setTimeout(() => onDismiss(item.id), 4000);
+    const duration = item.type === "warning" ? 8000 : 4000;
+    const timer = setTimeout(() => onDismiss(item.id), duration);
     return () => clearTimeout(timer);
-  }, [item.id, onDismiss]);
+  }, [item.id, item.type, onDismiss]);
 
   const colors = {
     success: "border-green-500/40 bg-green-500/10 text-green-300",
     error: "border-red-500/40 bg-red-500/10 text-red-300",
     info: "border-blue-500/40 bg-blue-500/10 text-blue-300",
+    warning: "border-yellow-500/40 bg-yellow-500/10 text-yellow-300",
   };
 
   return (
