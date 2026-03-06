@@ -12,40 +12,11 @@ import type { StrainComponent } from "@/types/api";
 import { ImageIcon, Loader2, Download } from "lucide-react";
 import { downloadSingleFrame } from "@/api/export";
 import { useToast } from "@/components/shared/Toast";
+import { getUnitInfo } from "@/utils/unitConversion";
 
 const STRAIN_COMPONENTS: string[] = [
   "exx", "eyy", "exy", "e1", "e2", "max_shear", "von_mises", "rotation",
 ];
-
-/** Compute the colorbar unit string and display scale factor. */
-function getUnitInfo(
-  component: string,
-  physEnabled: boolean,
-  physUnit: string,
-  physRatio: number,
-  fps: number
-): { unit: string; scale: number } {
-  if (STRAIN_COMPONENTS.includes(component)) {
-    return component === "rotation"
-      ? { unit: "[rad]", scale: 1 }
-      : { unit: "[-]", scale: 1 };
-  }
-  if (component === "velocity") {
-    if (physEnabled) {
-      return fps !== 1
-        ? { unit: `[${physUnit}/s]`, scale: physRatio * fps }
-        : { unit: `[${physUnit}/frame]`, scale: physRatio };
-    }
-    return fps !== 1
-      ? { unit: "[px/s]", scale: fps }
-      : { unit: "[px/frame]", scale: 1 };
-  }
-  // u, v, magnitude
-  if (physEnabled) {
-    return { unit: `[${physUnit}]`, scale: physRatio };
-  }
-  return { unit: "[px]", scale: 1 };
-}
 
 interface PostProcessingViewProps {
   cache?: PreRenderState;
@@ -286,8 +257,8 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
       getUnitInfo(
         displayComponent,
         vis.physicalEnabled,
-        vis.physicalUnit,
         vis.physicalRatio,
+        vis.physicalUnit,
         vis.fps
       ),
     [displayComponent, vis.physicalEnabled, vis.physicalUnit, vis.physicalRatio, vis.fps]
