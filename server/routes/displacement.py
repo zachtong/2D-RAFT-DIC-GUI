@@ -6,7 +6,11 @@ import numpy as np
 from flask import Blueprint, jsonify, request
 
 from raft_dic_gui.processing import load_and_convert_image
-from raft_dic_gui.velocity import calculate_displacement_magnitude, calculate_velocity_field
+from raft_dic_gui.velocity import (
+    calculate_displacement_magnitude,
+    calculate_velocity_central,
+    calculate_velocity_field,
+)
 from server.render_cache import RenderCache
 from server.serializers import frame_data_to_json, png_response
 from server.session import session
@@ -25,13 +29,9 @@ def _get_displacement_component(frame_idx: int, component: str) -> np.ndarray:
     elif component == "magnitude":
         return calculate_displacement_magnitude(disp[:, :, 0], disp[:, :, 1])
     elif component == "velocity":
-        if frame_idx == 0:
-            return np.zeros(disp.shape[:2])
-        prev = session.displacement_results[frame_idx - 1]
-        return calculate_velocity_field(
-            disp[:, :, 0], disp[:, :, 1],
-            prev[:, :, 0], prev[:, :, 1],
-        )
+        frames_u = [d[:, :, 0] for d in session.displacement_results]
+        frames_v = [d[:, :, 1] for d in session.displacement_results]
+        return calculate_velocity_central(frames_u, frames_v, frame_idx)
     else:
         return disp[:, :, 0]
 
