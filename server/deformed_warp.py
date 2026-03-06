@@ -76,7 +76,8 @@ def compute_inverse_map(
     V: np.ndarray,
     roi_rect: Tuple[int, int, int, int],
     image_shape: Tuple[int, int],
-    n_iter: int = 5,
+    n_iter: int = 10,
+    tol: float = 1e-3,
 ) -> InverseMapResult:
     """Compute the inverse mapping from deformed to reference coordinates.
 
@@ -85,7 +86,8 @@ def compute_inverse_map(
     U, V : (roi_h, roi_w) displacement fields (may contain NaN)
     roi_rect : (x0, y0, x1, y1) ROI bounding box in full-image coords
     image_shape : (H, W) of the full image
-    n_iter : number of fixed-point iterations
+    n_iter : max number of fixed-point iterations
+    tol : convergence tolerance (max pixel residual between iterations)
 
     Returns
     -------
@@ -132,12 +134,15 @@ def compute_inverse_map(
     # Validity mask for interpolation (1.0 where data exists, 0.0 where NaN)
     data_valid = valid_mask.astype(np.float64)
 
-    # --- Step 4: Fixed-point iteration ---
-    # Initial guess: reference coords = deformed coords
+    # --- Step 4: Fixed-point iteration with convergence check ---
     x_ref = out_cols.copy()
     y_ref = out_rows.copy()
+    converged_all = False
 
-    for _ in range(n_iter):
+    for iteration in range(n_iter):
+        x_ref_old = x_ref.copy()
+        y_ref_old = y_ref.copy()
+
         # Convert to ROI-local coordinates for map_coordinates
         local_row = y_ref - y0
         local_col = x_ref - x0
@@ -154,6 +159,23 @@ def compute_inverse_map(
         # Update: x_ref = x_def - U, y_ref = y_def - V
         x_ref = out_cols - U_sampled
         y_ref = out_rows - V_sampled
+
+        # Check convergence
+        max_residual = np.sqrt(
+            (x_ref - x_ref_old)**2 + (y_ref - y_ref_old)**2
+        ).max()
+        if max_residual < tol:
+            converged_all = True
+            break
+
+    # Per-pixel convergence check
+    if not converged_all:
+        final_residual = np.sqrt(
+            (x_ref - x_ref_old)**2 + (y_ref - y_ref_old)**2
+        )
+        pixel_converged = final_residual < tol * 10  # generous per-pixel threshold
+    else:
+        pixel_converged = np.ones((out_h, out_w), dtype=bool)
 
     # --- Step 5: Compute validity mask ---
     # Final ROI-local coordinates
@@ -172,8 +194,8 @@ def compute_inverse_map(
         (final_local_col >= 0) & (final_local_col <= roi_w - 1)
     )
 
-    # Combined validity: interpolated source is valid AND within bounds
-    validity = (valid_interp > 0.5) & in_bounds
+    # Combined validity: interpolated source is valid AND within bounds AND converged
+    validity = (valid_interp > 0.5) & in_bounds & pixel_converged
 
     return InverseMapResult(
         frame_idx=-1,  # caller sets this
