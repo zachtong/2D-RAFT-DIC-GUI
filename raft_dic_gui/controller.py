@@ -308,9 +308,14 @@ class DICProcessor:
         elif config.key_frames is not None and len(config.key_frames) > 0:
             kf = list(config.key_frames)
 
-        # Default: single segment referencing frame 1
+        # Default depends on mode
         if kf is None:
-            kf = [1]
+            if config.mode == "incremental":
+                # Classic incremental DIC: every frame is a key frame
+                kf = list(range(1, total_frames + 1))
+            else:
+                # Accumulative: single segment, all frames ref frame 1
+                kf = [1]
 
         return build_ref_map(total_frames, key_frames=kf)
 

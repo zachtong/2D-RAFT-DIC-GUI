@@ -73,7 +73,7 @@ export function ProcessingParams() {
       if (newMode === "every_frame") {
         configureProcessing({
           key_frames: null,
-          key_frame_interval: null,
+          key_frame_interval: 1,
         }).catch(() => {});
       } else if (newMode === "every_n") {
         configureProcessing({
