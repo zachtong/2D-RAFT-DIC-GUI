@@ -344,6 +344,7 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
     ...(vis.fixedRange && vmax ? { vmax } : {}),
     ...(vis.logScale ? { log_scale: "true" } : {}),
     ...(referenceFrame > 0 ? { ref_frame: referenceFrame } : {}),
+    ...(vis.smoothSigma > 0 && !isStrain ? { smooth_sigma: vis.smoothSigma } : {}),
   };
 
   const liveSrc = isStrain

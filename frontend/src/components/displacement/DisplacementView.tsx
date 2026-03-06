@@ -45,6 +45,7 @@ function DisplacementPanel({
     ...(vis.fixedRange && vmin ? { vmin } : {}),
     ...(vis.fixedRange && vmax ? { vmax } : {}),
     ...(referenceFrame > 0 ? { ref_frame: referenceFrame } : {}),
+    ...(vis.smoothSigma > 0 ? { smooth_sigma: vis.smoothSigma } : {}),
   });
   const cachedSrc = cache?.getFrame(currentFrame);
   const src = cachedSrc ?? liveSrc;

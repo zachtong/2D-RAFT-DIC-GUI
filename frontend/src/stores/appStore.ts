@@ -16,6 +16,7 @@ interface VisSettings {
   alpha: number;
   background: "reference" | "deformed";
   logScale: boolean;
+  smoothSigma: number;
   physicalEnabled: boolean;
   physicalRatio: number;
   physicalUnit: string;
@@ -141,6 +142,7 @@ export const useAppStore = create<AppState>((set) => ({
     alpha: 0.7,
     background: "reference",
     logScale: false,
+    smoothSigma: 0,
     physicalEnabled: false,
     physicalRatio: 1.0,
     physicalUnit: "px",

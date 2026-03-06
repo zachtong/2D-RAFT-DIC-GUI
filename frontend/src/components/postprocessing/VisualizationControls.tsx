@@ -130,6 +130,18 @@ export function VisualizationControls() {
           />
         </FieldRow>
 
+        {["u", "v", "magnitude", "velocity"].includes(displayComponent) && (
+          <FieldRow label="Smooth &sigma;">
+            <SliderField
+              value={vis.smoothSigma}
+              onChange={(v) => update({ smoothSigma: v })}
+              min={0}
+              max={10}
+              step={0.5}
+            />
+          </FieldRow>
+        )}
+
         <div className="h-px bg-[var(--border)] my-1" />
 
         <FieldRow label="Ref. Frame">

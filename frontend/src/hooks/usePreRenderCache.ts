@@ -93,6 +93,7 @@ export function usePreRenderCache(componentOverride?: string): PreRenderState {
       ...(vis.fixedRange && vmax ? { vmax } : {}),
       ...(vis.logScale ? { log_scale: "true" } : {}),
       ...(referenceFrame > 0 ? { ref_frame: referenceFrame } : {}),
+      ...(vis.smoothSigma > 0 && !isStrain ? { smooth_sigma: vis.smoothSigma } : {}),
     };
     const settingsKey = `${displayComponent}|${JSON.stringify(params)}`;
 
@@ -153,14 +154,14 @@ export function usePreRenderCache(componentOverride?: string): PreRenderState {
       }
     });
   }, [hasResults, numFrames, displayComponent, vis.colormap, vis.alpha,
-      vis.background, vis.fixedRange, vis.vminU, vis.vmaxU, vis.vminV, vis.vmaxV, vis.logScale, referenceFrame, invalidate]);
+      vis.background, vis.fixedRange, vis.vminU, vis.vmaxU, vis.vminV, vis.vmaxV, vis.logScale, vis.smoothSigma, referenceFrame, invalidate]);
 
   // Invalidate cache when relevant settings change
   useEffect(() => {
     invalidate();
     cancelPreRender();
   }, [displayComponent, vis.colormap, vis.alpha, vis.background,
-      vis.fixedRange, vis.vminU, vis.vmaxU, vis.vminV, vis.vmaxV, vis.logScale, referenceFrame, invalidate, cancelPreRender]);
+      vis.fixedRange, vis.vminU, vis.vmaxU, vis.vminV, vis.vmaxV, vis.logScale, vis.smoothSigma, referenceFrame, invalidate, cancelPreRender]);
 
   // Cleanup on unmount
   useEffect(() => {
