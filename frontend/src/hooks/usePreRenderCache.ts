@@ -22,6 +22,7 @@ export interface PreRenderState {
 
 const STRAIN_COMPONENTS = new Set([
   "exx", "eyy", "exy", "e1", "e2", "max_shear", "von_mises", "rotation",
+  "rotation_cumulative", "confidence", "dexx_dt", "deyy_dt", "dexy_dt",
 ]);
 
 function buildFrameUrl(
@@ -45,6 +46,7 @@ export function usePreRenderCache(componentOverride?: string): PreRenderState {
   const storeComponent = useAppStore((s) => s.displayComponent);
   const vis = useAppStore((s) => s.visSettings);
   const referenceFrame = useAppStore((s) => s.referenceFrame);
+  const resultVersion = useAppStore((s) => s.resultVersion);
 
   const displayComponent = componentOverride ?? storeComponent;
 
@@ -93,9 +95,9 @@ export function usePreRenderCache(componentOverride?: string): PreRenderState {
       ...(vis.fixedRange && vmax ? { vmax } : {}),
       ...(vis.logScale ? { log_scale: "true" } : {}),
       ...(referenceFrame > 0 ? { ref_frame: referenceFrame } : {}),
-      ...(vis.smoothSigma > 0 && !isStrain ? { smooth_sigma: vis.smoothSigma } : {}),
+      _v: resultVersion,  // cache-buster for browser HTTP cache
     };
-    const settingsKey = `${displayComponent}|${JSON.stringify(params)}`;
+    const settingsKey = `${displayComponent}|${resultVersion}|${JSON.stringify(params)}`;
 
     // If cache already matches and is complete, skip
     if (cacheKeyRef.current === settingsKey && cacheRef.current.size >= numFrames) {
@@ -154,14 +156,14 @@ export function usePreRenderCache(componentOverride?: string): PreRenderState {
       }
     });
   }, [hasResults, numFrames, displayComponent, vis.colormap, vis.alpha,
-      vis.background, vis.fixedRange, vis.vminU, vis.vmaxU, vis.vminV, vis.vmaxV, vis.logScale, vis.smoothSigma, referenceFrame, invalidate]);
+      vis.background, vis.fixedRange, vis.vminU, vis.vmaxU, vis.vminV, vis.vmaxV, vis.logScale, referenceFrame, resultVersion, invalidate]);
 
-  // Invalidate cache when relevant settings change
+  // Invalidate cache when relevant settings change or results recomputed
   useEffect(() => {
     invalidate();
     cancelPreRender();
   }, [displayComponent, vis.colormap, vis.alpha, vis.background,
-      vis.fixedRange, vis.vminU, vis.vmaxU, vis.vminV, vis.vmaxV, vis.logScale, vis.smoothSigma, referenceFrame, invalidate, cancelPreRender]);
+      vis.fixedRange, vis.vminU, vis.vmaxU, vis.vminV, vis.vmaxV, vis.logScale, referenceFrame, resultVersion, invalidate, cancelPreRender]);
 
   // Cleanup on unmount
   useEffect(() => {

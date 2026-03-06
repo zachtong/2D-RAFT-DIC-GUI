@@ -42,6 +42,7 @@ def calculate():
     strain_fps = float(data.get("fps", 1.0))
     gaussian_sigma_raw = data.get("gaussian_sigma", None)
     gaussian_sigma = float(gaussian_sigma_raw) if gaussian_sigma_raw is not None else None
+    spatial_sigma = float(data.get("spatial_sigma", 0))
 
     def compute():
         try:
@@ -50,6 +51,22 @@ def calculate():
             total = len(session.displacement_results)
 
             for i, disp in enumerate(session.displacement_results):
+                # Spatial smoothing of displacement before strain calculation
+                if spatial_sigma > 0:
+                    from scipy.ndimage import gaussian_filter
+                    smoothed = np.empty_like(disp)
+                    for ch in range(disp.shape[2]):
+                        plane = disp[:, :, ch]
+                        valid = np.isfinite(plane)
+                        filled = np.nan_to_num(plane, nan=0.0)
+                        s_data = gaussian_filter(filled, sigma=spatial_sigma)
+                        s_weight = gaussian_filter(valid.astype(float), sigma=spatial_sigma)
+                        with np.errstate(divide="ignore", invalid="ignore"):
+                            smoothed[:, :, ch] = np.where(
+                                s_weight > 0.01, s_data / s_weight, np.nan
+                            )
+                    disp = smoothed
+
                 strain_dict = calculate_strain_field(
                     disp,
                     method=method,

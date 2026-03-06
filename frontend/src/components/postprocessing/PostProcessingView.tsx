@@ -16,6 +16,7 @@ import { getUnitInfo } from "@/utils/unitConversion";
 
 const STRAIN_COMPONENTS: string[] = [
   "exx", "eyy", "exy", "e1", "e2", "max_shear", "von_mises", "rotation",
+  "rotation_cumulative", "confidence", "dexx_dt", "deyy_dt", "dexy_dt",
 ];
 
 interface PostProcessingViewProps {
@@ -35,6 +36,7 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
   const setViewOffset = useAppStore((s) => s.setViewOffset);
 
   const referenceFrame = useAppStore((s) => s.referenceFrame);
+  const resultVersion = useAppStore((s) => s.resultVersion);
   const hasStrain = useAppStore((s) => s.hasStrain);
 
   const placingMode = useAppStore((s) => s.probePlacingMode);
@@ -317,7 +319,7 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
     ...(vis.fixedRange && vmax ? { vmax } : {}),
     ...(vis.logScale ? { log_scale: "true" } : {}),
     ...(referenceFrame > 0 ? { ref_frame: referenceFrame } : {}),
-    ...(vis.smoothSigma > 0 && !isStrain ? { smooth_sigma: vis.smoothSigma } : {}),
+    _v: resultVersion,
   };
 
   const liveSrc = isStrain

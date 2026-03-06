@@ -130,33 +130,22 @@ export function VisualizationControls() {
           />
         </FieldRow>
 
-        {["u", "v", "magnitude", "velocity"].includes(displayComponent) && (
-          <FieldRow label="Smooth &sigma;">
-            <SliderField
-              value={vis.smoothSigma}
-              onChange={(v) => update({ smoothSigma: v })}
-              min={0}
-              max={10}
-              step={0.5}
-            />
-          </FieldRow>
-        )}
-
         <div className="h-px bg-[var(--border)] my-1" />
 
-        <FieldRow label="Ref. Frame">
+        <FieldRow label="Zero Frame">
           <SmallInput
-            value={String(referenceFrame)}
+            value={String(referenceFrame + 1)}
             onChange={(v) => {
+              if (v === "" || v === "1") { setReferenceFrame(0); return; }
               const n = parseInt(v);
-              if (!isNaN(n) && n >= 0 && n < numFrames) setReferenceFrame(n);
+              if (!isNaN(n) && n >= 1 && n <= numFrames) setReferenceFrame(n - 1);
             }}
-            placeholder="0"
+            placeholder="1"
           />
         </FieldRow>
         {referenceFrame > 0 && (
           <div className="text-[9px] text-yellow-400/70 mt-0.5">
-            Displacement shown relative to frame {referenceFrame + 1}
+            Displacement = frame[i] − frame[{referenceFrame + 1}]. Strain unaffected.
           </div>
         )}
       </CollapsibleSection>
@@ -195,6 +184,9 @@ export function VisualizationControls() {
                 }}
               />
             </FieldRow>
+            <div className="text-[9px] text-[var(--muted-foreground)] mt-0.5">
+              Used for velocity display and strain rate (dε/dt)
+            </div>
           </div>
         )}
       </CollapsibleSection>

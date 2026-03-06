@@ -122,7 +122,6 @@ def render_frame(idx: int):
     background = request.args.get("background", "reference")
     log_scale = request.args.get("log_scale", "false").lower() in ("true", "1", "yes")
     ref_frame = request.args.get("ref_frame", 0, type=int)
-    smooth_sigma = request.args.get("smooth_sigma", 0, type=float)
 
     # Check cache
     cache_params = {k: v for k, v in request.args.items() if k != "_t"}
@@ -132,17 +131,6 @@ def render_frame(idx: int):
         return png_response(cached)
 
     disp_data = _get_displacement_component(idx, component, ref_frame=ref_frame)
-
-    # On-the-fly Gaussian smoothing (NaN-aware)
-    if smooth_sigma > 0:
-        from scipy.ndimage import gaussian_filter
-
-        valid_mask = np.isfinite(disp_data)
-        filled = np.nan_to_num(disp_data, nan=0.0)
-        smoothed_data = gaussian_filter(filled, sigma=smooth_sigma)
-        weight = gaussian_filter(valid_mask.astype(float), sigma=smooth_sigma)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            disp_data = np.where(weight > 0.01, smoothed_data / weight, np.nan)
 
     # Load background image
     if background == "deformed" and idx + 1 < len(session.image_files):

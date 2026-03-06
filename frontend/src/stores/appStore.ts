@@ -17,7 +17,6 @@ interface VisSettings {
   alpha: number;
   background: "reference" | "deformed";
   logScale: boolean;
-  smoothSigma: number;
   physicalEnabled: boolean;
   physicalRatio: number;
   physicalUnit: string;
@@ -58,6 +57,9 @@ interface AppState {
   numFrames: number;
   currentFrame: number;
   referenceFrame: number;
+
+  // Result version — monotonically increases on each recomputation (busts caches)
+  resultVersion: number;
 
   // Strain
   hasStrain: boolean;
@@ -133,6 +135,7 @@ export const useAppStore = create<AppState>((set) => ({
   numFrames: 0,
   currentFrame: 0,
   referenceFrame: 0,
+  resultVersion: 0,
   hasStrain: false,
   strainComputing: false,
   strainProgress: 0,
@@ -143,7 +146,6 @@ export const useAppStore = create<AppState>((set) => ({
     alpha: 0.7,
     background: "reference",
     logScale: false,
-    smoothSigma: 0,
     physicalEnabled: false,
     physicalRatio: 1.0,
     physicalUnit: "px",
@@ -218,11 +220,11 @@ export const useAppStore = create<AppState>((set) => ({
     }),
   setProcessingPaused: (paused) => set({ processingPaused: paused }),
   setResults: (numFrames) =>
-    set({ hasResults: numFrames > 0, numFrames, currentFrame: 0 }),
+    set((s) => ({ hasResults: numFrames > 0, numFrames, currentFrame: 0, resultVersion: s.resultVersion + 1 })),
   setCurrentFrame: (frame) => set({ currentFrame: frame }),
   setReferenceFrame: (frame) => set({ referenceFrame: frame }),
   setStrain: (has, components = []) =>
-    set({ hasStrain: has, strainComponents: components, strainComputing: false }),
+    set((s) => ({ hasStrain: has, strainComponents: components, strainComputing: false, resultVersion: s.resultVersion + 1 })),
   setStrainComputing: (v, progress = 0) => set({ strainComputing: v, strainProgress: progress }),
   setDisplayComponent: (c) => set({ displayComponent: c }),
   updateVisSettings: (partial) =>

@@ -6,7 +6,8 @@ export interface UnitInfo {
 }
 
 const STRAIN_COMPONENTS = new Set([
-  "exx", "eyy", "exy", "e1", "e2", "max_shear", "von_mises", "confidence",
+  "exx", "eyy", "exy", "e1", "e2", "max_shear", "von_mises", "rotation",
+  "rotation_cumulative", "confidence",
 ]);
 const STRAIN_RATE_COMPONENTS = new Set(["dexx_dt", "deyy_dt", "dexy_dt"]);
 

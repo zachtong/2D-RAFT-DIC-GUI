@@ -8,6 +8,7 @@ export async function calculateStrain(params: {
   weighting?: string;
   step?: number;
   temporal_sigma?: number;
+  spatial_sigma?: number;
   gaussian_sigma?: number;
   fps?: number;
 }): Promise<void> {

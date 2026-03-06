@@ -26,10 +26,11 @@ export function StrainControls() {
   const [vsgSize, setVsgSize] = useState("31");
   const [step, setStep] = useState("15");
   const [polyOrder, setPolyOrder] = useState("1");
-  const [weighting, setWeighting] = useState("gaussian");
+  const [weighting, setWeighting] = useState("uniform");
+  const [spatialSigma, setSpatialSigma] = useState("0");
   const [temporalSigma, setTemporalSigma] = useState("0");
   const [gaussianSigma, setGaussianSigma] = useState("");
-  const [fps, setFps] = useState("1");
+  const fps = useAppStore((s) => s.visSettings.fps);
 
   const handleCalculate = async () => {
     if (strainComputing) return;
@@ -41,9 +42,10 @@ export function StrainControls() {
         step: parseInt(step),
         poly_order: parseInt(polyOrder),
         weighting,
+        spatial_sigma: parseFloat(spatialSigma) || 0,
         temporal_sigma: parseFloat(temporalSigma) || 0,
         gaussian_sigma: gaussianSigma ? parseFloat(gaussianSigma) : undefined,
-        fps: parseFloat(fps) || 1,
+        fps: fps || 1,
       });
     } catch (e) {
       console.error("Failed to start strain calculation:", e);
@@ -61,13 +63,20 @@ export function StrainControls() {
         />
       </FieldRow>
       <FieldRow label="VSG Size">
-        <SmallInput value={vsgSize} onChange={setVsgSize} />
+        <SmallInput value={vsgSize} onChange={setVsgSize} placeholder="odd, e.g. 31" />
       </FieldRow>
       <FieldRow label="Step">
-        <SmallInput value={step} onChange={setStep} />
+        <SmallInput value={step} onChange={setStep} placeholder="e.g. 15" />
       </FieldRow>
       <FieldRow label="Poly Order">
-        <SmallInput value={polyOrder} onChange={setPolyOrder} />
+        <SmallInput
+          value={polyOrder}
+          onChange={(v) => {
+            const n = parseInt(v);
+            if (v === "" || (!isNaN(n) && n >= 1 && n <= 2)) setPolyOrder(v);
+          }}
+          placeholder="1 or 2"
+        />
       </FieldRow>
       <FieldRow label="Weighting">
         <SelectField
@@ -81,12 +90,30 @@ export function StrainControls() {
           <SmallInput value={gaussianSigma} onChange={setGaussianSigma} placeholder="auto" />
         </FieldRow>
       )}
-      <FieldRow label="Time Smooth σ">
-        <SmallInput value={temporalSigma} onChange={setTemporalSigma} placeholder="0 = off" />
+      <div className="h-px bg-[var(--border)] my-1.5" />
+      <div className="text-[9px] text-[var(--muted-foreground)] mb-1 uppercase tracking-wider">Smoothing</div>
+      <FieldRow label="Spatial">
+        <div className="flex items-center gap-1">
+          <SmallInput value={spatialSigma} onChange={setSpatialSigma} placeholder="0 = off" />
+          <span className="text-[9px] text-[var(--muted-foreground)] shrink-0">px</span>
+        </div>
       </FieldRow>
-      <FieldRow label="FPS (rate)">
-        <SmallInput value={fps} onChange={setFps} placeholder="1.0" />
+      {parseFloat(spatialSigma) > 0 && (
+        <div className="text-[9px] text-[var(--muted-foreground)] mt-0.5">
+          Gaussian blur on displacement before strain calc
+        </div>
+      )}
+      <FieldRow label="Temporal">
+        <div className="flex items-center gap-1">
+          <SmallInput value={temporalSigma} onChange={setTemporalSigma} placeholder="0 = off" />
+          <span className="text-[9px] text-[var(--muted-foreground)] shrink-0">frames</span>
+        </div>
       </FieldRow>
+      {parseFloat(temporalSigma) > 0 && (
+        <div className="text-[9px] text-[var(--muted-foreground)] mt-0.5">
+          Gaussian smoothing of strain across time
+        </div>
+      )}
       <button
         onClick={handleCalculate}
         disabled={strainComputing}

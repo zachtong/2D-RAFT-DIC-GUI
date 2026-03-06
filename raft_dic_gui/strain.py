@@ -175,7 +175,7 @@ def calculate_strain_field(displacement_field: np.ndarray, method: str = 'green_
     X_grid, Y_grid = np.meshgrid(x_range, y_range) # Local coordinates
 
     # Weighting Kernel
-    if weighting == 'Gaussian':
+    if weighting.lower() == 'gaussian':
         sigma = gaussian_sigma if gaussian_sigma is not None else vsg_size / 4.0
         dist_sq = X_grid**2 + Y_grid**2
         G = np.exp(-dist_sq / (2 * sigma**2))
