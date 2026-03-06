@@ -6,7 +6,7 @@ import threading
 import numpy as np
 from flask import Blueprint, jsonify, request
 
-from raft_dic_gui.processing import calculate_strain_field
+from raft_dic_gui.strain import calculate_strain_field
 from server.app import socketio
 from server.render_cache import RenderCache
 from server.serializers import frame_data_to_json, png_response
