@@ -30,7 +30,10 @@ export function PathSettings() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [browserOpen, setBrowserOpen] = useState(false);
-  const [naturalSort, setNaturalSort] = useState(false);
+  const [naturalSort, setNaturalSort] = useState(() => {
+    const saved = localStorage.getItem("dic_natural_sort");
+    return saved !== null ? saved === "true" : true; // default ON
+  });
   const [showFileList, setShowFileList] = useState(false);
 
   const handleLoad = async (overridePath?: string, sortOverride?: boolean) => {
@@ -57,6 +60,9 @@ export function PathSettings() {
       setImageDir(dir);
       setImageFiles(result.files, result.width, result.height);
       toast("success", `Loaded ${result.count} images (${result.width}x${result.height})`);
+      if (result.sort_suggestion === "natural") {
+        toast("info", "Filenames contain numbers — consider enabling Natural Sort for correct ordering");
+      }
       // Also fetch models
       const modelList = await listModels();
       setModels(modelList.map((m) => ({ value: m.path, label: m.label })));
@@ -122,6 +128,7 @@ export function PathSettings() {
           onChange={(e) => {
             const checked = e.target.checked;
             setNaturalSort(checked);
+            localStorage.setItem("dic_natural_sort", String(checked));
             if (imageFiles.length > 0) {
               handleLoad(undefined, checked);
             }

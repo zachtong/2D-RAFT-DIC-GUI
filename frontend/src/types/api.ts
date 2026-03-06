@@ -38,6 +38,7 @@ export interface ImageLoadResult {
   count: number;
   width: number;
   height: number;
+  sort_suggestion?: "natural";
 }
 
 export interface RoiResult {

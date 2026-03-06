@@ -33,7 +33,7 @@ def browse_directory():
 
     entries = []
     try:
-        for name in sorted(os.listdir(path)):
+        for name in sorted(os.listdir(path), key=_natural_sort_key):
             full = os.path.join(path, name)
             if name.startswith("."):
                 continue
@@ -105,12 +105,19 @@ def load_images():
         session.deformed_view_cache.set_image_paths(image_paths)
         session.deformed_view_cache.set_load_function(load_and_convert_image)
 
-    return jsonify({
+    # Detect if filenames contain numbers (natural sort recommended)
+    has_numeric = any(re.search(r"\d", f) for f in files)
+    sort_suggestion = "natural" if (has_numeric and not natural_sort) else None
+
+    resp = {
         "files": files,
         "count": len(files),
         "width": session.image_width,
         "height": session.image_height,
-    })
+    }
+    if sort_suggestion:
+        resp["sort_suggestion"] = sort_suggestion
+    return jsonify(resp)
 
 
 @images_bp.route("/reference", methods=["GET"])
