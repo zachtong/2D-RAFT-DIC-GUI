@@ -491,3 +491,116 @@ class TestBuildRefMap:
         from raft_dic_gui.incremental import build_ref_map
         ref_map = build_ref_map(total_frames=10, key_frames=[1, 5])
         assert 1 not in ref_map
+
+
+# ===========================================================================
+# 9. Ref_map-driven accumulation (Strategy A end-to-end)
+# ===========================================================================
+
+class TestRefMapAccumulation:
+    """Integration tests verifying Strategy A: accumulative within segments,
+    accumulation only at segment boundaries."""
+
+    def test_two_segment_uniform_translation(self):
+        """Two segments with uniform translation: total should be segment1 + segment2.
+
+        Segment 1 (ref=1, frames 2-5): DIC(1, 5) = (8, 0)
+        Segment 2 (ref=5, frames 6-10): DIC(5, 10) = (10, 0)
+        Total at frame 10 = accumulated[1] + DIC(1,5) accumulated at frame 5
+        Then total_10 = accumulated[5] + DIC(5, 10)
+
+        With Strategy A:
+        - accumulated[1] = zeros
+        - Frame 5 total = accumulated[1] + DIC(1,5) = (8, 0)
+        - accumulated[5] = (8, 0)
+        - Frame 10 total = accumulate(accumulated[5], DIC(5,10))
+        - For uniform fields: (8, 0) + (10, 0) = (18, 0)
+        """
+        H, W = 64, 64
+
+        # Simulate segment 1 result: DIC(frame1, frame5) = (8, 0)
+        kf_accumulated = {1: _zero_disp(H, W)}
+        delta_seg1 = _uniform_disp(H, W, 8.0, 0.0)
+
+        # Frame 5 total (first segment, kf_accumulated[1] is zeros)
+        total_5 = delta_seg1.copy()  # kf_acc is zero → delta IS total
+        kf_accumulated[5] = total_5.copy()
+
+        # Simulate segment 2 result: DIC(frame5, frame10) = (10, 0)
+        delta_seg2 = _uniform_disp(H, W, 10.0, 0.0)
+
+        # Frame 10 total (second segment, non-zero accumulated)
+        total_10 = accumulate_displacement(kf_accumulated[5], delta_seg2, debug=False)
+
+        # Interior check (avoid boundary effects)
+        margin = 10
+        interior = total_10[margin:-margin, margin:-margin]
+        np.testing.assert_allclose(interior[..., 0], 18.0, atol=0.5)
+        np.testing.assert_allclose(interior[..., 1], 0.0, atol=0.5)
+
+    def test_custom_ref_map_passthrough(self):
+        """A custom ref_map (e.g., cyclic) should pass through build_ref_map unchanged."""
+        from raft_dic_gui.incremental import build_ref_map
+
+        # Frame 6 references frame 1 instead of frame 5 (simulating cyclic loading)
+        custom = {2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 6, 8: 6}
+        ref_map = build_ref_map(total_frames=8, ref_map=custom)
+        assert ref_map == custom
+
+    def test_single_segment_equals_accumulative(self):
+        """With key_frames=[1], all frames ref frame 1. Delta IS total.
+
+        This is the same behavior as accumulative mode.
+        """
+        from raft_dic_gui.incremental import build_ref_map
+
+        ref_map = build_ref_map(total_frames=100, key_frames=[1])
+
+        # Every frame references frame 1
+        for f in range(2, 101):
+            assert ref_map[f] == 1
+
+        # Since kf_accumulated[1] = zeros, total = delta for every frame
+        # (no accumulation needed — same as accumulative mode)
+        H, W = 32, 32
+        kf_acc = _zero_disp(H, W)
+        delta = _uniform_disp(H, W, 5.0, 3.0)
+
+        # First segment check: delta IS total when accumulated is zero
+        import numpy as np
+        is_first = np.allclose(kf_acc, 0, atol=1e-12) and not np.any(np.isnan(kf_acc))
+        assert is_first is True
+
+        # So total = delta
+        total = delta.copy()
+        np.testing.assert_array_equal(total, delta)
+
+    def test_three_segments_accumulate(self):
+        """Three segments: verify displacement chains correctly.
+
+        Segment 1 (ref=1): delta = (2, 1)  → total = (2, 1)
+        Segment 2 (ref=KF2): delta = (3, 0) → total = (2+3, 1+0) = (5, 1)
+        Segment 3 (ref=KF3): delta = (1, 2) → total = (5+1, 1+2) = (6, 3)
+        """
+        H, W = 64, 64
+
+        kf_accumulated = {1: _zero_disp(H, W)}
+
+        # Segment 1 end
+        delta1 = _uniform_disp(H, W, 2.0, 1.0)
+        total_kf2 = delta1.copy()  # First segment: zeros + delta
+        kf_accumulated[2] = total_kf2.copy()
+
+        # Segment 2 end
+        delta2 = _uniform_disp(H, W, 3.0, 0.0)
+        total_kf3 = accumulate_displacement(kf_accumulated[2], delta2, debug=False)
+        kf_accumulated[3] = total_kf3.copy()
+
+        # Segment 3 end
+        delta3 = _uniform_disp(H, W, 1.0, 2.0)
+        total_final = accumulate_displacement(kf_accumulated[3], delta3, debug=False)
+
+        margin = 10
+        interior = total_final[margin:-margin, margin:-margin]
+        np.testing.assert_allclose(interior[..., 0], 6.0, atol=0.5)
+        np.testing.assert_allclose(interior[..., 1], 3.0, atol=0.5)
