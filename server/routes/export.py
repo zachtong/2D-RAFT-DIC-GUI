@@ -47,6 +47,9 @@ def export_scientific():
         "model_label": session.config.model_label,
         "mode": session.config.mode,
         "img_dir": session.image_dir,
+        "von_mises_assumption": "plane_stress_2D",
+        "strain_method": "VWLS",
+        "strain_components": session.strain_components,
     }
     export_metadata.update(metadata)
 

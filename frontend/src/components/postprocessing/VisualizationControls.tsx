@@ -71,6 +71,11 @@ export function VisualizationControls() {
             onChange={(v) => setDisplayComponent(v as DisplayComponent)}
           />
         </FieldRow>
+        {displayComponent === "von_mises" && (
+          <div className="text-[9px] text-yellow-400/70 mt-0.5">
+            * 2D plane-stress assumption (σ_z = 0)
+          </div>
+        )}
 
         <FieldRow label="Colormap">
           <SelectField
