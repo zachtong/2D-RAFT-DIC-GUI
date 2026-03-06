@@ -123,6 +123,14 @@ class DICProcessor:
         last_update_time = 0
         import time
 
+        # -- Incremental mode state --
+        is_incremental = config.mode == "incremental"
+        accumulated_disp = None  # (H_roi, W_roi, 2), set after first frame
+        current_mask = roi_mask.copy()
+        original_mask_crop = roi_mask[ymin:ymax, xmin:xmax].copy()
+        if is_incremental:
+            from raft_dic_gui.incremental import accumulate_displacement, warp_mask_with_holes
+
         for i in range(1, len(image_files)):
             # Check for stop request
             if self.check_stop and self.check_stop():
@@ -150,11 +158,17 @@ class DICProcessor:
                         self.update_progress(percent, i, total_pairs)
                         last_update_time = current_time
                         
-                    # If incremental mode, update reference image for NEXT frame
-                    if config.mode == "incremental":
+                    # If incremental mode, update reference AND accumulated state
+                    if is_incremental:
                         ref_roi = def_roi.copy()
                         ref_image = def_image.copy()
-                        
+                        # Restore accumulated state from saved total displacement
+                        accumulated_disp = displacement_field.copy()
+                        # Re-warp mask from original using total displacement
+                        warped_crop = warp_mask_with_holes(original_mask_crop, accumulated_disp)
+                        current_mask = roi_mask.copy()
+                        current_mask[ymin:ymax, xmin:xmax] = warped_crop
+
                     continue # Skip processing
                 except Exception as e:
                     print(f"[WARNING] Failed to load existing result for frame {i}: {e}. Reprocessing.")
@@ -170,7 +184,7 @@ class DICProcessor:
             disp_full, _ = proc.dic_over_roi_with_tiling(
                 ref_image,
                 def_image,
-                roi_mask,
+                current_mask,
                 model,
                 device,
                 context_padding=config.context_padding,
@@ -179,7 +193,37 @@ class DICProcessor:
                 use_smooth=config.use_smooth,
                 sigma=config.sigma
             )
-            displacement_field = disp_full[ymin:ymax, xmin:xmax, :]
+            delta_disp = disp_full[ymin:ymax, xmin:xmax, :]
+
+            # Incremental: accumulate displacement and warp mask
+            if is_incremental:
+                if accumulated_disp is None:
+                    # First frame: delta IS the total
+                    accumulated_disp = delta_disp.copy()
+                else:
+                    accumulated_disp = accumulate_displacement(
+                        accumulated_disp, delta_disp, debug=True
+                    )
+                displacement_field = accumulated_disp.copy()
+
+                # Update reference for next frame
+                ref_roi = def_roi.copy()
+                ref_image = def_image.copy()
+
+                # Warp mask from ORIGINAL using TOTAL displacement
+                warped_crop = warp_mask_with_holes(original_mask_crop, accumulated_disp)
+                current_mask = roi_mask.copy()
+                current_mask[ymin:ymax, xmin:xmax] = warped_crop
+
+                # Warn if significant pixel loss during accumulation
+                valid_pixels = int(np.sum(~np.isnan(accumulated_disp[..., 0])))
+                total_pixels = accumulated_disp.shape[0] * accumulated_disp.shape[1]
+                loss_pct = (1 - valid_pixels / total_pixels) * 100
+                if loss_pct > 10:
+                    print(f"[WARNING] Frame {i}: {loss_pct:.1f}% of ROI pixels lost during "
+                          f"accumulation ({valid_pixels}/{total_pixels} valid).")
+            else:
+                displacement_field = delta_disp
 
             # Save immediately (Resume functionality)
             try:
@@ -195,11 +239,6 @@ class DICProcessor:
 
             # Accumulate this frame displacement
             sequence_displacements.append(displacement_field)
-
-            # If incremental mode, update reference image(s)
-            if config.mode == "incremental":
-                ref_roi = def_roi.copy()
-                ref_image = def_image.copy()
 
         # Save consolidated files
         # try:

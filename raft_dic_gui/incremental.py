@@ -34,8 +34,10 @@ def warp_mask_with_holes(mask: np.ndarray, displacement: np.ndarray) -> np.ndarr
     mask_uint8 = (mask > 0).astype(np.uint8) * 255
     
     # Find contours with hierarchy (RETR_TREE captures holes)
+    # CHAIN_APPROX_NONE keeps every contour point so that straight edges
+    # warp correctly under non-uniform displacement fields.
     contours, hierarchy = cv2.findContours(
-        mask_uint8, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
+        mask_uint8, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE
     )
     
     if len(contours) == 0:
@@ -75,7 +77,7 @@ def warp_mask_with_holes(mask: np.ndarray, displacement: np.ndarray) -> np.ndarr
             warped_cnt = warp_contour(cnt)
             # Clip to image bounds
             warped_cnt = np.clip(warped_cnt, 0, [[W-1, H-1]])
-            warped_cnt = warped_cnt.astype(np.int32)
+            warped_cnt = np.rint(warped_cnt).astype(np.int32)
             
             # hierarchy: [Next, Previous, First_Child, Parent]
             parent = hierarchy[0][i][3]
