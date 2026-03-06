@@ -396,3 +396,98 @@ class TestAccumulationIntegration:
         # The NaN region should still be NaN
         assert np.all(np.isnan(u[12:18, 12:18, 0]))
         assert np.all(np.isnan(u[12:18, 12:18, 1]))
+
+
+# ===========================================================================
+# 7. key_frames_every_n
+# ===========================================================================
+
+class TestKeyFramesEveryN:
+    """Tests for key_frames_every_n(total_frames, n)."""
+
+    def test_every_50(self):
+        from raft_dic_gui.incremental import key_frames_every_n
+        kf = key_frames_every_n(total_frames=200, n=50)
+        assert kf == [1, 51, 101, 151]
+
+    def test_every_1(self):
+        from raft_dic_gui.incremental import key_frames_every_n
+        kf = key_frames_every_n(total_frames=5, n=1)
+        assert kf == [1, 2, 3, 4, 5]
+
+    def test_n_larger_than_total(self):
+        from raft_dic_gui.incremental import key_frames_every_n
+        kf = key_frames_every_n(total_frames=10, n=100)
+        assert kf == [1]
+
+    def test_n_zero_treated_as_1(self):
+        from raft_dic_gui.incremental import key_frames_every_n
+        kf = key_frames_every_n(total_frames=3, n=0)
+        assert kf == [1, 2, 3]
+
+
+# ===========================================================================
+# 8. build_ref_map
+# ===========================================================================
+
+class TestBuildRefMap:
+    """Tests for build_ref_map(total_frames, key_frames, ref_map)."""
+
+    def test_single_segment_all_ref_frame1(self):
+        from raft_dic_gui.incremental import build_ref_map
+        ref_map = build_ref_map(total_frames=5, key_frames=[1])
+        assert ref_map == {2: 1, 3: 1, 4: 1, 5: 1}
+
+    def test_two_segments(self):
+        from raft_dic_gui.incremental import build_ref_map
+        ref_map = build_ref_map(total_frames=10, key_frames=[1, 5])
+        # Frames 2-5 ref frame 1, frames 6-10 ref frame 5
+        for f in range(2, 6):
+            assert ref_map[f] == 1
+        for f in range(6, 11):
+            assert ref_map[f] == 5
+
+    def test_three_segments(self):
+        from raft_dic_gui.incremental import build_ref_map
+        ref_map = build_ref_map(total_frames=100, key_frames=[1, 50, 100])
+        assert ref_map[2] == 1
+        assert ref_map[50] == 1
+        assert ref_map[51] == 50
+        assert ref_map[100] == 50
+
+    def test_no_key_frames_defaults_to_frame1(self):
+        from raft_dic_gui.incremental import build_ref_map
+        ref_map = build_ref_map(total_frames=5)
+        assert ref_map == {2: 1, 3: 1, 4: 1, 5: 1}
+
+    def test_missing_frame1_auto_added(self):
+        from raft_dic_gui.incremental import build_ref_map
+        ref_map = build_ref_map(total_frames=10, key_frames=[5])
+        # Frame 1 auto-added, so frames 2-5 ref 1, frames 6-10 ref 5
+        assert ref_map[2] == 1
+        assert ref_map[5] == 1
+        assert ref_map[6] == 5
+
+    def test_ref_map_passthrough(self):
+        from raft_dic_gui.incremental import build_ref_map
+        custom = {2: 1, 3: 1, 4: 1, 5: 1, 6: 1}
+        ref_map = build_ref_map(total_frames=6, ref_map=custom)
+        assert ref_map == custom
+
+    def test_unsorted_key_frames(self):
+        from raft_dic_gui.incremental import build_ref_map
+        ref_map = build_ref_map(total_frames=10, key_frames=[5, 1])
+        assert ref_map[3] == 1
+        assert ref_map[7] == 5
+
+    def test_duplicate_key_frames_handled(self):
+        from raft_dic_gui.incremental import build_ref_map
+        ref_map = build_ref_map(total_frames=10, key_frames=[1, 5, 5])
+        assert ref_map[3] == 1
+        assert ref_map[7] == 5
+
+    def test_frame1_not_in_ref_map(self):
+        """Frame 1 is the origin, should not appear as a key in ref_map."""
+        from raft_dic_gui.incremental import build_ref_map
+        ref_map = build_ref_map(total_frames=10, key_frames=[1, 5])
+        assert 1 not in ref_map

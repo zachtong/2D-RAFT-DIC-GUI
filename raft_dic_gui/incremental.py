@@ -1,7 +1,7 @@
 """
 Incremental Reference Processing Utilities
 
-This module provides functions for incremental DIC processing where the 
+This module provides functions for incremental DIC processing where the
 reference image is updated at user-specified key frames to handle large
 deformations.
 
@@ -9,11 +9,13 @@ Key functions:
 - warp_mask_with_holes: Warp ROI mask preserving internal holes
 - accumulate_displacement: Combine segment displacements in original coordinates
 - validate_key_frames: Validate key frame selection
+- key_frames_every_n: Generate key frame list at regular intervals
+- build_ref_map: Build frame→reference mapping from key frames
 """
 
 import numpy as np
 import cv2
-from typing import List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional
 
 
 def warp_mask_with_holes(mask: np.ndarray, displacement: np.ndarray) -> np.ndarray:
@@ -304,13 +306,86 @@ def get_segment_ranges(key_frames: List[int],
     
     for i, ref_frame in enumerate(key_frames_sorted):
         start_frame = ref_frame + 1  # First frame to process in this segment
-        
+
         if i < len(key_frames_sorted) - 1:
             end_frame = key_frames_sorted[i + 1]  # Up to (and including) next key frame
         else:
             end_frame = total_frames  # Last segment goes to end
-        
+
         if start_frame <= end_frame:
             segments.append((ref_frame, start_frame, end_frame))
-    
+
     return segments
+
+
+def key_frames_every_n(total_frames: int, n: int) -> List[int]:
+    """Generate key frame list at every N frames (1-indexed).
+
+    Frame 1 is always included as the first key frame.
+
+    Args:
+        total_frames: Total number of frames (1-indexed, so frames are 1..total_frames)
+        n: Interval between key frames. Values < 1 are treated as 1.
+
+    Returns:
+        Sorted list of key frame numbers.
+
+    Examples:
+        >>> key_frames_every_n(200, 50)
+        [1, 51, 101, 151]
+        >>> key_frames_every_n(5, 1)
+        [1, 2, 3, 4, 5]
+        >>> key_frames_every_n(10, 100)
+        [1]
+    """
+    if n < 1:
+        n = 1
+    return [i for i in range(1, total_frames + 1, n)]
+
+
+def build_ref_map(
+    total_frames: int,
+    key_frames: Optional[List[int]] = None,
+    ref_map: Optional[Dict[int, int]] = None,
+) -> Dict[int, int]:
+    """Build a frame->reference mapping.
+
+    If *ref_map* is provided, return it directly (passthrough for future
+    adaptive strategies).  Otherwise, build from *key_frames* using the
+    linear segment strategy (Strategy A): within each segment
+    ``[KF_i, KF_{i+1})``, **all** frames correlate against ``KF_i``.
+
+    Args:
+        total_frames: Total number of frames (1-indexed, so frames are
+            1..total_frames).
+        key_frames: List of key frame numbers (1-indexed).  Frame 1 is
+            always included (auto-added if missing).
+        ref_map: Pre-built mapping (passthrough).  Takes priority over
+            *key_frames*.
+
+    Returns:
+        Dict mapping ``frame_number -> reference_frame_number``.
+        Frame 1 is never in the dict (it IS the origin reference).
+    """
+    if ref_map is not None:
+        return dict(ref_map)
+
+    if key_frames is None:
+        key_frames = [1]
+
+    kf_sorted = sorted(set(key_frames))
+    if kf_sorted[0] != 1:
+        kf_sorted.insert(0, 1)
+
+    result: Dict[int, int] = {}
+    for idx in range(len(kf_sorted)):
+        kf = kf_sorted[idx]
+        # End of this segment (inclusive): up to next key frame, or total_frames
+        if idx + 1 < len(kf_sorted):
+            seg_end = kf_sorted[idx + 1]
+        else:
+            seg_end = total_frames
+        for frame in range(kf + 1, seg_end + 1):
+            result[frame] = kf
+
+    return result
