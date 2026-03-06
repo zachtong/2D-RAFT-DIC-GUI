@@ -127,7 +127,8 @@ def _compute_rotation_field_numba(du_dx, du_dy, dv_dx, dv_dy):
     return rotation
 
 def calculate_strain_field(displacement_field: np.ndarray, method: str = 'green_lagrange',
-                         vsg_size: int = 31, poly_order: int = 1, weighting: str = 'Gaussian', step: int = 1):
+                         vsg_size: int = 31, poly_order: int = 1, weighting: str = 'Gaussian',
+                         step: int = 1, gaussian_sigma=None):
     """
     Calculate strain field from displacement using VSG method with robust boundary handling.
     Implements "Vectorized Weighted Least Squares" to handle invalid pixels (Strategy 2).
@@ -139,6 +140,7 @@ def calculate_strain_field(displacement_field: np.ndarray, method: str = 'green_
         poly_order: Polynomial order (1 or 2).
         weighting: 'Uniform' or 'Gaussian'.
         step: Calculation stride (downsampling factor).
+        gaussian_sigma: Custom Gaussian sigma. If None, defaults to vsg_size / 4.
 
     Returns:
         strain_dict: Dictionary containing strain components.
@@ -174,7 +176,7 @@ def calculate_strain_field(displacement_field: np.ndarray, method: str = 'green_
 
     # Weighting Kernel
     if weighting == 'Gaussian':
-        sigma = vsg_size / 4.0
+        sigma = gaussian_sigma if gaussian_sigma is not None else vsg_size / 4.0
         dist_sq = X_grid**2 + Y_grid**2
         G = np.exp(-dist_sq / (2 * sigma**2))
     else:

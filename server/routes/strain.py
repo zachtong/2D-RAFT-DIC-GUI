@@ -36,6 +36,8 @@ def calculate():
     weighting = data.get("weighting", "Gaussian")
     step = int(data.get("step", 1))
     temporal_sigma = float(data.get("temporal_sigma", 0))
+    gaussian_sigma_raw = data.get("gaussian_sigma", None)
+    gaussian_sigma = float(gaussian_sigma_raw) if gaussian_sigma_raw is not None else None
 
     def compute():
         try:
@@ -51,6 +53,7 @@ def calculate():
                     poly_order=poly_order,
                     weighting=weighting,
                     step=step,
+                    gaussian_sigma=gaussian_sigma,
                 )
                 results.append(strain_dict)
 

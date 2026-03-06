@@ -8,6 +8,7 @@ export async function calculateStrain(params: {
   weighting?: string;
   step?: number;
   temporal_sigma?: number;
+  gaussian_sigma?: number;
 }): Promise<void> {
   await client.post("/strain/calculate", params);
 }
