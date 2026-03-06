@@ -9,12 +9,12 @@ import numpy as np
 from flask import Blueprint, jsonify, request
 from scipy.ndimage import map_coordinates
 
-from server.render_cache import RenderCache
+from server.render_cache import RenderCache, auto_cache_size
 from server.serializers import png_response
 from server.session import session
 
 arrows_bp = Blueprint("arrows", __name__)
-_render_cache = RenderCache(512)
+_render_cache = RenderCache(auto_cache_size())
 
 
 def _parse_bool(val: str) -> bool:

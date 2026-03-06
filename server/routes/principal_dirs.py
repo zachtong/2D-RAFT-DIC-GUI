@@ -8,12 +8,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 from flask import Blueprint, jsonify, request
 
-from server.render_cache import RenderCache
+from server.render_cache import RenderCache, auto_cache_size
 from server.serializers import png_response
 from server.session import session
 
 principal_bp = Blueprint("principal", __name__)
-_render_cache = RenderCache(128)
+_render_cache = RenderCache(auto_cache_size())
 
 
 @principal_bp.route("/render/<int:idx>", methods=["GET"])

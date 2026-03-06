@@ -8,12 +8,12 @@ from flask import Blueprint, jsonify, request
 
 from raft_dic_gui.strain import calculate_strain_field
 from server.app import socketio
-from server.render_cache import RenderCache
+from server.render_cache import RenderCache, auto_cache_size
 from server.serializers import frame_data_to_json, png_response
 from server.session import session
 
 strain_bp = Blueprint("strain", __name__)
-_render_cache = RenderCache(512)
+_render_cache = RenderCache(auto_cache_size())
 
 STRAIN_COMPONENTS = [
     "exx", "eyy", "exy", "e1", "e2", "max_shear", "von_mises", "rotation",

@@ -3,6 +3,21 @@
 from collections import OrderedDict
 
 
+def auto_cache_size(target_mb: int = 500, avg_item_kb: int = 200) -> int:
+    """Compute cache size based on available system memory.
+
+    Uses at most target_mb or 10% of available RAM, whichever is smaller.
+    Falls back to 512 if psutil is not available.
+    """
+    try:
+        import psutil
+        available_mb = psutil.virtual_memory().available / (1024 * 1024)
+        budget_mb = min(target_mb, available_mb * 0.1)
+        return max(64, int(budget_mb * 1024 / avg_item_kb))
+    except (ImportError, Exception):
+        return 512
+
+
 class RenderCache:
     """Bounded LRU cache mapping (result_id, frame_idx, params) → PNG bytes."""
 

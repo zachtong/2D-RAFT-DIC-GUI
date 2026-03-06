@@ -38,10 +38,25 @@ class InverseMapResult:
     out_y1: int
 
 
+def auto_inverse_cache_size() -> int:
+    """Compute inverse map cache size. Each entry is ~2x image size in float64."""
+    try:
+        import psutil
+        available_mb = psutil.virtual_memory().available / (1024 * 1024)
+        # Each inverse map is ~2 * H * W * 8 bytes. For 1024x1024: ~16MB
+        # Use 2% of available RAM for inverse maps
+        budget_mb = min(100, available_mb * 0.02)
+        return max(3, int(budget_mb / 16))
+    except (ImportError, Exception):
+        return 5
+
+
 class InverseMapCache:
     """Thread-safe LRU cache for InverseMapResult (keyed by frame index)."""
 
-    def __init__(self, max_size: int = 5):
+    def __init__(self, max_size: int = None):
+        if max_size is None:
+            max_size = auto_inverse_cache_size()
         self._max_size = max_size
         self._cache: OrderedDict[int, InverseMapResult] = OrderedDict()
         self._lock = threading.Lock()

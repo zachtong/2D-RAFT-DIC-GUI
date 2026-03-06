@@ -11,12 +11,12 @@ from raft_dic_gui.velocity import (
     calculate_velocity_central,
     calculate_velocity_field,
 )
-from server.render_cache import RenderCache
+from server.render_cache import RenderCache, auto_cache_size
 from server.serializers import frame_data_to_json, png_response
 from server.session import session
 
 displacement_bp = Blueprint("displacement", __name__)
-_render_cache = RenderCache(512)
+_render_cache = RenderCache(auto_cache_size())
 
 
 def _get_displacement_component(

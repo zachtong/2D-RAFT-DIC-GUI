@@ -62,7 +62,7 @@ class AppSession:
         default_factory=DeformedViewCache
     )
     inverse_map_cache: InverseMapCache = field(
-        default_factory=lambda: InverseMapCache(max_size=5),
+        default_factory=InverseMapCache,
         repr=False,
     )
 
