@@ -17,6 +17,7 @@ _render_cache = RenderCache(512)
 
 STRAIN_COMPONENTS = [
     "exx", "eyy", "exy", "e1", "e2", "max_shear", "von_mises", "rotation",
+    "confidence",
     "dexx_dt", "deyy_dt", "dexy_dt",
 ]
 

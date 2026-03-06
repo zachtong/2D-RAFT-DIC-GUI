@@ -324,6 +324,28 @@ def calculate_strain_field(displacement_field: np.ndarray, method: str = 'green_
     t5 = time.perf_counter()
     print(f"[TIMING] Strain calc - linear solve: {t5-t4:.3f}s")
 
+    # Compute fitting residual as confidence metric
+    # Residual = ||M*a - b||^2 / (||b||^2 + eps)
+    confidence = np.full(N_pixels, np.nan)
+    if np.any(valid_solve_mask):
+        # Predicted b values: M @ coeffs
+        pred_u = np.einsum('nij,nj->ni', M_stack[valid_solve_mask], coeffs_u[valid_solve_mask])
+        pred_v = np.einsum('nij,nj->ni', M_stack[valid_solve_mask], coeffs_v[valid_solve_mask])
+
+        # Residual sum of squares
+        resid_u = np.sum((pred_u - b_u_stack[valid_solve_mask])**2, axis=1)
+        resid_v = np.sum((pred_v - b_v_stack[valid_solve_mask])**2, axis=1)
+
+        # Normalization
+        norm_u = np.sum(b_u_stack[valid_solve_mask]**2, axis=1)
+        norm_v = np.sum(b_v_stack[valid_solve_mask]**2, axis=1)
+
+        # Combined normalized residual
+        nresid = (resid_u + resid_v) / (norm_u + norm_v + 1e-20)
+        confidence[valid_solve_mask] = np.clip(1.0 - nresid, 0.0, 1.0)
+
+    confidence_map = confidence.reshape(H_down, W_down)
+
     # 5. Extract Gradients
     # a0, a1(x), a2(y), ...
     # du/dx = a1
@@ -372,7 +394,7 @@ def calculate_strain_field(displacement_field: np.ndarray, method: str = 'green_
 
     # Apply mask to all components
     for key, val in locals().items():
-        if key in ['exx', 'eyy', 'exy', 'e1', 'e2', 'max_shear', 'von_mises', 'rotation']:
+        if key in ['exx', 'eyy', 'exy', 'e1', 'e2', 'max_shear', 'von_mises', 'rotation', 'confidence_map']:
             val[~mask_down] = np.nan
 
     return {
@@ -383,7 +405,8 @@ def calculate_strain_field(displacement_field: np.ndarray, method: str = 'green_
         'e2': e2,
         'max_shear': max_shear,
         'von_mises': von_mises,
-        'rotation': rotation
+        'rotation': rotation,
+        'confidence': confidence_map
     }
 
 
