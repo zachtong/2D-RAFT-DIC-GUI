@@ -1,16 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAppStore } from "@/stores/appStore";
 
-export function useFrameNav() {
+interface FrameNavOptions {
+  /** Check if a frame is ready to display (e.g. cached). If not provided, always ready. */
+  isFrameReady?: (idx: number) => boolean;
+}
+
+export function useFrameNav(options?: FrameNavOptions) {
   const numFrames = useAppStore((s) => s.numFrames);
   const currentFrame = useAppStore((s) => s.currentFrame);
   const setCurrentFrame = useAppStore((s) => s.setCurrentFrame);
 
-  // Ref for interval callback (synchronous read), state for re-renders
   const playRef = useRef(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fpsRef = useRef(5);
+  const rafRef = useRef<number | null>(null);
+  const lastFrameTimeRef = useRef(0);
+  const isFrameReadyRef = useRef(options?.isFrameReady);
+
+  // Keep ref in sync with latest callback
+  useEffect(() => {
+    isFrameReadyRef.current = options?.isFrameReady;
+  }, [options?.isFrameReady]);
 
   const next = useCallback(() => {
     setCurrentFrame(Math.min(currentFrame + 1, numFrames - 1));
@@ -31,23 +42,23 @@ export function useFrameNav() {
     [numFrames, setCurrentFrame]
   );
 
-  const stopTimer = useCallback(() => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
+  const stopLoop = useCallback(() => {
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
     }
   }, []);
 
   const pause = useCallback(() => {
     playRef.current = false;
     setIsPlaying(false);
-    stopTimer();
-  }, [stopTimer]);
+    stopLoop();
+  }, [stopLoop]);
 
   const play = useCallback(() => {
     if (playRef.current) return;
 
-    // If at last frame, wrap around to beginning
+    // If at last frame, wrap around
     const state = useAppStore.getState();
     if (state.currentFrame >= state.numFrames - 1) {
       useAppStore.setState({ currentFrame: 0 });
@@ -55,43 +66,46 @@ export function useFrameNav() {
 
     playRef.current = true;
     setIsPlaying(true);
-    timerRef.current = setInterval(() => {
-      useAppStore.setState((s) => {
-        const next = s.currentFrame + 1;
-        if (next >= s.numFrames) {
+    lastFrameTimeRef.current = performance.now();
+
+    const tick = (now: number) => {
+      if (!playRef.current) return;
+
+      const interval = 1000 / fpsRef.current;
+      const elapsed = now - lastFrameTimeRef.current;
+
+      if (elapsed >= interval) {
+        const s = useAppStore.getState();
+        const nextFrame = s.currentFrame + 1;
+
+        if (nextFrame >= s.numFrames) {
           playRef.current = false;
           setIsPlaying(false);
-          if (timerRef.current) clearInterval(timerRef.current);
-          return {};
+          return;
         }
-        return { currentFrame: next };
-      });
-    }, 1000 / fpsRef.current);
+
+        // Only advance if frame is ready (or no readiness check)
+        const ready = isFrameReadyRef.current
+          ? isFrameReadyRef.current(nextFrame)
+          : true;
+
+        if (ready) {
+          useAppStore.setState({ currentFrame: nextFrame });
+          lastFrameTimeRef.current = now - (elapsed - interval); // drift correction
+        }
+        // If not ready, retry on next rAF — don't update lastFrameTime
+      }
+
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
   }, []);
 
   const setFps = useCallback((fps: number) => {
     fpsRef.current = fps;
-    if (playRef.current) {
-      stopTimer();
-      playRef.current = false;
-      setIsPlaying(false);
-      // Restart with new FPS
-      playRef.current = true;
-      setIsPlaying(true);
-      timerRef.current = setInterval(() => {
-        useAppStore.setState((s) => {
-          const next = s.currentFrame + 1;
-          if (next >= s.numFrames) {
-            playRef.current = false;
-            setIsPlaying(false);
-            if (timerRef.current) clearInterval(timerRef.current);
-            return {};
-          }
-          return { currentFrame: next };
-        });
-      }, 1000 / fps);
-    }
-  }, [stopTimer]);
+    // rAF loop reads fpsRef.current dynamically — no restart needed
+  }, []);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -110,8 +124,11 @@ export function useFrameNav() {
 
   // Cleanup on unmount
   useEffect(() => {
-    return () => stopTimer();
-  }, [stopTimer]);
+    return () => stopLoop();
+  }, [stopLoop]);
 
-  return { currentFrame, numFrames, next, prev, first, last, goTo, play, pause, isPlaying, setFps };
+  return {
+    currentFrame, numFrames, next, prev, first, last, goTo,
+    play, pause, isPlaying, setFps,
+  };
 }

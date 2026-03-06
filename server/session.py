@@ -1,6 +1,7 @@
 """Server-side session state — replaces RAFTDICGUI class for state management."""
 
 import threading
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -46,6 +47,7 @@ class AppSession:
     pause_requested: bool = False
     pause_event: threading.Event = field(default_factory=lambda: _make_set_event(), repr=False)
     displacement_results: List[Any] = field(default_factory=list)
+    result_version: int = 0
 
     # Strain state
     strain_results: List[Any] = field(default_factory=list)
@@ -81,8 +83,26 @@ class AppSession:
     export_progress: int = 0
     export_total: int = 0
 
+    # Image frame cache (LRU, up to 50 frames)
+    _image_cache: OrderedDict = field(default_factory=OrderedDict, repr=False)
+    _image_cache_max: int = 50
+
     # Lock for thread-safe access
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def get_cached_image(self, idx: int):
+        """Get cached image by index, or None."""
+        if idx in self._image_cache:
+            self._image_cache.move_to_end(idx)
+            return self._image_cache[idx]
+        return None
+
+    def cache_image(self, idx: int, img):
+        """Cache an image array."""
+        self._image_cache[idx] = img
+        self._image_cache.move_to_end(idx)
+        while len(self._image_cache) > self._image_cache_max:
+            self._image_cache.popitem(last=False)
 
     def reset(self):
         """Reset all state to defaults."""
@@ -105,6 +125,8 @@ class AppSession:
         self.probe_manager = ProbeManager()
         self.deformed_view_cache = DeformedViewCache()
         self.inverse_map_cache.clear()
+        self._image_cache.clear()
+        self.result_version += 1
         self.export_active = False
         self.export_progress = 0
         self.export_total = 0

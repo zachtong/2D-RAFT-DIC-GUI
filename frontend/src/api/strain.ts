@@ -34,6 +34,5 @@ export function strainRenderUrl(
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined && v !== null && v !== "") qs.set(k, String(v));
   }
-  qs.set("_t", String(Date.now()));
   return `/api/strain/render/${idx}?${qs}`;
 }

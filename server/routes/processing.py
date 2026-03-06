@@ -109,10 +109,19 @@ def run_processing():
 
             with session._lock:
                 session.displacement_results = results
+                session.result_version += 1
                 session.processor = processor
                 session.processing_active = False
                 # New displacement results invalidate cached inverse maps
                 session.inverse_map_cache.clear()
+
+                # Clear all render caches (stale after new results)
+                from server.routes.displacement import _render_cache as disp_cache
+                from server.routes.strain import _render_cache as strain_cache
+                from server.routes.arrows import _render_cache as arrow_cache
+                disp_cache.clear()
+                strain_cache.clear()
+                arrow_cache.clear()
 
                 # Set up deformed view cache with results
                 if results:

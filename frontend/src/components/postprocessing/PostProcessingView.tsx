@@ -6,6 +6,7 @@ import { arrowRenderUrl } from "@/api/arrows";
 import { addPoint, addLine, addArea, listProbes } from "@/api/probes";
 import { ColorbarOverlay } from "@/components/shared/ColorbarOverlay";
 import { useColorRange } from "@/hooks/useColorRange";
+import type { PreRenderState } from "@/hooks/usePreRenderCache";
 import type { StrainComponent } from "@/types/api";
 import { ImageIcon, Loader2 } from "lucide-react";
 
@@ -43,7 +44,11 @@ function getUnitInfo(
   return { unit: "[px]", scale: 1 };
 }
 
-export function PostProcessingView() {
+interface PostProcessingViewProps {
+  cache?: PreRenderState;
+}
+
+export function PostProcessingView({ cache }: PostProcessingViewProps) {
   const hasResults = useAppStore((s) => s.hasResults);
   const currentFrame = useAppStore((s) => s.currentFrame);
   const numFrames = useAppStore((s) => s.numFrames);
@@ -52,6 +57,8 @@ export function PostProcessingView() {
   const arrows = useAppStore((s) => s.arrowSettings);
   const probes = useAppStore((s) => s.probes);
   const viewZoom = useAppStore((s) => s.viewZoom);
+  const viewOffset = useAppStore((s) => s.viewOffset);
+  const setViewOffset = useAppStore((s) => s.setViewOffset);
 
   const placingMode = useAppStore((s) => s.probePlacingMode);
   const placingFirst = useAppStore((s) => s.probePlacingFirst);
@@ -217,6 +224,56 @@ export function PostProcessingView() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [placingMode, setPlacingMode, clearAreaPolyPoints]);
 
+  // --- Pan & scroll-wheel zoom ---
+  const panRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+
+  const handlePanDown = useCallback((e: React.MouseEvent) => {
+    if (e.button === 1) { // middle mouse
+      e.preventDefault();
+      panRef.current = {
+        startX: e.clientX,
+        startY: e.clientY,
+        origX: viewOffset.x,
+        origY: viewOffset.y,
+      };
+    }
+  }, [viewOffset]);
+
+  const handleMouseMoveAll = useCallback((e: React.MouseEvent) => {
+    if (panRef.current) {
+      setViewOffset({
+        x: panRef.current.origX + (e.clientX - panRef.current.startX),
+        y: panRef.current.origY + (e.clientY - panRef.current.startY),
+      });
+      return;
+    }
+    handleMouseMove(e);
+  }, [handleMouseMove, setViewOffset]);
+
+  const handlePanUp = useCallback(() => {
+    panRef.current = null;
+  }, []);
+
+  // Attach native wheel listener with { passive: false } so preventDefault() works
+  useEffect(() => {
+    const el = imageAreaRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.1 : 0.9;
+      const state = useAppStore.getState();
+      const newZoom = Math.max(0.2, Math.min(5, state.viewZoom * factor));
+      const rect = el.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const newX = mx - ((mx - state.viewOffset.x) / state.viewZoom) * newZoom;
+      const newY = my - ((my - state.viewOffset.y) / state.viewZoom) * newZoom;
+      useAppStore.setState({ viewZoom: newZoom, viewOffset: { x: newX, y: newY } });
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
   const { unit: colorbarUnit, scale: colorbarScale } = useMemo(
     () =>
       getUnitInfo(
@@ -252,19 +309,23 @@ export function PostProcessingView() {
   }
 
   const isStrain = STRAIN_COMPONENTS.includes(displayComponent);
+  const vmin = displayComponent === "v" ? vis.vminV : vis.vminU;
+  const vmax = displayComponent === "v" ? vis.vmaxV : vis.vmaxU;
   const renderParams = {
     component: displayComponent,
     colormap: vis.colormap,
     alpha: vis.alpha,
     background: vis.background,
-    ...(vis.fixedRange && vis.vminU ? { vmin: vis.vminU } : {}),
-    ...(vis.fixedRange && vis.vmaxU ? { vmax: vis.vmaxU } : {}),
+    ...(vis.fixedRange && vmin ? { vmin } : {}),
+    ...(vis.fixedRange && vmax ? { vmax } : {}),
     ...(vis.logScale ? { log_scale: "true" } : {}),
   };
 
-  const src = isStrain
+  const liveSrc = isStrain
     ? strainRenderUrl(currentFrame, renderParams)
     : renderUrl(currentFrame, renderParams);
+  const cachedSrc = cache?.getFrame(currentFrame);
+  const src = cachedSrc ?? liveSrc;
 
   // Placement banner text
   const getBannerText = () => {
@@ -296,19 +357,26 @@ export function PostProcessingView() {
       </div>
 
       {/* Main visualization */}
-      <div ref={imageAreaRef} className="flex-1 relative bg-[var(--background)] overflow-hidden min-h-0">
+      <div
+        ref={imageAreaRef}
+        className="flex-1 relative bg-[var(--background)] overflow-hidden min-h-0"
+        onMouseDown={handlePanDown}
+        onMouseUp={handlePanUp}
+        onMouseLeave={handlePanUp}
+      >
         <div className="absolute inset-0 flex items-center justify-center">
           <div
             className="relative"
             style={{
               maxWidth: containerSize.w > 0 ? `${containerSize.w}px` : "100%",
               maxHeight: containerSize.h > 0 ? `${containerSize.h}px` : "100%",
-              ...(viewZoom !== 1 ? { transform: `scale(${viewZoom})` } : {}),
+              transform: `translate(${viewOffset.x}px, ${viewOffset.y}px) scale(${viewZoom})`,
+              transformOrigin: "0 0",
               cursor: placingMode ? "crosshair" : undefined,
             }}
             onClick={handleImageClick}
             onDoubleClick={handleDoubleClick}
-            onMouseMove={handleMouseMove}
+            onMouseMove={handleMouseMoveAll}
           >
             <img
               ref={imgRef}
@@ -483,8 +551,8 @@ export function PostProcessingView() {
 
         <ColorbarOverlay
           colormap={vis.colormap}
-          vmin={vis.fixedRange && vis.vminU ? parseFloat(vis.vminU) : autoRange?.vmin}
-          vmax={vis.fixedRange && vis.vmaxU ? parseFloat(vis.vmaxU) : autoRange?.vmax}
+          vmin={vis.fixedRange && vmin ? parseFloat(vmin) : autoRange?.vmin}
+          vmax={vis.fixedRange && vmax ? parseFloat(vmax) : autoRange?.vmax}
           unit={colorbarUnit}
           scaleFactor={colorbarScale}
           logScale={vis.logScale}

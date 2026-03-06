@@ -21,9 +21,21 @@ const SPEED_OPTIONS = [
   { value: "10", label: "10x" },
 ];
 
-export function FramePlayback() {
+interface PreRenderCacheInfo {
+  isPreRendering: boolean;
+  progress: number;
+  cachedCount: number;
+  totalFrames: number;
+  isFrameReady: (idx: number) => boolean;
+}
+
+interface FramePlaybackProps {
+  preRenderCache?: PreRenderCacheInfo;
+}
+
+export function FramePlayback({ preRenderCache }: FramePlaybackProps) {
   const { currentFrame, numFrames, next, prev, first, last, goTo, play, pause, isPlaying, setFps } =
-    useFrameNav();
+    useFrameNav(preRenderCache ? { isFrameReady: preRenderCache.isFrameReady } : undefined);
   const zoomIn = useAppStore((s) => s.zoomIn);
   const zoomOut = useAppStore((s) => s.zoomOut);
   const zoomReset = useAppStore((s) => s.zoomReset);
@@ -44,7 +56,7 @@ export function FramePlayback() {
   if (numFrames === 0) return null;
 
   return (
-    <div className="flex items-center justify-between px-3 py-2 bg-[var(--card)] border-t border-[var(--border)]">
+    <div className="relative flex items-center justify-between px-3 py-2 bg-[var(--card)] border-t border-[var(--border)]">
       {/* Navigation buttons */}
       <div className="flex items-center gap-1">
         <button onClick={first} className="p-1 hover:bg-[var(--secondary)] rounded text-[var(--muted-foreground)]">
@@ -113,6 +125,16 @@ export function FramePlayback() {
           Go
         </button>
       </div>
+
+      {/* Pre-render progress bar */}
+      {preRenderCache?.isPreRendering && (
+        <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--border)]">
+          <div
+            className="h-full bg-[var(--primary)] transition-all duration-300"
+            style={{ width: `${preRenderCache.progress}%` }}
+          />
+        </div>
+      )}
     </div>
   );
 }

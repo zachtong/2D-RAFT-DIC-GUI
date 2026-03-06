@@ -61,8 +61,10 @@ def calculate():
 
             with session._lock:
                 session.strain_results = results
+                session.result_version += 1
                 session.strain_components = STRAIN_COMPONENTS
                 session.strain_computing = False
+                _render_cache.clear()
 
             socketio.emit("strain:complete", {
                 "num_frames": len(results),
@@ -156,7 +158,7 @@ def render_frame(idx: int):
 
     # Check cache
     cache_params = {k: v for k, v in request.args.items() if k != "_t"}
-    cache_key = (id(session.strain_results), idx, tuple(sorted(cache_params.items())))
+    cache_key = (session.result_version, idx, tuple(sorted(cache_params.items())))
     cached = _render_cache.get(cache_key)
     if cached is not None:
         return png_response(cached)

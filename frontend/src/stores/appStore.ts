@@ -74,8 +74,9 @@ interface AppState {
   probePlacingFirst: [number, number] | null;
   areaPolyPoints: [number, number][];
 
-  // View zoom (shared by displacement + postprocessing)
+  // View zoom & pan (shared by displacement + postprocessing)
   viewZoom: number;
+  viewOffset: { x: number; y: number };
 
   // Export
   exportActive: boolean;
@@ -104,6 +105,7 @@ interface AppState {
   addAreaPolyPoint: (x: number, y: number) => void;
   clearAreaPolyPoints: () => void;
   setExport: (active: boolean, progress?: number) => void;
+  setViewOffset: (offset: { x: number; y: number }) => void;
   zoomIn: () => void;
   zoomOut: () => void;
   zoomReset: () => void;
@@ -161,6 +163,7 @@ export const useAppStore = create<AppState>((set) => ({
   probePlacingFirst: null,
   areaPolyPoints: [],
   viewZoom: 1,
+  viewOffset: { x: 0, y: 0 },
   exportActive: false,
   exportProgress: 0,
 
@@ -187,6 +190,7 @@ export const useAppStore = create<AppState>((set) => ({
       probePlacingFirst: null,
       areaPolyPoints: [],
       viewZoom: 1,
+      viewOffset: { x: 0, y: 0 },
       exportActive: false,
       exportProgress: 0,
     }),
@@ -224,7 +228,8 @@ export const useAppStore = create<AppState>((set) => ({
   clearAreaPolyPoints: () => set({ areaPolyPoints: [] }),
   setExport: (active, progress = 0) =>
     set({ exportActive: active, exportProgress: progress }),
+  setViewOffset: (offset) => set({ viewOffset: offset }),
   zoomIn: () => set((s) => ({ viewZoom: Math.min(s.viewZoom * 1.25, 5) })),
   zoomOut: () => set((s) => ({ viewZoom: Math.max(s.viewZoom / 1.25, 0.2) })),
-  zoomReset: () => set({ viewZoom: 1 }),
+  zoomReset: () => set({ viewZoom: 1, viewOffset: { x: 0, y: 0 } }),
 }));

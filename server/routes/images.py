@@ -86,6 +86,14 @@ def load_images():
         # Reset previous session state (ROI, probes, results, caches)
         session.reset()
 
+        # Clear render caches so stale PNG bytes from previous dataset are freed
+        from server.routes.displacement import _render_cache as disp_cache
+        from server.routes.strain import _render_cache as strain_cache
+        from server.routes.arrows import _render_cache as arrow_cache
+        disp_cache.clear()
+        strain_cache.clear()
+        arrow_cache.clear()
+
         session.image_dir = directory
         session.image_files = files
         session.reference_image = ref_img
@@ -124,7 +132,14 @@ def get_frame(index: int):
     if index < 0 or index >= len(session.image_files):
         return jsonify({"error": f"Frame index {index} out of range [0, {len(session.image_files) - 1})"}), 400
 
+    # Check in-memory cache first
+    cached = session.get_cached_image(index)
+    if cached is not None:
+        return png_response(image_to_png_bytes(cached))
+
+    # Load from disk and cache
     img_path = os.path.join(session.image_dir, session.image_files[index])
     img = load_and_convert_image(img_path)
+    session.cache_image(index, img)
     png_bytes = image_to_png_bytes(img)
     return png_response(png_bytes)

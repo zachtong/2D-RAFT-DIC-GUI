@@ -6,6 +6,5 @@ export function arrowRenderUrl(
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined && v !== null && v !== "") qs.set(k, String(v));
   }
-  qs.set("_t", String(Date.now()));
   return `/api/arrows/render/${idx}?${qs}`;
 }

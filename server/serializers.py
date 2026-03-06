@@ -73,8 +73,7 @@ def image_response(img_bytes: bytes, jpeg: bool = False) -> Response:
     """Wrap image bytes in a Flask Response with cache headers."""
     mimetype = "image/jpeg" if jpeg else "image/png"
     resp = Response(img_bytes, mimetype=mimetype)
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Cache-Control"] = "private, max-age=30"
     return resp
 
 
