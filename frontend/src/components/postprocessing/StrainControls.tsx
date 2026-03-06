@@ -29,6 +29,7 @@ export function StrainControls() {
   const [weighting, setWeighting] = useState("gaussian");
   const [temporalSigma, setTemporalSigma] = useState("0");
   const [gaussianSigma, setGaussianSigma] = useState("");
+  const [fps, setFps] = useState("1");
 
   const handleCalculate = async () => {
     if (strainComputing) return;
@@ -42,6 +43,7 @@ export function StrainControls() {
         weighting,
         temporal_sigma: parseFloat(temporalSigma) || 0,
         gaussian_sigma: gaussianSigma ? parseFloat(gaussianSigma) : undefined,
+        fps: parseFloat(fps) || 1,
       });
     } catch (e) {
       console.error("Failed to start strain calculation:", e);
@@ -81,6 +83,9 @@ export function StrainControls() {
       )}
       <FieldRow label="Time Smooth σ">
         <SmallInput value={temporalSigma} onChange={setTemporalSigma} placeholder="0 = off" />
+      </FieldRow>
+      <FieldRow label="FPS (rate)">
+        <SmallInput value={fps} onChange={setFps} placeholder="1.0" />
       </FieldRow>
       <button
         onClick={handleCalculate}

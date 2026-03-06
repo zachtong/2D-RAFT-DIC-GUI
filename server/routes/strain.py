@@ -16,7 +16,8 @@ strain_bp = Blueprint("strain", __name__)
 _render_cache = RenderCache(512)
 
 STRAIN_COMPONENTS = [
-    "exx", "eyy", "exy", "e1", "e2", "max_shear", "von_mises", "rotation"
+    "exx", "eyy", "exy", "e1", "e2", "max_shear", "von_mises", "rotation",
+    "dexx_dt", "deyy_dt", "dexy_dt",
 ]
 
 
@@ -36,6 +37,7 @@ def calculate():
     weighting = data.get("weighting", "Gaussian")
     step = int(data.get("step", 1))
     temporal_sigma = float(data.get("temporal_sigma", 0))
+    strain_fps = float(data.get("fps", 1.0))
     gaussian_sigma_raw = data.get("gaussian_sigma", None)
     gaussian_sigma = float(gaussian_sigma_raw) if gaussian_sigma_raw is not None else None
 
@@ -66,6 +68,10 @@ def calculate():
             if temporal_sigma > 0:
                 from raft_dic_gui.strain import smooth_strain_temporal
                 results = smooth_strain_temporal(results, sigma_t=temporal_sigma)
+
+            # Compute strain rate (central difference)
+            from raft_dic_gui.strain import calculate_strain_rate
+            results = calculate_strain_rate(results, fps=strain_fps)
 
             with session._lock:
                 session.strain_results = results

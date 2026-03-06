@@ -9,6 +9,7 @@ export async function calculateStrain(params: {
   step?: number;
   temporal_sigma?: number;
   gaussian_sigma?: number;
+  fps?: number;
 }): Promise<void> {
   await client.post("/strain/calculate", params);
 }

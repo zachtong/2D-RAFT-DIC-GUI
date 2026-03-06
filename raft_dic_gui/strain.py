@@ -419,3 +419,40 @@ def smooth_strain_temporal(strain_results: list, sigma_t: float = 1.0) -> list:
             smoothed[t][key] = result[t].astype(np.float32)
 
     return smoothed
+
+
+def calculate_strain_rate(strain_results: list, fps: float = 1.0) -> list:
+    """Compute strain rate de/dt using central difference.
+
+    For each frame, computes the time derivative of exx, eyy, exy.
+    Uses central difference for interior frames, forward/backward at endpoints.
+
+    Returns list of dicts with keys: 'dexx_dt', 'deyy_dt', 'dexy_dt'.
+    These are merged INTO the existing strain_results dicts (modified in-place).
+    """
+    T = len(strain_results)
+    if T < 2:
+        return strain_results
+
+    dt = 1.0 / fps if fps > 0 else 1.0
+
+    for i in range(T):
+        for comp in ['exx', 'eyy', 'exy']:
+            rate_key = f'd{comp}_dt'
+            if comp not in strain_results[i]:
+                continue
+
+            if i == 0:
+                # Forward difference
+                if comp in strain_results[1]:
+                    strain_results[i][rate_key] = (strain_results[1][comp] - strain_results[0][comp]) / dt
+            elif i == T - 1:
+                # Backward difference
+                if comp in strain_results[T - 2]:
+                    strain_results[i][rate_key] = (strain_results[T - 1][comp] - strain_results[T - 2][comp]) / dt
+            else:
+                # Central difference
+                if comp in strain_results[i - 1] and comp in strain_results[i + 1]:
+                    strain_results[i][rate_key] = (strain_results[i + 1][comp] - strain_results[i - 1][comp]) / (2.0 * dt)
+
+    return strain_results
