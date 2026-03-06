@@ -27,6 +27,20 @@ def export_scientific():
     if not file_path:
         return jsonify({"error": "Missing file_path"}), 400
 
+    # Validate directory exists
+    export_dir = os.path.dirname(file_path)
+    if export_dir and not os.path.isdir(export_dir):
+        return jsonify({"error": f"Directory does not exist: {export_dir}"}), 400
+
+    # Check for overwrite
+    overwrite = data.get("overwrite", False)
+    if os.path.exists(file_path) and not overwrite:
+        return jsonify({
+            "error": "File already exists",
+            "exists": True,
+            "path": file_path,
+        }), 409
+
     # Build metadata dict
     export_metadata = {
         "model_path": session.config.model_path,
@@ -78,6 +92,11 @@ def export_images():
     if not output_dir:
         return jsonify({"error": "Missing output_dir"}), 400
 
+    # Validate parent directory
+    parent_dir = os.path.dirname(output_dir.rstrip("/\\"))
+    if parent_dir and not os.path.isdir(parent_dir):
+        return jsonify({"error": f"Parent directory does not exist: {parent_dir}"}), 400
+
     def image_loader(frame_idx):
         if frame_idx < len(session.image_files):
             img_path = os.path.join(session.image_dir, session.image_files[frame_idx])
@@ -98,6 +117,7 @@ def export_images():
         try:
             session.export_active = True
             session.export_progress = 0
+            session.export_cancel.clear()
 
             result_dir = export_batch_images(
                 output_dir=output_dir,
@@ -111,6 +131,7 @@ def export_images():
                 settings=settings,
                 deformed_view_cache=session.deformed_view_cache,
                 progress_callback=progress_callback,
+                cancel_event=session.export_cancel,
             )
 
             session.export_active = False
@@ -137,3 +158,12 @@ def export_status():
             session.export_progress / max(1, session.export_total) * 100, 1
         ) if session.export_total > 0 else 0,
     })
+
+
+@export_bp.route("/images/cancel", methods=["POST"])
+def cancel_export():
+    """Cancel an in-progress batch image export."""
+    if not session.export_active:
+        return jsonify({"error": "No export in progress"}), 400
+    session.export_cancel.set()
+    return jsonify({"ok": True})

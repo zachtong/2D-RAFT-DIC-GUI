@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import {
   LineChart,
   Line,
@@ -10,7 +10,9 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { useAppStore } from "@/stores/appStore";
-import { getTimeSeries, getExtensometer } from "@/api/probes";
+import { getTimeSeries, getExtensometer, downloadProbeCSV } from "@/api/probes";
+import { useToast } from "@/components/shared/Toast";
+import { Download, Camera } from "lucide-react";
 
 interface ChartPoint {
   frame: number;
@@ -26,6 +28,8 @@ export function TimeSeriesChart() {
   const [data, setData] = useState<ChartPoint[]>([]);
   const [lineMode, setLineMode] = useState<"value" | "strain">("value");
   const [metric, setMetric] = useState<"avg" | "max" | "min">("avg");
+  const { toast } = useToast();
+  const chartRef = useRef<HTMLDivElement>(null);
 
   const pointProbes = probes.filter((p) => p.type === "point");
   const lineProbes = probes.filter((p) => p.type === "line");
@@ -45,6 +49,78 @@ export function TimeSeriesChart() {
   const showLineData = activeProbeTab === "line" && lineProbes.length > 0;
   const showAreaData = activeProbeTab === "area" && areaProbes.length > 0;
   const hasData = showPointData || showLineData || showAreaData;
+
+  // --- Download handlers ---
+  const handleDownloadCSV = useCallback(async () => {
+    try {
+      const probeType = showPointData ? "point" : showLineData ? "line" : "area";
+      const includeExt = showLineData && lineMode === "strain";
+      await downloadProbeCSV(displayComponent, probeType, metric, includeExt);
+      toast("success", "CSV downloaded");
+    } catch {
+      toast("error", "CSV download failed");
+    }
+  }, [showPointData, showLineData, displayComponent, metric, lineMode, toast]);
+
+  const handleSaveChartPNG = useCallback(async () => {
+    const container = chartRef.current;
+    if (!container) return;
+    const svgElement = container.querySelector(".recharts-wrapper svg");
+    if (!svgElement) {
+      toast("error", "Chart not found");
+      return;
+    }
+
+    try {
+      const svgClone = svgElement.cloneNode(true) as SVGSVGElement;
+      // Inline computed styles for CSS variable resolution
+      const allElements = svgClone.querySelectorAll("*");
+      const origElements = svgElement.querySelectorAll("*");
+      for (let i = 0; i < allElements.length; i++) {
+        const computed = getComputedStyle(origElements[i]);
+        const el = allElements[i] as SVGElement;
+        if (computed.fill) el.style.fill = computed.fill;
+        if (computed.stroke) el.style.stroke = computed.stroke;
+        if (computed.fontSize) el.style.fontSize = computed.fontSize;
+        if (computed.fontFamily) el.style.fontFamily = computed.fontFamily;
+      }
+
+      const svgData = new XMLSerializer().serializeToString(svgClone);
+      const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
+      const url = URL.createObjectURL(svgBlob);
+
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const scale = 2;
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+        const ctx = canvas.getContext("2d")!;
+        ctx.scale(scale, scale);
+        // Fill background
+        const bgColor = getComputedStyle(document.documentElement)
+          .getPropertyValue("--card").trim() || "#1e1e2e";
+        ctx.fillStyle = bgColor;
+        ctx.fillRect(0, 0, img.width, img.height);
+        ctx.drawImage(img, 0, 0);
+
+        canvas.toBlob((blob) => {
+          if (!blob) return;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = `chart_${displayComponent}.png`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          toast("success", "Chart saved as PNG");
+        }, "image/png");
+      };
+      img.src = url;
+    } catch {
+      toast("error", "Failed to save chart");
+    }
+  }, [displayComponent, toast]);
 
   // Fetch time series data based on active tab
   useEffect(() => {
@@ -122,7 +198,7 @@ export function TimeSeriesChart() {
       : `${displayComponent.toUpperCase()} over Time`;
 
   return (
-    <div className="h-full border-t border-[var(--border)] bg-[var(--card)] px-2 pt-1 pb-2">
+    <div ref={chartRef} className="h-full border-t border-[var(--border)] bg-[var(--card)] px-2 pt-1 pb-2">
       <div className="flex items-center justify-between mb-1">
         <span className="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">
           {title}
@@ -165,6 +241,24 @@ export function TimeSeriesChart() {
               <option value="min">Min</option>
             </select>
           )}
+          {/* Separator */}
+          <div className="w-px h-3 bg-[var(--border)] mx-0.5" />
+          {/* CSV download */}
+          <button
+            onClick={handleDownloadCSV}
+            className="p-0.5 rounded hover:bg-[var(--secondary)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+            title="Download CSV"
+          >
+            <Download size={12} />
+          </button>
+          {/* Chart PNG save */}
+          <button
+            onClick={handleSaveChartPNG}
+            className="p-0.5 rounded hover:bg-[var(--secondary)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+            title="Save chart as PNG"
+          >
+            <Camera size={12} />
+          </button>
         </div>
       </div>
       <ResponsiveContainer width="100%" height="85%">

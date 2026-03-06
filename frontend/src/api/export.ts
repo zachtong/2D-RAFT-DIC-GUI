@@ -4,6 +4,7 @@ export async function exportScientific(params: {
   file_path: string;
   upsample_strain?: boolean;
   metadata?: Record<string, unknown>;
+  overwrite?: boolean;
 }): Promise<{ ok: boolean; path: string }> {
   const { data } = await client.post("/export/scientific", params);
   return data;
@@ -26,4 +27,40 @@ export async function getExportStatus(): Promise<{
 }> {
   const { data } = await client.get("/export/images/status");
   return data;
+}
+
+export async function cancelExport(): Promise<void> {
+  await client.post("/export/images/cancel");
+}
+
+export async function downloadSingleFrame(params: {
+  idx: number;
+  component: string;
+  colormap: string;
+  alpha: number;
+  vmin?: number;
+  vmax?: number;
+  background: string;
+  log_scale: boolean;
+  dpi: number;
+  isStrain?: boolean;
+}): Promise<void> {
+  const { idx, isStrain, ...rest } = params;
+  const base = isStrain ? "/strain/download" : "/displacement/download";
+  const queryParams = new URLSearchParams();
+  for (const [k, v] of Object.entries(rest)) {
+    if (v !== undefined && v !== null) queryParams.set(k, String(v));
+  }
+  const response = await client.get(`${base}/${idx}?${queryParams}`, {
+    responseType: "blob",
+  });
+  const blob = new Blob([response.data], { type: "image/png" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${rest.component}_frame_${idx + 1}.png`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }

@@ -1,7 +1,10 @@
 """Probe CRUD and time series extraction endpoints."""
 
+import csv
+import io
+
 import numpy as np
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, Response, jsonify, request
 
 from raft_dic_gui.processing import (
     calculate_displacement_magnitude,
@@ -296,3 +299,147 @@ def get_kymograph(line_id: int):
         "dist_axis": dist_axis.tolist(),
         "shape": list(kymograph.shape),
     })
+
+
+@probes_bp.route("/export/csv", methods=["GET"])
+def export_csv():
+    """Export probe time series as a downloadable CSV file."""
+    component = request.args.get("component", "u")
+    probe_type = request.args.get("type", "point")
+    metric = request.args.get("metric", "avg")
+    include_extensometer = request.args.get("extensometer", "false").lower() == "true"
+
+    data_list = _build_data_list(component)
+    if not data_list:
+        return jsonify({"error": "No data available for this component"}), 404
+
+    # Determine scale and offset (same logic as get_timeseries)
+    if component in ("u", "v", "magnitude", "velocity"):
+        offset = (session.roi_rect[0], session.roi_rect[1]) if session.roi_rect else (0, 0)
+        scale_factors = (1.0, 1.0)
+    else:
+        scale_factors, offset = _compute_scale_offset()
+
+    # Extract series keyed by probe id
+    series: dict[str, list] = {}
+    prefix = {"point": "probe", "line": "line", "area": "area"}.get(probe_type, "probe")
+
+    if probe_type == "point":
+        results = session.probe_manager.extract_time_series(
+            data_list, scale_factors=scale_factors, offset=offset
+        )
+        for pid, vals in results.items():
+            series[str(pid)] = [float(v) if np.isfinite(v) else None for v in vals]
+
+    elif probe_type == "line":
+        for p in session.probe_manager.probes:
+            if p.type == "line":
+                vals = session.probe_manager.extract_line_series(
+                    data_list, p.id, metric=metric,
+                    scale_factors=scale_factors, offset=offset,
+                )
+                if vals is not None:
+                    series[str(p.id)] = [
+                        float(v) if np.isfinite(v) else None for v in vals
+                    ]
+
+    elif probe_type == "area":
+        for p in session.probe_manager.probes:
+            if p.type == "area":
+                vals = session.probe_manager.extract_area_series(
+                    data_list, p.id, metric=metric,
+                    scale_factors=scale_factors, offset=offset,
+                )
+                if vals is not None:
+                    series[str(p.id)] = [
+                        float(v) if np.isfinite(v) else None for v in vals
+                    ]
+
+    if not series:
+        return jsonify({"error": "No probe data to export"}), 404
+
+    # Compute extensometer data for line probes if requested
+    extensometer_data: dict[str, dict] = {}
+    if include_extensometer and probe_type == "line" and session.displacement_results:
+        for p in session.probe_manager.probes:
+            if p.type == "line" and str(p.id) in series:
+                p1 = np.array(p.coords[0], dtype=float)
+                p2 = np.array(p.coords[1], dtype=float)
+                initial_length = float(np.linalg.norm(p2 - p1))
+
+                if session.roi_rect is None:
+                    continue
+
+                x0, y0, _, _ = session.roi_rect
+                lengths = []
+                strains = []
+                for disp in session.displacement_results:
+                    r1 = int(round(p1[1] - y0))
+                    c1 = int(round(p1[0] - x0))
+                    r2 = int(round(p2[1] - y0))
+                    c2 = int(round(p2[0] - x0))
+
+                    h, w = disp.shape[:2]
+                    r1 = max(0, min(r1, h - 1))
+                    c1 = max(0, min(c1, w - 1))
+                    r2 = max(0, min(r2, h - 1))
+                    c2 = max(0, min(c2, w - 1))
+
+                    d1 = p1 + np.array([disp[r1, c1, 0], disp[r1, c1, 1]])
+                    d2 = p2 + np.array([disp[r2, c2, 0], disp[r2, c2, 1]])
+
+                    deformed_length = float(np.linalg.norm(d2 - d1))
+                    lengths.append(deformed_length)
+                    strains.append(
+                        (deformed_length - initial_length) / initial_length
+                        if initial_length > 0 else 0.0
+                    )
+
+                extensometer_data[str(p.id)] = {
+                    "lengths": lengths,
+                    "strains": strains,
+                }
+
+    # Build CSV
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+
+    # Determine number of frames from the first series
+    probe_ids = sorted(series.keys(), key=lambda x: int(x))
+    num_frames = len(next(iter(series.values())))
+
+    # Header row
+    header = ["frame"]
+    for pid in probe_ids:
+        header.append(f"{prefix}_{pid}_{component}")
+    for pid in probe_ids:
+        if pid in extensometer_data:
+            header.append(f"{prefix}_{pid}_strain")
+            header.append(f"{prefix}_{pid}_deformed_length")
+    writer.writerow(header)
+
+    # Data rows
+    for i in range(num_frames):
+        row: list = [i + 1]
+        for pid in probe_ids:
+            val = series[pid][i] if i < len(series[pid]) else None
+            row.append(val if val is not None else "")
+        for pid in probe_ids:
+            if pid in extensometer_data:
+                ext = extensometer_data[pid]
+                if i < len(ext["strains"]):
+                    row.append(ext["strains"][i])
+                    row.append(ext["lengths"][i])
+                else:
+                    row.append("")
+                    row.append("")
+        writer.writerow(row)
+
+    csv_content = buf.getvalue()
+    filename = f"probes_{probe_type}_{component}.csv"
+
+    return Response(
+        csv_content,
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )

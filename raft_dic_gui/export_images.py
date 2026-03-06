@@ -38,7 +38,8 @@ def render_single_frame(
     output_path: str,
     format: str,
     use_log_norm: bool = False,
-    velocity_vectors: Optional[Dict] = None
+    velocity_vectors: Optional[Dict] = None,
+    dpi: int = 100
 ) -> bool:
     """
     Render a single visualization frame and save to file.
@@ -69,12 +70,10 @@ def render_single_frame(
         # Create figure
         if background_image is not None:
             h, w = background_image.shape[:2]
-            dpi = 100
             fig, ax = plt.subplots(figsize=(w/dpi, h/dpi), dpi=dpi)
             ax.imshow(background_image)
         else:
             h, w = data.shape
-            dpi = 100
             fig, ax = plt.subplots(figsize=(w/dpi, h/dpi), dpi=dpi)
         
         # Create masked array for overlay
@@ -266,7 +265,8 @@ def export_batch_images(
     image_loader: Callable[[int], np.ndarray],  # fn(frame_idx) -> image
     settings: Dict,  # colormap, alpha, display_mode, format, include_colorbar, include_title
     deformed_view_cache,  # For deformed mode warp
-    progress_callback: Optional[Callable[[int, int, str], None]] = None
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    cancel_event=None
 ) -> str:
     """
     Export visualization images for selected components and frames.
@@ -323,6 +323,9 @@ def export_batch_images(
     
     # Log scale
     use_log_scale = settings.get('use_log_scale', False)
+
+    # DPI setting
+    export_dpi = settings.get('dpi', 100)
     
     # Calculate total operations for progress
     enabled_components = [name for name, cfg in components.items() if cfg.get('enabled', True)]
@@ -352,7 +355,14 @@ def export_batch_images(
         # Process each frame
         for frame_idx in range(frame_start - 1, frame_end):  # Convert to 0-indexed
             current_op += 1
-            
+
+            # Check for cancellation
+            if cancel_event and cancel_event.is_set():
+                _log("Export cancelled by user")
+                if progress_callback:
+                    progress_callback(current_op, total_operations, "Export cancelled")
+                return export_dir
+
             if progress_callback:
                 progress_callback(current_op, total_operations, 
                                 f"Exporting {comp_name} frame {frame_idx + 1}...")
@@ -497,7 +507,8 @@ def export_batch_images(
                     output_path=output_path,
                     format=format,
                     use_log_norm=use_log_scale,
-                    velocity_vectors=velocity_vectors
+                    velocity_vectors=velocity_vectors,
+                    dpi=export_dpi,
                 )
                 
                 if success:

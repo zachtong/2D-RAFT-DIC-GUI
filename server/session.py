@@ -82,6 +82,7 @@ class AppSession:
     export_active: bool = False
     export_progress: int = 0
     export_total: int = 0
+    export_cancel: threading.Event = field(default_factory=threading.Event)
 
     # Image frame cache (LRU, up to 50 frames)
     _image_cache: OrderedDict = field(default_factory=OrderedDict, repr=False)
@@ -130,6 +131,7 @@ class AppSession:
         self.export_active = False
         self.export_progress = 0
         self.export_total = 0
+        self.export_cancel.clear()
 
 
 # Module-level singleton

@@ -76,3 +76,29 @@ export async function getKymograph(
   );
   return data;
 }
+
+export async function downloadProbeCSV(
+  component: string,
+  type: string,
+  metric: string,
+  includeExtensometer: boolean = false
+): Promise<void> {
+  const response = await client.get("/probes/export/csv", {
+    params: {
+      component,
+      type,
+      metric,
+      extensometer: includeExtensometer ? "true" : "false",
+    },
+    responseType: "blob",
+  });
+  const blob = new Blob([response.data], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `probes_${type}_${component}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}

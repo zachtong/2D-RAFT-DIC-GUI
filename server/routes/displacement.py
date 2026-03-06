@@ -205,3 +205,94 @@ def render_frame(idx: int):
     _render_cache.put(cache_key, png_bytes)
 
     return png_response(png_bytes)
+
+
+@displacement_bp.route("/download/<int:idx>", methods=["GET"])
+def download_frame(idx):
+    """Download a single rendered displacement frame as a high-res PNG."""
+    import os
+    from io import BytesIO
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import matplotlib.colors as mcolors
+    from flask import send_file
+
+    if not session.displacement_results:
+        return jsonify({"error": "No displacement results"}), 404
+    if idx < 0 or idx >= len(session.displacement_results):
+        return jsonify({"error": "Frame index out of range"}), 400
+
+    component = request.args.get("component", "u")
+    colormap = request.args.get("colormap", "turbo")
+    alpha = request.args.get("alpha", 0.7, type=float)
+    vmin = request.args.get("vmin", type=float)
+    vmax = request.args.get("vmax", type=float)
+    background = request.args.get("background", "reference")
+    log_scale = request.args.get("log_scale", "false").lower() in ("true", "1")
+    dpi = request.args.get("dpi", 150, type=int)
+
+    disp_data = _get_displacement_component(idx, component)
+
+    # Background image
+    if background == "deformed" and idx + 1 < len(session.image_files):
+        bg_path = os.path.join(session.image_dir, session.image_files[idx + 1])
+        bg_img = load_and_convert_image(bg_path)
+    else:
+        bg_img = session.reference_image
+
+    if bg_img is None:
+        return jsonify({"error": "No background image"}), 500
+
+    h, w = bg_img.shape[:2]
+
+    # Place data in full image coordinates
+    full_data = np.full((h, w), np.nan)
+    if session.roi_rect:
+        x0, y0, x1, y1 = session.roi_rect
+        dh, dw = disp_data.shape
+        sh = min(dh, y1 - y0)
+        sw = min(dw, x1 - x0)
+        full_data[y0:y0 + sh, x0:x0 + sw] = disp_data[:sh, :sw]
+    else:
+        full_data[:disp_data.shape[0], :disp_data.shape[1]] = disp_data
+
+    # Render with matplotlib
+    fig_w = w / dpi
+    fig_h = h / dpi
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h), dpi=dpi)
+
+    ax.imshow(bg_img, cmap="gray" if bg_img.ndim == 2 else None)
+
+    masked = np.ma.array(full_data, mask=np.isnan(full_data))
+
+    if vmin is None:
+        valid = full_data[~np.isnan(full_data)]
+        vmin = float(valid.min()) if valid.size > 0 else 0.0
+    if vmax is None:
+        valid = full_data[~np.isnan(full_data)]
+        vmax = float(valid.max()) if valid.size > 0 else 1.0
+
+    norm = None
+    if log_scale and vmin > 0 and vmax > 0:
+        norm = mcolors.LogNorm(vmin=max(vmin, 1e-10), vmax=vmax)
+        im = ax.imshow(masked, cmap=colormap, alpha=alpha, norm=norm)
+    else:
+        im = ax.imshow(masked, cmap=colormap, alpha=alpha, vmin=vmin, vmax=vmax)
+
+    fig.colorbar(im, ax=ax, shrink=0.8)
+    ax.set_title(f"{component.upper()} — Frame {idx + 1}", fontsize=10)
+    ax.axis("off")
+    fig.tight_layout(pad=0.5)
+
+    buf = BytesIO()
+    fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
+    buf.seek(0)
+
+    return send_file(
+        buf,
+        mimetype="image/png",
+        as_attachment=True,
+        download_name=f"{component}_frame_{idx + 1:04d}.png",
+    )

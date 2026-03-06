@@ -270,3 +270,106 @@ def render_frame(idx: int):
     _render_cache.put(cache_key, png_bytes)
 
     return png_response(png_bytes)
+
+
+@strain_bp.route("/download/<int:idx>", methods=["GET"])
+def download_frame(idx):
+    """Download a single rendered strain frame as a high-res PNG."""
+    import os
+    from io import BytesIO
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import matplotlib.colors as mcolors
+    from flask import send_file
+    from raft_dic_gui.processing import load_and_convert_image
+
+    if not session.strain_results:
+        return jsonify({"error": "No strain results"}), 404
+    if idx < 0 or idx >= len(session.strain_results):
+        return jsonify({"error": "Frame index out of range"}), 400
+
+    component = request.args.get("component", "exx")
+    colormap = request.args.get("colormap", "turbo")
+    alpha = request.args.get("alpha", 0.7, type=float)
+    vmin = request.args.get("vmin", type=float)
+    vmax = request.args.get("vmax", type=float)
+    background = request.args.get("background", "reference")
+    log_scale = request.args.get("log_scale", "false").lower() in ("true", "1")
+    dpi = request.args.get("dpi", 150, type=int)
+
+    strain_dict = session.strain_results[idx]
+    if strain_dict is None or component not in strain_dict:
+        return jsonify({"error": f"Component '{component}' not available"}), 400
+
+    strain_data = strain_dict[component]
+
+    # Background image
+    if background == "deformed" and idx + 1 < len(session.image_files):
+        bg_path = os.path.join(session.image_dir, session.image_files[idx + 1])
+        bg_img = load_and_convert_image(bg_path)
+    else:
+        bg_img = session.reference_image
+
+    if bg_img is None:
+        return jsonify({"error": "No background image"}), 500
+
+    h, w = bg_img.shape[:2]
+
+    # Place strain data in full image (may need upsampling)
+    full_data = np.full((h, w), np.nan)
+    if session.roi_rect:
+        x0, y0, x1, y1 = session.roi_rect
+        roi_h, roi_w = y1 - y0, x1 - x0
+        sh, sw = strain_data.shape
+
+        if sh != roi_h or sw != roi_w:
+            import cv2
+            mask_valid = ~np.isnan(strain_data)
+            data_clean = np.nan_to_num(strain_data, nan=0.0)
+            data_resized = cv2.resize(data_clean, (roi_w, roi_h), interpolation=cv2.INTER_LINEAR)
+            mask_resized = cv2.resize(mask_valid.astype(np.uint8), (roi_w, roi_h), interpolation=cv2.INTER_NEAREST)
+            data_resized[mask_resized == 0] = np.nan
+            full_data[y0:y1, x0:x1] = data_resized
+        else:
+            full_data[y0:y1, x0:x1] = strain_data
+
+    # Render with matplotlib
+    fig_w = w / dpi
+    fig_h = h / dpi
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h), dpi=dpi)
+
+    ax.imshow(bg_img, cmap="gray" if bg_img.ndim == 2 else None)
+
+    masked = np.ma.array(full_data, mask=np.isnan(full_data))
+
+    if vmin is None:
+        valid = full_data[~np.isnan(full_data)]
+        vmin = float(valid.min()) if valid.size > 0 else 0.0
+    if vmax is None:
+        valid = full_data[~np.isnan(full_data)]
+        vmax = float(valid.max()) if valid.size > 0 else 1.0
+
+    norm = None
+    if log_scale and vmin > 0 and vmax > 0:
+        norm = mcolors.LogNorm(vmin=max(vmin, 1e-10), vmax=vmax)
+        im = ax.imshow(masked, cmap=colormap, alpha=alpha, norm=norm)
+    else:
+        im = ax.imshow(masked, cmap=colormap, alpha=alpha, vmin=vmin, vmax=vmax)
+
+    fig.colorbar(im, ax=ax, shrink=0.8)
+    ax.set_title(f"{component} — Frame {idx + 1}", fontsize=10)
+    ax.axis("off")
+    fig.tight_layout(pad=0.5)
+
+    buf = BytesIO()
+    fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
+    buf.seek(0)
+
+    return send_file(
+        buf,
+        mimetype="image/png",
+        as_attachment=True,
+        download_name=f"{component}_frame_{idx + 1:04d}.png",
+    )

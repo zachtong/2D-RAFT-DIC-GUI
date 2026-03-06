@@ -8,7 +8,9 @@ import { ColorbarOverlay } from "@/components/shared/ColorbarOverlay";
 import { useColorRange } from "@/hooks/useColorRange";
 import type { PreRenderState } from "@/hooks/usePreRenderCache";
 import type { StrainComponent } from "@/types/api";
-import { ImageIcon, Loader2 } from "lucide-react";
+import { ImageIcon, Loader2, Download } from "lucide-react";
+import { downloadSingleFrame } from "@/api/export";
+import { useToast } from "@/components/shared/Toast";
 
 const STRAIN_COMPONENTS: string[] = [
   "exx", "eyy", "exy", "e1", "e2", "max_shear", "von_mises", "rotation",
@@ -70,6 +72,7 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
   const addAreaPolyPoint = useAppStore((s) => s.addAreaPolyPoint);
   const clearAreaPolyPoints = useAppStore((s) => s.clearAreaPolyPoints);
 
+  const { toast } = useToast();
   const imgRef = useRef<HTMLImageElement>(null);
   const imageAreaRef = useRef<HTMLDivElement>(null);
   // Remember the background before entering placement mode so we can restore it
@@ -308,6 +311,25 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
     );
   }
 
+  const handleSaveFrame = useCallback(async () => {
+    try {
+      const strain = STRAIN_COMPONENTS.includes(displayComponent);
+      await downloadSingleFrame({
+        idx: currentFrame,
+        component: displayComponent,
+        colormap: vis.colormap,
+        alpha: vis.alpha,
+        background: vis.background,
+        log_scale: vis.logScale,
+        dpi: 300,
+        isStrain: strain,
+      });
+      toast("success", "Frame saved");
+    } catch {
+      toast("error", "Failed to save frame");
+    }
+  }, [currentFrame, displayComponent, vis, toast]);
+
   const isStrain = STRAIN_COMPONENTS.includes(displayComponent);
   const vmin = displayComponent === "v" ? vis.vminV : vis.vminU;
   const vmax = displayComponent === "v" ? vis.vmaxV : vis.vmaxU;
@@ -351,9 +373,18 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
             {isStrain ? "Strain Field" : "Displacement Field"} — {displayComponent.toUpperCase()}
           </span>
         </div>
-        <span className="text-[11px] text-[var(--muted-foreground)]">
-          Frame: {currentFrame + 1} / {numFrames}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-[var(--muted-foreground)]">
+            Frame: {currentFrame + 1} / {numFrames}
+          </span>
+          <button
+            onClick={handleSaveFrame}
+            className="p-1 rounded hover:bg-[var(--secondary)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+            title="Save current frame (300 DPI)"
+          >
+            <Download size={14} />
+          </button>
+        </div>
       </div>
 
       {/* Main visualization */}
