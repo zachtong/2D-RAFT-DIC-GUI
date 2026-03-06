@@ -31,3 +31,12 @@ export async function getProcessingStatus(): Promise<{
   const { data } = await client.get("/processing/status");
   return data;
 }
+
+export async function validateMasks(maskDir: string): Promise<{
+  matched_count: number;
+  total_frames: number;
+  matched_frames: number[];
+}> {
+  const { data } = await client.post("/processing/validate-masks", { mask_dir: maskDir });
+  return data;
+}

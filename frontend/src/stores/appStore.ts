@@ -79,6 +79,14 @@ interface AppState {
   probePlacingFirst: [number, number] | null;
   areaPolyPoints: [number, number][];
 
+  // Incremental settings
+  keyFrames: number[];
+  keyFrameMode: "every_frame" | "every_n" | "custom";
+  keyFrameInterval: number;
+  maskSource: "auto" | "folder";
+  maskDir: string;
+  maskValidation: { matched_count: number; total_frames: number; matched_frames: number[] } | null;
+
   // View zoom & pan (shared by displacement + postprocessing)
   viewZoom: number;
   viewOffset: { x: number; y: number };
@@ -110,6 +118,12 @@ interface AppState {
   setProbePlacingFirst: (pt: [number, number] | null) => void;
   addAreaPolyPoint: (x: number, y: number) => void;
   clearAreaPolyPoints: () => void;
+  setKeyFrames: (kf: number[]) => void;
+  setKeyFrameMode: (mode: "every_frame" | "every_n" | "custom") => void;
+  setKeyFrameInterval: (n: number) => void;
+  setMaskSource: (source: "auto" | "folder") => void;
+  setMaskDir: (dir: string) => void;
+  setMaskValidation: (result: { matched_count: number; total_frames: number; matched_frames: number[] } | null) => void;
   setExport: (active: boolean, progress?: number) => void;
   setViewOffset: (offset: { x: number; y: number }) => void;
   zoomIn: () => void;
@@ -171,6 +185,12 @@ export const useAppStore = create<AppState>((set) => ({
   probePlacingMode: null,
   probePlacingFirst: null,
   areaPolyPoints: [],
+  keyFrames: [1],
+  keyFrameMode: "every_frame",
+  keyFrameInterval: 10,
+  maskSource: "auto",
+  maskDir: "",
+  maskValidation: null,
   viewZoom: 1,
   viewOffset: { x: 0, y: 0 },
   exportActive: false,
@@ -199,6 +219,12 @@ export const useAppStore = create<AppState>((set) => ({
       probePlacingMode: null,
       probePlacingFirst: null,
       areaPolyPoints: [],
+      keyFrames: [1],
+      keyFrameMode: "every_frame",
+      keyFrameInterval: 10,
+      maskSource: "auto",
+      maskDir: "",
+      maskValidation: null,
       viewZoom: 1,
       viewOffset: { x: 0, y: 0 },
       exportActive: false,
@@ -237,6 +263,12 @@ export const useAppStore = create<AppState>((set) => ({
   setProbePlacingFirst: (pt) => set({ probePlacingFirst: pt }),
   addAreaPolyPoint: (x, y) => set((s) => ({ areaPolyPoints: [...s.areaPolyPoints, [x, y]] })),
   clearAreaPolyPoints: () => set({ areaPolyPoints: [] }),
+  setKeyFrames: (kf) => set({ keyFrames: kf }),
+  setKeyFrameMode: (mode) => set({ keyFrameMode: mode }),
+  setKeyFrameInterval: (n) => set({ keyFrameInterval: n }),
+  setMaskSource: (source) => set({ maskSource: source }),
+  setMaskDir: (dir) => set({ maskDir: dir }),
+  setMaskValidation: (result) => set({ maskValidation: result }),
   setExport: (active, progress = 0) =>
     set({ exportActive: active, exportProgress: progress }),
   setViewOffset: (offset) => set({ viewOffset: offset }),
