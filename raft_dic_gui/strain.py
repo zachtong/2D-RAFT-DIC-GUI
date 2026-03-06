@@ -479,3 +479,29 @@ def calculate_strain_rate(strain_results: list, fps: float = 1.0) -> list:
                     strain_results[i][rate_key] = (strain_results[i + 1][comp] - strain_results[i - 1][comp]) / (2.0 * dt)
 
     return strain_results
+
+
+def accumulate_rotation(strain_results: list) -> list:
+    """Add cumulative rotation to strain results.
+
+    For each frame i, rotation_cumulative[i] = sum(rotation[0..i]).
+    This is an additive approximation valid for small incremental rotations.
+
+    Modifies strain_results in-place, adding 'rotation_cumulative' key.
+    """
+    if not strain_results:
+        return strain_results
+
+    first = strain_results[0]
+    if 'rotation' not in first or first['rotation'] is None:
+        return strain_results
+
+    cumulative = np.zeros_like(first['rotation'])
+    for s in strain_results:
+        if 'rotation' in s and s['rotation'] is not None:
+            cumulative = cumulative + np.nan_to_num(s['rotation'], nan=0.0)
+            s['rotation_cumulative'] = cumulative.copy()
+        else:
+            s['rotation_cumulative'] = cumulative.copy()
+
+    return strain_results

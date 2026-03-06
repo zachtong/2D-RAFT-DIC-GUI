@@ -102,6 +102,7 @@ export type StrainComponent =
   | "exx" | "eyy" | "exy"
   | "e1" | "e2"
   | "max_shear" | "von_mises" | "rotation"
+  | "rotation_cumulative"
   | "confidence"
   | "dexx_dt" | "deyy_dt" | "dexy_dt";
 
