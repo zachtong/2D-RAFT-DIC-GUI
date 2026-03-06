@@ -27,6 +27,7 @@ export function StrainControls() {
   const [step, setStep] = useState("15");
   const [polyOrder, setPolyOrder] = useState("1");
   const [weighting, setWeighting] = useState("gaussian");
+  const [temporalSigma, setTemporalSigma] = useState("0");
 
   const handleCalculate = async () => {
     if (strainComputing) return;
@@ -38,6 +39,7 @@ export function StrainControls() {
         step: parseInt(step),
         poly_order: parseInt(polyOrder),
         weighting,
+        temporal_sigma: parseFloat(temporalSigma) || 0,
       });
     } catch (e) {
       console.error("Failed to start strain calculation:", e);
@@ -69,6 +71,9 @@ export function StrainControls() {
           options={WEIGHTING_OPTIONS}
           onChange={setWeighting}
         />
+      </FieldRow>
+      <FieldRow label="Time Smooth σ">
+        <SmallInput value={temporalSigma} onChange={setTemporalSigma} placeholder="0 = off" />
       </FieldRow>
       <button
         onClick={handleCalculate}

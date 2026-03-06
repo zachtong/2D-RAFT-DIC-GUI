@@ -7,6 +7,7 @@ export async function calculateStrain(params: {
   poly_order?: number;
   weighting?: string;
   step?: number;
+  temporal_sigma?: number;
 }): Promise<void> {
   await client.post("/strain/calculate", params);
 }

@@ -35,6 +35,7 @@ def calculate():
     poly_order = int(data.get("poly_order", 1))
     weighting = data.get("weighting", "Gaussian")
     step = int(data.get("step", 1))
+    temporal_sigma = float(data.get("temporal_sigma", 0))
 
     def compute():
         try:
@@ -58,6 +59,10 @@ def calculate():
                     "current": i + 1,
                     "total": total,
                 })
+
+            if temporal_sigma > 0:
+                from raft_dic_gui.strain import smooth_strain_temporal
+                results = smooth_strain_temporal(results, sigma_t=temporal_sigma)
 
             with session._lock:
                 session.strain_results = results

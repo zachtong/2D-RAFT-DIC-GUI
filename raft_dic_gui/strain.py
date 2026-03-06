@@ -383,3 +383,37 @@ def calculate_strain_field(displacement_field: np.ndarray, method: str = 'green_
         'von_mises': von_mises,
         'rotation': rotation
     }
+
+
+def smooth_strain_temporal(strain_results: list, sigma_t: float = 1.0) -> list:
+    """Apply Gaussian smoothing along the time axis for each strain component.
+
+    Args:
+        strain_results: List of strain dicts (one per frame).
+        sigma_t: Gaussian sigma in frame units (e.g. 1.0 = smooth over ~3 frames).
+
+    Returns:
+        New list of strain dicts with temporally smoothed values.
+    """
+    if not strain_results or sigma_t <= 0:
+        return strain_results
+
+    from scipy.ndimage import gaussian_filter1d
+
+    keys = [k for k in strain_results[0].keys() if strain_results[0][k] is not None]
+    T = len(strain_results)
+
+    smoothed = [{} for _ in range(T)]
+    for key in keys:
+        stack = np.array([s[key] for s in strain_results])  # (T, H, W)
+        valid = np.isfinite(stack)
+        filled = np.nan_to_num(stack, nan=0.0)
+        weight = valid.astype(np.float64)
+        smoothed_data = gaussian_filter1d(filled, sigma=sigma_t, axis=0)
+        smoothed_weight = gaussian_filter1d(weight, sigma=sigma_t, axis=0)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            result = np.where(smoothed_weight > 0.01, smoothed_data / smoothed_weight, np.nan)
+        for t in range(T):
+            smoothed[t][key] = result[t].astype(np.float32)
+
+    return smoothed
