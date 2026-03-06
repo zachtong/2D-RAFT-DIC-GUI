@@ -53,6 +53,9 @@ export function VisualizationControls() {
   const hasStrain = useAppStore((s) => s.hasStrain);
   const vis = useAppStore((s) => s.visSettings);
   const update = useAppStore((s) => s.updateVisSettings);
+  const referenceFrame = useAppStore((s) => s.referenceFrame);
+  const setReferenceFrame = useAppStore((s) => s.setReferenceFrame);
+  const numFrames = useAppStore((s) => s.numFrames);
 
   const physicalEnabled = vis.physicalEnabled;
 
@@ -126,6 +129,24 @@ export function VisualizationControls() {
             onChange={(v) => update({ logScale: v })}
           />
         </FieldRow>
+
+        <div className="h-px bg-[var(--border)] my-1" />
+
+        <FieldRow label="Ref. Frame">
+          <SmallInput
+            value={String(referenceFrame)}
+            onChange={(v) => {
+              const n = parseInt(v);
+              if (!isNaN(n) && n >= 0 && n < numFrames) setReferenceFrame(n);
+            }}
+            placeholder="0"
+          />
+        </FieldRow>
+        {referenceFrame > 0 && (
+          <div className="text-[9px] text-yellow-400/70 mt-0.5">
+            Displacement shown relative to frame {referenceFrame + 1}
+          </div>
+        )}
       </CollapsibleSection>
 
       <CollapsibleSection title="Physical Units" defaultOpen={false}>

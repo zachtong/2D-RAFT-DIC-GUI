@@ -62,6 +62,8 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
   const viewOffset = useAppStore((s) => s.viewOffset);
   const setViewOffset = useAppStore((s) => s.setViewOffset);
 
+  const referenceFrame = useAppStore((s) => s.referenceFrame);
+
   const placingMode = useAppStore((s) => s.probePlacingMode);
   const placingFirst = useAppStore((s) => s.probePlacingFirst);
   const setPlacingMode = useAppStore((s) => s.setProbePlacingMode);
@@ -341,6 +343,7 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
     ...(vis.fixedRange && vmin ? { vmin } : {}),
     ...(vis.fixedRange && vmax ? { vmax } : {}),
     ...(vis.logScale ? { log_scale: "true" } : {}),
+    ...(referenceFrame > 0 ? { ref_frame: referenceFrame } : {}),
   };
 
   const liveSrc = isStrain

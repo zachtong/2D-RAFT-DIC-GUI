@@ -20,6 +20,7 @@ function DisplacementPanel({
   const vis = useAppStore((s) => s.visSettings);
   const viewZoom = useAppStore((s) => s.viewZoom);
   const viewOffset = useAppStore((s) => s.viewOffset);
+  const referenceFrame = useAppStore((s) => s.referenceFrame);
 
   // Loading indicator — matches PostProcessingView logic:
   // only show spinner after 150ms delay, clear on load
@@ -43,6 +44,7 @@ function DisplacementPanel({
     background: vis.background,
     ...(vis.fixedRange && vmin ? { vmin } : {}),
     ...(vis.fixedRange && vmax ? { vmax } : {}),
+    ...(referenceFrame > 0 ? { ref_frame: referenceFrame } : {}),
   });
   const cachedSrc = cache?.getFrame(currentFrame);
   const src = cachedSrc ?? liveSrc;

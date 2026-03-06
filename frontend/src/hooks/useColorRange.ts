@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import client from "@/api/client";
+import { useAppStore } from "@/stores/appStore";
 
 const STRAIN_COMPONENTS = new Set([
   "exx", "eyy", "exy", "e1", "e2", "max_shear", "von_mises", "rotation",
@@ -20,6 +21,7 @@ export function useColorRange(
   active: boolean
 ): ColorRange | null {
   const [range, setRange] = useState<ColorRange | null>(null);
+  const referenceFrame = useAppStore((s) => s.referenceFrame);
 
   useEffect(() => {
     if (!active || frameIdx < 0) {
@@ -28,9 +30,10 @@ export function useColorRange(
     }
 
     const isStrain = STRAIN_COMPONENTS.has(component);
+    const refParam = !isStrain && referenceFrame > 0 ? `&ref_frame=${referenceFrame}` : "";
     const url = isStrain
       ? `/strain/range/${frameIdx}?component=${component}`
-      : `/displacement/range/${frameIdx}?component=${component}`;
+      : `/displacement/range/${frameIdx}?component=${component}${refParam}`;
 
     let cancelled = false;
     client
@@ -43,7 +46,7 @@ export function useColorRange(
     return () => {
       cancelled = true;
     };
-  }, [frameIdx, component, active]);
+  }, [frameIdx, component, active, referenceFrame]);
 
   return range;
 }

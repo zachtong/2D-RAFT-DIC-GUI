@@ -19,9 +19,23 @@ displacement_bp = Blueprint("displacement", __name__)
 _render_cache = RenderCache(512)
 
 
-def _get_displacement_component(frame_idx: int, component: str) -> np.ndarray:
-    """Extract a displacement component for a given frame."""
+def _get_displacement_component(
+    frame_idx: int, component: str, ref_frame: int = 0
+) -> np.ndarray:
+    """Extract a displacement component for a given frame.
+
+    When *ref_frame* > 0 the returned data is the relative displacement
+    ``disp[frame_idx] - disp[ref_frame]``.  The subtraction is applied to the
+    raw (H, W, 2) array **before** extracting the requested component so that
+    magnitude / velocity calculations see the re-referenced field.
+    """
     disp = session.displacement_results[frame_idx]  # shape (H, W, 2)
+
+    # Subtract reference frame displacement when requested
+    if ref_frame > 0 and ref_frame < len(session.displacement_results):
+        ref_disp = session.displacement_results[ref_frame]
+        disp = disp - ref_disp  # creates a copy — does NOT mutate session data
+
     if component == "u":
         return disp[:, :, 0]
     elif component == "v":
@@ -60,7 +74,8 @@ def get_frame_data(idx: int):
         return jsonify({"error": "Frame index out of range"}), 400
 
     component = request.args.get("component", "u")
-    data = _get_displacement_component(idx, component)
+    ref_frame = request.args.get("ref_frame", 0, type=int)
+    data = _get_displacement_component(idx, component, ref_frame=ref_frame)
 
     vmin = request.args.get("vmin", type=float)
     vmax = request.args.get("vmax", type=float)
@@ -77,7 +92,8 @@ def get_range(idx: int):
         return jsonify({"error": "Frame index out of range"}), 400
 
     component = request.args.get("component", "u")
-    data = _get_displacement_component(idx, component)
+    ref_frame = request.args.get("ref_frame", 0, type=int)
+    data = _get_displacement_component(idx, component, ref_frame=ref_frame)
     finite = data[np.isfinite(data)]
     vmin = float(finite.min()) if finite.size > 0 else 0.0
     vmax = float(finite.max()) if finite.size > 0 else 1.0
@@ -105,6 +121,7 @@ def render_frame(idx: int):
     vmax = request.args.get("vmax", type=float)
     background = request.args.get("background", "reference")
     log_scale = request.args.get("log_scale", "false").lower() in ("true", "1", "yes")
+    ref_frame = request.args.get("ref_frame", 0, type=int)
 
     # Check cache
     cache_params = {k: v for k, v in request.args.items() if k != "_t"}
@@ -113,7 +130,7 @@ def render_frame(idx: int):
     if cached is not None:
         return png_response(cached)
 
-    disp_data = _get_displacement_component(idx, component)
+    disp_data = _get_displacement_component(idx, component, ref_frame=ref_frame)
 
     # Load background image
     if background == "deformed" and idx + 1 < len(session.image_files):
@@ -228,8 +245,9 @@ def download_frame(idx):
     background = request.args.get("background", "reference")
     log_scale = request.args.get("log_scale", "false").lower() in ("true", "1")
     dpi = request.args.get("dpi", 150, type=int)
+    ref_frame = request.args.get("ref_frame", 0, type=int)
 
-    disp_data = _get_displacement_component(idx, component)
+    disp_data = _get_displacement_component(idx, component, ref_frame=ref_frame)
 
     # Background image
     if background == "deformed" and idx + 1 < len(session.image_files):

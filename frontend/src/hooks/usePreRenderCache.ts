@@ -44,6 +44,7 @@ export function usePreRenderCache(componentOverride?: string): PreRenderState {
   const hasResults = useAppStore((s) => s.hasResults);
   const storeComponent = useAppStore((s) => s.displayComponent);
   const vis = useAppStore((s) => s.visSettings);
+  const referenceFrame = useAppStore((s) => s.referenceFrame);
 
   const displayComponent = componentOverride ?? storeComponent;
 
@@ -91,6 +92,7 @@ export function usePreRenderCache(componentOverride?: string): PreRenderState {
       ...(vis.fixedRange && vmin ? { vmin } : {}),
       ...(vis.fixedRange && vmax ? { vmax } : {}),
       ...(vis.logScale ? { log_scale: "true" } : {}),
+      ...(referenceFrame > 0 ? { ref_frame: referenceFrame } : {}),
     };
     const settingsKey = `${displayComponent}|${JSON.stringify(params)}`;
 
@@ -151,14 +153,14 @@ export function usePreRenderCache(componentOverride?: string): PreRenderState {
       }
     });
   }, [hasResults, numFrames, displayComponent, vis.colormap, vis.alpha,
-      vis.background, vis.fixedRange, vis.vminU, vis.vmaxU, vis.vminV, vis.vmaxV, vis.logScale, invalidate]);
+      vis.background, vis.fixedRange, vis.vminU, vis.vmaxU, vis.vminV, vis.vmaxV, vis.logScale, referenceFrame, invalidate]);
 
   // Invalidate cache when relevant settings change
   useEffect(() => {
     invalidate();
     cancelPreRender();
   }, [displayComponent, vis.colormap, vis.alpha, vis.background,
-      vis.fixedRange, vis.vminU, vis.vmaxU, vis.vminV, vis.vmaxV, vis.logScale, invalidate, cancelPreRender]);
+      vis.fixedRange, vis.vminU, vis.vmaxU, vis.vminV, vis.vmaxV, vis.logScale, referenceFrame, invalidate, cancelPreRender]);
 
   // Cleanup on unmount
   useEffect(() => {

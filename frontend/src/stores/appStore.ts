@@ -55,6 +55,7 @@ interface AppState {
   hasResults: boolean;
   numFrames: number;
   currentFrame: number;
+  referenceFrame: number;
 
   // Strain
   hasStrain: boolean;
@@ -93,6 +94,7 @@ interface AppState {
   setProcessingPaused: (paused: boolean) => void;
   setResults: (numFrames: number) => void;
   setCurrentFrame: (frame: number) => void;
+  setReferenceFrame: (frame: number) => void;
   setStrain: (has: boolean, components?: string[]) => void;
   setStrainComputing: (v: boolean, progress?: number) => void;
   setDisplayComponent: (c: DisplayComponent) => void;
@@ -128,6 +130,7 @@ export const useAppStore = create<AppState>((set) => ({
   hasResults: false,
   numFrames: 0,
   currentFrame: 0,
+  referenceFrame: 0,
   hasStrain: false,
   strainComputing: false,
   strainProgress: 0,
@@ -180,6 +183,7 @@ export const useAppStore = create<AppState>((set) => ({
       hasResults: false,
       numFrames: 0,
       currentFrame: 0,
+      referenceFrame: 0,
       hasStrain: false,
       strainComputing: false,
       strainProgress: 0,
@@ -212,6 +216,7 @@ export const useAppStore = create<AppState>((set) => ({
   setResults: (numFrames) =>
     set({ hasResults: numFrames > 0, numFrames, currentFrame: 0 }),
   setCurrentFrame: (frame) => set({ currentFrame: frame }),
+  setReferenceFrame: (frame) => set({ referenceFrame: frame }),
   setStrain: (has, components = []) =>
     set({ hasStrain: has, strainComponents: components, strainComputing: false }),
   setStrainComputing: (v, progress = 0) => set({ strainComputing: v, strainProgress: progress }),
