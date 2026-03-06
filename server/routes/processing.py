@@ -39,12 +39,46 @@ def configure():
         if "project_root" in data:
             cfg.project_root = data["project_root"]
 
-        valid, err = cfg.validate()
-
-    if not valid:
-        return jsonify({"error": err}), 400
+        # Incremental mode settings
+        if "key_frames" in data:
+            val = data["key_frames"]
+            cfg.key_frames = list(val) if val else None
+        if "key_frame_interval" in data:
+            val = data["key_frame_interval"]
+            cfg.key_frame_interval = int(val) if val else None
+        if "mask_dir" in data:
+            val = data["mask_dir"]
+            cfg.mask_dir = val if val else None
 
     return jsonify({"ok": True})
+
+
+@processing_bp.route("/validate-masks", methods=["POST"])
+def validate_masks():
+    """Validate a mask folder against loaded images."""
+    data = request.get_json(force=True)
+    mask_dir = data.get("mask_dir", "")
+
+    if not session.image_files:
+        return jsonify({"error": "No images loaded"}), 400
+
+    if not mask_dir:
+        return jsonify({"error": "No mask directory provided"}), 400
+
+    from raft_dic_gui.mask_loader import discover_masks
+
+    masks = discover_masks(
+        mask_dir,
+        session.image_files,
+        image_shape=(session.image_height, session.image_width),
+    )
+
+    matched_frames = sorted([idx + 1 for idx in masks.keys()])  # 1-indexed for UI
+    return jsonify({
+        "matched_count": len(masks),
+        "total_frames": len(session.image_files),
+        "matched_frames": matched_frames,
+    })
 
 
 @processing_bp.route("/run", methods=["POST"])
