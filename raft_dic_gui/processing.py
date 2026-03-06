@@ -14,7 +14,8 @@ import scipy.io as sio
 import io
 from PIL import Image
 from scipy.interpolate import griddata, Rbf
-from scipy.ndimage import gaussian_filter
+from raft_dic_gui.smoothing import smooth_displacement_field  # noqa: E402
+from raft_dic_gui.velocity import calculate_displacement_magnitude, calculate_velocity_field  # noqa: E402
 
 import matplotlib
 matplotlib.use('Agg')
@@ -87,20 +88,6 @@ def calculate_window_positions(image_size: int, crop_size: int, shift: int):
     return positions
 
 
-def smooth_displacement_field(displacement_field: np.ndarray, sigma: float = 2.0) -> np.ndarray:
-    smoothed = np.zeros_like(displacement_field)
-    for i in range(2):
-        comp = displacement_field[..., i]
-        valid_mask = ~np.isnan(comp)
-        if not np.any(valid_mask):
-            smoothed[..., i] = comp
-            continue
-        filled = np.where(valid_mask, comp, 0)
-        smoothed_data = gaussian_filter(filled, sigma)
-        weight = gaussian_filter(valid_mask.astype(float), sigma)
-        with np.errstate(divide='ignore', invalid='ignore'):
-            smoothed[..., i] = np.where(weight > 0.01, smoothed_data / weight, np.nan)
-    return smoothed
 
 
 def cut_image_pair_with_flow(ref_img: np.ndarray, def_img: np.ndarray, project_root: str, model, device: str,
@@ -1296,37 +1283,4 @@ def run_incremental_processing(
     return displacement_results, warped_masks, segment_info
 
 
-# ========================= Displacement Derived Quantities =========================
-
-def calculate_displacement_magnitude(u: np.ndarray, v: np.ndarray) -> np.ndarray:
-    """
-    Calculate displacement magnitude: M = sqrt(u^2 + v^2)
-    
-    Args:
-        u: Horizontal displacement component (H, W)
-        v: Vertical displacement component (H, W)
-    
-    Returns:
-        Magnitude array (H, W)
-    """
-    return np.sqrt(u**2 + v**2)
-
-
-def calculate_velocity_field(u_curr: np.ndarray, v_curr: np.ndarray,
-                            u_prev: np.ndarray, v_prev: np.ndarray,
-                            fps: float = 1.0) -> np.ndarray:
-    """
-    Calculate velocity magnitude from frame-to-frame displacement difference.
-    
-    Args:
-        u_curr, v_curr: displacement at current frame (H, W)
-        u_prev, v_prev: displacement at previous frame (H, W)
-        fps: frame rate (Hz), used to convert to physical velocity units
-    
-    Returns:
-        Velocity magnitude = sqrt(du^2 + dv^2) * fps (H, W)
-    """
-    du = u_curr - u_prev
-    dv = v_curr - v_prev
-    return np.sqrt(du**2 + dv**2) * fps
 

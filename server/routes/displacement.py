@@ -5,11 +5,8 @@ import io
 import numpy as np
 from flask import Blueprint, jsonify, request
 
-from raft_dic_gui.processing import (
-    load_and_convert_image,
-    calculate_displacement_magnitude,
-    calculate_velocity_field,
-)
+from raft_dic_gui.processing import load_and_convert_image
+from raft_dic_gui.velocity import calculate_displacement_magnitude, calculate_velocity_field
 from server.render_cache import RenderCache
 from server.serializers import frame_data_to_json, png_response
 from server.session import session

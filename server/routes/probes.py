@@ -6,10 +6,7 @@ import io
 import numpy as np
 from flask import Blueprint, Response, jsonify, request
 
-from raft_dic_gui.processing import (
-    calculate_displacement_magnitude,
-    calculate_velocity_field,
-)
+from raft_dic_gui.velocity import calculate_displacement_magnitude, calculate_velocity_field
 from server.session import session
 
 probes_bp = Blueprint("probes", __name__)
