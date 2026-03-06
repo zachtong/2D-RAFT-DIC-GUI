@@ -36,6 +36,11 @@ class DICConfig:
     # Runtime / Hardware
     device: str = "cuda"
     
+    # Incremental mode settings
+    key_frames: Optional[list] = None        # User-specified key frames (1-indexed)
+    key_frame_interval: Optional[int] = None  # Every N frames shortcut
+    mask_dir: Optional[str] = None            # Per-frame mask folder path
+
     # Internal / Metadata
     model_metadata: Optional[Any] = None
 
