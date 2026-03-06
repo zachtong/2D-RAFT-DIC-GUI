@@ -32,6 +32,7 @@ def create_app(test_config=None):
     from server.routes.export import export_bp
     from server.routes.arrows import arrows_bp
     from server.routes.quality import quality_bp
+    from server.routes.principal_dirs import principal_bp
 
     app.register_blueprint(images_bp, url_prefix="/api/images")
     app.register_blueprint(models_bp, url_prefix="/api/models")
@@ -43,6 +44,7 @@ def create_app(test_config=None):
     app.register_blueprint(export_bp, url_prefix="/api/export")
     app.register_blueprint(arrows_bp, url_prefix="/api/arrows")
     app.register_blueprint(quality_bp, url_prefix="/api/quality")
+    app.register_blueprint(principal_bp, url_prefix="/api/principal")
 
     @app.route("/api/health")
     def health():

@@ -3,6 +3,7 @@ import { useAppStore } from "@/stores/appStore";
 import { renderUrl } from "@/api/displacement";
 import { strainRenderUrl } from "@/api/strain";
 import { arrowRenderUrl } from "@/api/arrows";
+import { principalRenderUrl } from "@/api/principal";
 import { addPoint, addLine, addArea, listProbes } from "@/api/probes";
 import { ColorbarOverlay } from "@/components/shared/ColorbarOverlay";
 import { useColorRange } from "@/hooks/useColorRange";
@@ -63,6 +64,7 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
   const setViewOffset = useAppStore((s) => s.setViewOffset);
 
   const referenceFrame = useAppStore((s) => s.referenceFrame);
+  const hasStrain = useAppStore((s) => s.hasStrain);
 
   const placingMode = useAppStore((s) => s.probePlacingMode);
   const placingFirst = useAppStore((s) => s.probePlacingFirst);
@@ -438,6 +440,18 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
                   stream_ds: arrows.streamQuality,
                 })}
                 alt="velocity arrows"
+                className="absolute inset-0 w-full h-full pointer-events-none"
+                draggable={false}
+              />
+            )}
+            {arrows.showPrincipalDirs && hasStrain && (
+              <img
+                src={principalRenderUrl(currentFrame, {
+                  spacing: arrows.spacing,
+                  scale: arrows.scale,
+                  line_width: arrows.lineWidth,
+                })}
+                alt="principal strain directions"
                 className="absolute inset-0 w-full h-full pointer-events-none"
                 draggable={false}
               />

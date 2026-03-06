@@ -4,6 +4,7 @@ import type { ModelMetadata, ProbeData, DisplayComponent } from "@/types/api";
 interface ArrowSettings {
   showQuiver: boolean;
   showStreamlines: boolean;
+  showPrincipalDirs: boolean;
   spacing: number;
   scale: number;
   color: string;
@@ -156,6 +157,7 @@ export const useAppStore = create<AppState>((set) => ({
   arrowSettings: {
     showQuiver: false,
     showStreamlines: false,
+    showPrincipalDirs: false,
     spacing: 30,
     scale: 20,
     color: "white",

@@ -22,74 +22,135 @@ const STREAM_QUALITY_OPTIONS = [
 
 export function VelocityArrowControls() {
   const displayComponent = useAppStore((s) => s.displayComponent);
+  const hasStrain = useAppStore((s) => s.hasStrain);
   const arrows = useAppStore((s) => s.arrowSettings);
   const update = useAppStore((s) => s.updateArrowSettings);
 
-  if (displayComponent !== "velocity") return null;
+  const showVelocity = displayComponent === "velocity";
+
+  // Nothing to show if neither velocity arrows nor principal dirs are relevant
+  if (!showVelocity && !hasStrain) return null;
 
   return (
-    <CollapsibleSection title="Velocity Arrows" defaultOpen={true}>
-      <FieldRow label="Show Quiver">
-        <Toggle
-          checked={arrows.showQuiver}
-          onChange={(v) => update({ showQuiver: v })}
-        />
-      </FieldRow>
+    <>
+      {showVelocity && (
+        <CollapsibleSection title="Velocity Arrows" defaultOpen={true}>
+          <FieldRow label="Show Quiver">
+            <Toggle
+              checked={arrows.showQuiver}
+              onChange={(v) => update({ showQuiver: v })}
+            />
+          </FieldRow>
 
-      <FieldRow label="Show Streamlines">
-        <Toggle
-          checked={arrows.showStreamlines}
-          onChange={(v) => update({ showStreamlines: v })}
-        />
-      </FieldRow>
+          <FieldRow label="Show Streamlines">
+            <Toggle
+              checked={arrows.showStreamlines}
+              onChange={(v) => update({ showStreamlines: v })}
+            />
+          </FieldRow>
 
-      {arrows.showStreamlines && (
-        <FieldRow label="Stream Quality">
-          <SelectField
-            value={String(arrows.streamQuality)}
-            options={STREAM_QUALITY_OPTIONS}
-            onChange={(v) => update({ streamQuality: parseInt(v, 10) })}
-          />
-        </FieldRow>
+          {arrows.showStreamlines && (
+            <FieldRow label="Stream Quality">
+              <SelectField
+                value={String(arrows.streamQuality)}
+                options={STREAM_QUALITY_OPTIONS}
+                onChange={(v) => update({ streamQuality: parseInt(v, 10) })}
+              />
+            </FieldRow>
+          )}
+
+          <div className="h-px bg-[var(--border)] my-1" />
+
+          <FieldRow label="Spacing (px)">
+            <DebouncedNumericInput
+              value={arrows.spacing}
+              min={10}
+              max={500}
+              onChange={(v) => update({ spacing: v })}
+            />
+          </FieldRow>
+
+          <FieldRow label="Scale">
+            <DebouncedNumericInput
+              value={arrows.scale}
+              min={1}
+              max={1000}
+              onChange={(v) => update({ scale: v })}
+            />
+          </FieldRow>
+
+          <FieldRow label="Color">
+            <SelectField
+              value={arrows.color}
+              options={COLOR_OPTIONS}
+              onChange={(v) => update({ color: v })}
+            />
+          </FieldRow>
+
+          <FieldRow label="Line Width">
+            <DebouncedNumericInput
+              value={arrows.lineWidth}
+              min={0.1}
+              max={10}
+              onChange={(v) => update({ lineWidth: v })}
+            />
+          </FieldRow>
+        </CollapsibleSection>
       )}
 
-      <div className="h-px bg-[var(--border)] my-1" />
+      {hasStrain && (
+        <CollapsibleSection title="Principal Directions" defaultOpen={false}>
+          <FieldRow label="Show Crosses">
+            <Toggle
+              checked={arrows.showPrincipalDirs}
+              onChange={(v) => update({ showPrincipalDirs: v })}
+            />
+          </FieldRow>
 
-      <FieldRow label="Spacing (px)">
-        <DebouncedNumericInput
-          value={arrows.spacing}
-          min={10}
-          max={500}
-          onChange={(v) => update({ spacing: v })}
-        />
-      </FieldRow>
+          {arrows.showPrincipalDirs && (
+            <>
+              <FieldRow label="Spacing (px)">
+                <DebouncedNumericInput
+                  value={arrows.spacing}
+                  min={10}
+                  max={500}
+                  onChange={(v) => update({ spacing: v })}
+                />
+              </FieldRow>
 
-      <FieldRow label="Scale">
-        <DebouncedNumericInput
-          value={arrows.scale}
-          min={1}
-          max={1000}
-          onChange={(v) => update({ scale: v })}
-        />
-      </FieldRow>
+              <FieldRow label="Scale">
+                <DebouncedNumericInput
+                  value={arrows.scale}
+                  min={1}
+                  max={1000}
+                  onChange={(v) => update({ scale: v })}
+                />
+              </FieldRow>
 
-      <FieldRow label="Color">
-        <SelectField
-          value={arrows.color}
-          options={COLOR_OPTIONS}
-          onChange={(v) => update({ color: v })}
-        />
-      </FieldRow>
+              <FieldRow label="Line Width">
+                <DebouncedNumericInput
+                  value={arrows.lineWidth}
+                  min={0.1}
+                  max={10}
+                  onChange={(v) => update({ lineWidth: v })}
+                />
+              </FieldRow>
 
-      <FieldRow label="Line Width">
-        <DebouncedNumericInput
-          value={arrows.lineWidth}
-          min={0.1}
-          max={10}
-          onChange={(v) => update({ lineWidth: v })}
-        />
-      </FieldRow>
-    </CollapsibleSection>
+              <div className="mt-1 px-2">
+                <div className="flex items-center gap-3 text-[10px] text-[var(--muted-foreground)]">
+                  <span className="flex items-center gap-1">
+                    <span className="inline-block w-3 h-0.5 bg-red-500" /> e1
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="inline-block w-3 h-0.5 bg-blue-500" /> e2
+                  </span>
+                </div>
+              </div>
+            </>
+          )}
+        </CollapsibleSection>
+      )}
+    </>
   );
 }
 
