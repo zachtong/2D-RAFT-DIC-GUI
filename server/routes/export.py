@@ -13,6 +13,11 @@ from server.session import session
 export_bp = Blueprint("export", __name__)
 
 
+def _active_rect():
+    """Return envelope_rect if available, else roi_rect."""
+    return session.envelope_rect or session.roi_rect
+
+
 @export_bp.route("/scientific", methods=["POST"])
 def export_scientific():
     """Export displacement + strain data to .mat or .npz."""
@@ -65,7 +70,7 @@ def export_scientific():
             displacement_results=session.displacement_results,
             strain_results=session.strain_results,
             roi_mask=session.roi_mask,
-            roi_rect=session.roi_rect,
+            roi_rect=_active_rect(),
             metadata=export_metadata,
             file_path=file_path,
             image_files=image_files,
@@ -128,7 +133,7 @@ def export_images():
                 frame_range=frame_range,
                 displacement_results=session.displacement_results,
                 strain_results=session.strain_results,
-                roi_rect=session.roi_rect,
+                roi_rect=_active_rect(),
                 roi_mask=session.roi_mask,
                 image_loader=image_loader,
                 settings=settings,

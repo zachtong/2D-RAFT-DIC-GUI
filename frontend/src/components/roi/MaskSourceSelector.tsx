@@ -1,4 +1,6 @@
 import { SmallInput } from "@/components/shared/SmallInput";
+import { applyFrame1Mask } from "@/api/processing";
+import { useAppStore } from "@/stores/appStore";
 
 interface MaskSourceSelectorProps {
   maskSource: "auto" | "folder";
@@ -9,8 +11,11 @@ interface MaskSourceSelectorProps {
     matched_count: number;
     total_frames: number;
     matched_frames: number[];
+    has_frame_1: boolean;
   } | null;
   onValidate: () => void;
+  keyFrames: number[];
+  keyFrameMode: "every_frame" | "every_n" | "custom";
 }
 
 export function MaskSourceSelector({
@@ -18,7 +23,25 @@ export function MaskSourceSelector({
   onDirChange,
   validationResult,
   onValidate,
+  keyFrames,
+  keyFrameMode,
 }: MaskSourceSelectorProps) {
+  // Compute unmatched key frames when in custom mode
+  const unmatchedKeyFrames =
+    validationResult && keyFrameMode === "custom" && keyFrames.length > 0
+      ? keyFrames.filter((kf) => !validationResult.matched_frames.includes(kf))
+      : [];
+
+  const handleApplyFrame1 = async () => {
+    if (!maskDir) return;
+    try {
+      await applyFrame1Mask(maskDir);
+      useAppStore.getState().setRoiConfirmed(true);
+    } catch {
+      // silent — user will see no change
+    }
+  };
+
   return (
     <div className="flex flex-col gap-1.5 w-full">
       {/* Folder path input + Validate */}
@@ -40,18 +63,48 @@ export function MaskSourceSelector({
 
       {/* Validation result */}
       {validationResult && (
-        <span
-          className={`text-[10px] ${
-            validationResult.matched_count === validationResult.total_frames
-              ? "text-green-400"
-              : validationResult.matched_count > 0
-              ? "text-yellow-400"
-              : "text-red-400"
-          }`}
-        >
-          Matched {validationResult.matched_count} of{" "}
-          {validationResult.total_frames} frames
-        </span>
+        <>
+          <span
+            className={`text-[10px] ${
+              validationResult.matched_count === validationResult.total_frames
+                ? "text-green-400"
+                : validationResult.matched_count > 0
+                ? "text-yellow-400"
+                : "text-red-400"
+            }`}
+          >
+            Matched {validationResult.matched_count} of{" "}
+            {validationResult.total_frames} frames
+          </span>
+
+          {/* Frame 1 status */}
+          {validationResult.has_frame_1 ? (
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-green-400">
+                Frame 1 mask found
+              </span>
+              <button
+                onClick={handleApplyFrame1}
+                className="h-5 px-1.5 text-[10px] bg-blue-600/30 border border-blue-500/40 rounded hover:bg-blue-600/50 text-blue-300"
+              >
+                Apply as ROI
+              </button>
+            </div>
+          ) : (
+            <span className="text-[10px] text-yellow-400/80">
+              No Frame 1 mask — draw ROI manually
+            </span>
+          )}
+
+          {/* Unmatched key frames warning */}
+          {unmatchedKeyFrames.length > 0 && (
+            <p className="text-[10px] text-yellow-400/80 leading-tight">
+              Key frames without masks:{" "}
+              {unmatchedKeyFrames.join(", ")}
+              {" "}— auto-warp will be used for these frames
+            </p>
+          )}
+        </>
       )}
     </div>
   );

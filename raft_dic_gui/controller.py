@@ -114,18 +114,20 @@ class DICProcessor:
         # ----------------------------------------------------------
         # State caches
         # ----------------------------------------------------------
-        # kf_accumulated[frame_num] = total displacement (H_roi, W_roi, 2)
-        # relative to Frame 1 for each key frame.
-        kf_accumulated = {
-            1: np.zeros((H_roi, W_roi, 2), dtype=np.float64),
-        }
-
         # kf_images[frame_num] = loaded full-size image for reference frames
         kf_images = {}
 
         # Load frame 1 image (always needed as a reference)
         ref1_path = os.path.join(img_dir, image_files[0])
         kf_images[1] = proc.load_and_convert_image(ref1_path)
+
+        # kf_accumulated[frame_num] = total displacement (H_full, W_full, 2)
+        # relative to Frame 1 for each key frame.
+        # Full-image arrays: NaN outside ROI, zero inside.
+        H_full, W_full = kf_images[1].shape[:2]
+        kf_acc_init = np.full((H_full, W_full, 2), np.nan, dtype=np.float64)
+        kf_acc_init[roi_mask, :] = 0.0
+        kf_accumulated = {1: kf_acc_init}
 
         total_pairs = total_frames - 1
 
@@ -159,6 +161,7 @@ class DICProcessor:
                 loaded = self._try_load_cached(
                     result_path, list_idx, frame_num, key_frame_set,
                     kf_accumulated, kf_images, img_dir, image_files,
+                    H_full, W_full, roi_rect,
                 )
                 if loaded is not None:
                     sequence_displacements.append(loaded)
@@ -198,6 +201,7 @@ class DICProcessor:
                 frame_num, list_idx, ref_num,
                 roi_mask, kf_accumulated, user_masks,
                 xmin, ymin, xmax, ymax,
+                auto_warp=(config.mask_dir is None),
             )
 
             # ----------------------------------------------------------
@@ -215,37 +219,45 @@ class DICProcessor:
                 use_smooth=config.use_smooth,
                 sigma=config.sigma,
             )
-            delta_disp = disp_full[ymin:ymax, xmin:xmax, :]
+            # Keep full-image for accumulation (disp_full already full-image
+            # from dic_over_roi_with_tiling)
+            delta_disp_full = disp_full
 
             # ----------------------------------------------------------
             # Compute total displacement relative to Frame 1
             # ----------------------------------------------------------
             kf_acc = kf_accumulated[ref_num]
-            is_first_segment = np.allclose(kf_acc, 0, atol=1e-12, equal_nan=False) and not np.any(np.isnan(kf_acc))
+            # Check if first segment: all valid pixels in accumulated are zero
+            valid_acc = kf_acc[~np.isnan(kf_acc[..., 0])]
+            is_first_segment = (len(valid_acc) == 0 or
+                                np.allclose(valid_acc, 0, atol=1e-12))
 
             if is_first_segment:
                 # First segment (ref == frame 1 with zero accumulated):
                 # delta IS the total displacement
-                total_disp = delta_disp.copy()
+                total_disp_full = delta_disp_full.copy()
             else:
                 # Subsequent segments: accumulate
-                total_disp = accumulate_displacement(
-                    kf_acc, delta_disp, debug=True
+                total_disp_full = accumulate_displacement(
+                    kf_acc, delta_disp_full, debug=True
                 )
+
+            # ----------------------------------------------------------
+            # Crop to roi_rect for storage (displacement is on Frame 1's grid)
+            # ----------------------------------------------------------
+            displacement_field = total_disp_full[ymin:ymax, xmin:xmax, :]
 
             # ----------------------------------------------------------
             # Optional median filter (reduces incremental error buildup)
             # ----------------------------------------------------------
             if not is_first_segment and config.use_median_filter:
-                total_disp = median_filter_displacement(total_disp)
-
-            displacement_field = total_disp
+                displacement_field = median_filter_displacement(displacement_field)
 
             # ----------------------------------------------------------
             # Cache key frame accumulated displacement
             # ----------------------------------------------------------
             if frame_num in key_frame_set:
-                kf_accumulated[frame_num] = total_disp.copy()
+                kf_accumulated[frame_num] = total_disp_full.copy()
                 # Load and cache this frame's image for future reference
                 if frame_num not in kf_images:
                     kf_images[frame_num] = def_image
@@ -261,7 +273,7 @@ class DICProcessor:
             # ----------------------------------------------------------
             # Warn if significant pixel loss
             # ----------------------------------------------------------
-            valid_pixels = int(np.sum(~np.isnan(total_disp[..., 0])))
+            valid_pixels = int(np.sum(~np.isnan(displacement_field[..., 0])))
             total_pixels = H_roi * W_roi
             loss_pct = (1 - valid_pixels / total_pixels) * 100
             if loss_pct > 10:
@@ -287,6 +299,7 @@ class DICProcessor:
             sequence_displacements.append(displacement_field)
 
         self.displacement_results = sequence_displacements
+        self.envelope_rect = roi_rect  # For now, same as roi_rect
         return sequence_displacements
 
     # ------------------------------------------------------------------
@@ -399,10 +412,13 @@ class DICProcessor:
     def _try_load_cached(
         self, result_path, list_idx, frame_num, key_frame_set,
         kf_accumulated, kf_images, img_dir, image_files,
+        H_full=None, W_full=None, roi_rect=None,
     ):
         """Try to load a cached .npy result. Returns the array or None on failure.
 
         If the frame is a key frame, restores kf_accumulated and kf_images.
+        Cached .npy files are crop-sized (H_roi, W_roi, 2), so they must be
+        embedded into full-image arrays for kf_accumulated.
         """
         print(f"[INFO] Frame {frame_num} already processed. Loading from cache...")
         try:
@@ -410,7 +426,16 @@ class DICProcessor:
 
             # If this frame is a key frame, restore accumulated state
             if frame_num in key_frame_set:
-                kf_accumulated[frame_num] = displacement_field.copy()
+                # Cached result is crop-sized (H_roi, W_roi, 2).
+                # Embed into full-image for kf_accumulated.
+                if H_full is not None and W_full is not None and roi_rect is not None:
+                    xmin, ymin, xmax, ymax = roi_rect
+                    full = np.full((H_full, W_full, 2), np.nan, dtype=np.float64)
+                    full[ymin:ymax, xmin:xmax, :] = displacement_field
+                    kf_accumulated[frame_num] = full
+                else:
+                    # Fallback: use crop-sized directly (shouldn't happen)
+                    kf_accumulated[frame_num] = displacement_field.copy()
                 # Load the image for future reference if not already cached
                 if frame_num not in kf_images:
                     img_path = os.path.join(img_dir, image_files[frame_num - 1])
@@ -430,25 +455,34 @@ class DICProcessor:
         frame_num, list_idx, ref_num,
         roi_mask, kf_accumulated, user_masks,
         xmin, ymin, xmax, ymax,
+        auto_warp=False,
     ):
         """Determine the mask for the current frame.
 
         Fallback chain:
         1. Per-frame user mask (from discover_masks, keyed by 0-based index)
-        2. Original ROI mask
-
-        Note: auto-warp was removed because it clips the warped contour
-        to the fixed crop bounding box, causing asymmetric mask shrinkage
-        under translation.  The DIC function already handles out-of-bound
-        correspondences via NaN, and the pixel-loss warning catches
-        excessive data loss.
+        2. Auto-warped ROI mask (if enabled and accumulated displacement available)
+        3. Original ROI mask
         """
-        # Check for user-provided per-frame mask (0-indexed)
+        # Priority 1: user-provided per-frame mask (0-indexed)
         if list_idx in user_masks:
             print(f"[INFO] Frame {frame_num}: using user-provided mask")
             return user_masks[list_idx]
 
-        # Use original mask — DIC handles invalid correspondences via NaN
+        # Priority 2: auto-warp using accumulated displacement
+        if auto_warp and ref_num != 1 and ref_num in kf_accumulated:
+            acc = kf_accumulated[ref_num]
+            valid_count = np.sum(~np.isnan(acc[..., 0]))
+            if valid_count > 0:
+                from raft_dic_gui.incremental import warp_mask_with_holes
+                warped = warp_mask_with_holes(roi_mask, acc)
+                warped_count = int(np.sum(warped))
+                orig_count = int(np.sum(roi_mask))
+                print(f"[INFO] Frame {frame_num}: auto-warped mask "
+                      f"({warped_count} px, {warped_count/max(1,orig_count)*100:.0f}% of original)")
+                return warped
+
+        # Priority 3: original ROI mask
         return roi_mask
 
     def _update_progress_throttled(self, pair_idx, total_pairs, last_update_time):

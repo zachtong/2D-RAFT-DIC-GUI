@@ -17,8 +17,8 @@ const keyFrameModeOptions = [
 ];
 
 const maskSourceOptions = [
-  { value: "auto", label: "Auto Warp" },
-  { value: "folder", label: "Load from Folder" },
+  { value: "auto", label: "Auto (warp ROI)" },
+  { value: "folder", label: "Custom (load folder)" },
 ];
 
 export function ProcessingParams() {
@@ -140,7 +140,7 @@ export function ProcessingParams() {
       // Sync to backend if valid
       configureProcessing({ mask_dir: maskDir }).catch(() => {});
     } catch {
-      setMaskValidation({ matched_count: 0, total_frames: totalFrames, matched_frames: [] });
+      setMaskValidation({ matched_count: 0, total_frames: totalFrames, matched_frames: [], has_frame_1: false });
     }
   };
 
@@ -251,6 +251,8 @@ export function ProcessingParams() {
               onDirChange={handleMaskDirChange}
               validationResult={maskValidation}
               onValidate={handleValidateMasks}
+              keyFrames={keyFrames}
+              keyFrameMode={keyFrameMode}
             />
           )}
 

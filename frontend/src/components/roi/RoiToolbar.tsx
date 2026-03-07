@@ -47,7 +47,7 @@ export function RoiToolbar() {
       return;
     }
     if (id === "import") {
-      // For now, prompt isn't implemented in browser — would need file dialog
+      useRoiStore.getState().setShowImportDialog(true);
       return;
     }
     // Toggle drawing mode

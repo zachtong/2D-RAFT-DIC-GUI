@@ -19,6 +19,11 @@ displacement_bp = Blueprint("displacement", __name__)
 _render_cache = RenderCache(auto_cache_size())
 
 
+def _active_rect():
+    """Return envelope_rect if available, else roi_rect."""
+    return session.envelope_rect or session.roi_rect
+
+
 def _get_displacement_component(
     frame_idx: int, component: str, ref_frame: int = 0
 ) -> np.ndarray:
@@ -147,21 +152,22 @@ def render_frame(idx: int):
     # Place displacement data in full image coordinates
     h, w = bg_img.shape[:2]
 
-    if background == "deformed" and session.roi_rect:
+    rect = _active_rect()
+    if background == "deformed" and rect:
         from server.deformed_warp import get_warped_full_data
         disp = session.displacement_results[idx]
         U, V = disp[:, :, 0], disp[:, :, 1]
         full_data = get_warped_full_data(
             data=disp_data, frame_idx=idx,
             U=U, V=V,
-            roi_rect=session.roi_rect,
+            roi_rect=rect,
             image_shape=(h, w),
             cache=session.inverse_map_cache,
         )
     else:
         full_data = np.full((h, w), np.nan)
-        if session.roi_rect:
-            x0, y0, x1, y1 = session.roi_rect
+        if rect:
+            x0, y0, x1, y1 = rect
             dh, dw = disp_data.shape
             # Clamp slice to avoid shape mismatch
             sh = min(dh, y1 - y0)
@@ -262,9 +268,10 @@ def download_frame(idx):
     h, w = bg_img.shape[:2]
 
     # Place data in full image coordinates
+    rect = _active_rect()
     full_data = np.full((h, w), np.nan)
-    if session.roi_rect:
-        x0, y0, x1, y1 = session.roi_rect
+    if rect:
+        x0, y0, x1, y1 = rect
         dh, dw = disp_data.shape
         sh = min(dh, y1 - y0)
         sw = min(dw, x1 - x0)

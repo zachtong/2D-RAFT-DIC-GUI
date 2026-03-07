@@ -90,8 +90,12 @@ class TestWarpDisplacementField:
         # Non-NaN region (with margin from edges) should still be valid
         assert not np.isnan(result[2, 2, 0])
 
-    def test_out_of_bounds_deformed_coords_extrapolated(self):
-        """When accumulated_u pushes coords out of bounds, edge values are extrapolated."""
+    def test_out_of_bounds_deformed_coords_produce_nan(self):
+        """When accumulated_u pushes coords out of bounds, result is NaN.
+
+        The NaN-aware sampler does not extrapolate; out-of-bounds queries
+        yield NaN to avoid fabricating data from edge replication.
+        """
         H, W = 16, 16
         delta_u = _uniform_disp(H, W, 1.0, 1.0)
         # Large displacement pushes everything way out of bounds
@@ -99,11 +103,9 @@ class TestWarpDisplacementField:
 
         result = warp_displacement_field(delta_u, accumulated_u)
 
-        # BORDER_REPLICATE extrapolates edge values — for a uniform field,
-        # the extrapolated value equals the edge value (1.0)
-        assert not np.any(np.isnan(result[..., 0]))
-        np.testing.assert_allclose(result[..., 0], 1.0, atol=1e-5)
-        np.testing.assert_allclose(result[..., 1], 1.0, atol=1e-5)
+        # All pixels should be NaN (all queries are out of bounds)
+        assert np.all(np.isnan(result[..., 0]))
+        assert np.all(np.isnan(result[..., 1]))
 
 
 # ===========================================================================

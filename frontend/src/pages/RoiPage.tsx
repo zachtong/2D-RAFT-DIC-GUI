@@ -4,6 +4,7 @@ import { ProcessingParams } from "@/components/roi/ProcessingParams";
 import { RunControl } from "@/components/roi/RunControl";
 import { RoiCanvas } from "@/components/roi/RoiCanvas";
 import { RoiToolbar } from "@/components/roi/RoiToolbar";
+import { RoiImportDialog } from "@/components/roi/RoiImportDialog";
 
 export function RoiPage() {
   return (
@@ -19,6 +20,7 @@ export function RoiPage() {
         <RoiCanvas />
         <RoiToolbar />
       </div>
+      <RoiImportDialog />
     </div>
   );
 }

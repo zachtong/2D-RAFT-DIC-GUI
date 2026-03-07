@@ -110,77 +110,56 @@ def warp_mask_with_holes(mask: np.ndarray, displacement: np.ndarray) -> np.ndarr
     return new_mask > 0
 
 
-def warp_displacement_field(delta_u: np.ndarray, 
+def warp_displacement_field(delta_u: np.ndarray,
                             accumulated_u: np.ndarray) -> np.ndarray:
     """
     Sample incremental displacement at deformed coordinates.
-    
-    When the reference is updated, the new incremental displacement delta_u
-    is measured in the deformed coordinate system. To accumulate it with
-    previous displacement, we need to sample delta_u at the deformed positions.
-    
+
+    Uses NaN-aware bilinear interpolation so that NaN regions do not
+    contaminate valid boundary pixels.
+
     Args:
         delta_u: (H, W, 2) incremental displacement (in deformed coordinates)
         accumulated_u: (H, W, 2) accumulated displacement so far (in original coords)
-        
+
     Returns:
         delta_u_sampled: (H, W, 2) delta_u sampled at deformed positions
     """
+    from raft_dic_gui.nan_interp import bilinear_sample_nan_aware
+
     H, W = delta_u.shape[:2]
-    
+
     # Create coordinate grids
-    x, y = np.meshgrid(np.arange(W, dtype=np.float32), 
-                        np.arange(H, dtype=np.float32))
-    
-    # Compute deformed coordinates
-    x_def = x + accumulated_u[..., 0].astype(np.float32)
-    y_def = y + accumulated_u[..., 1].astype(np.float32)
-    
-    # Replace NaN in coordinates with -1 (will be out of bounds)
-    x_def_safe = np.where(np.isnan(x_def), -1, x_def)
-    y_def_safe = np.where(np.isnan(y_def), -1, y_def)
-    
-    # Create validity mask for delta_u (1 = valid, 0 = NaN)
-    delta_valid = (~np.isnan(delta_u[..., 0])).astype(np.float32)
-    
-    # Sample delta_u at deformed positions using bilinear interpolation.
-    # BORDER_REPLICATE extrapolates edge values for out-of-bounds positions,
-    # which is a reasonable approximation for smooth displacement fields and
-    # prevents progressive NaN erosion at crop boundaries.
-    delta_u_sampled = np.zeros_like(delta_u)
+    x, y = np.meshgrid(np.arange(W, dtype=np.float64),
+                        np.arange(H, dtype=np.float64))
 
-    for i in range(2):
-        # Replace NaN with 0 for remap
-        channel = delta_u[..., i].astype(np.float32)
-        channel = np.where(np.isnan(channel), 0, channel)
+    # Deformed coordinates
+    u_prev_x = accumulated_u[..., 0].astype(np.float64)
+    u_prev_y = accumulated_u[..., 1].astype(np.float64)
 
-        sampled = cv2.remap(
-            channel,
-            x_def_safe.astype(np.float32),
-            y_def_safe.astype(np.float32),
-            interpolation=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_REPLICATE,
-        )
+    x_def = x + u_prev_x
+    y_def = y + u_prev_y
 
-        delta_u_sampled[..., i] = sampled
+    # Mask: accumulated_u itself is NaN → result is NaN
+    u_prev_nan = np.isnan(u_prev_x)
 
-    # Also remap the validity mask to know which sampled values are reliable
-    valid_sampled = cv2.remap(
-        delta_valid,
-        x_def_safe.astype(np.float32),
-        y_def_safe.astype(np.float32),
-        interpolation=cv2.INTER_NEAREST,
-        borderMode=cv2.BORDER_REPLICATE,
-    )
+    # Flatten for vectorized sampling
+    x_flat = x_def.ravel()
+    y_flat = y_def.ravel()
 
-    # Mark invalid: sampled from NaN region of delta_u, or u_prev was NaN
-    invalid_sample = (valid_sampled < 0.5)
-    u_prev_nan = np.isnan(accumulated_u[..., 0])
+    # Replace NaN coords with -999 (will be OOB → NaN result)
+    x_flat = np.where(np.isnan(x_flat), -999.0, x_flat)
+    y_flat = np.where(np.isnan(y_flat), -999.0, y_flat)
 
-    invalid_mask = invalid_sample | u_prev_nan
+    # Sample each channel with NaN-aware interpolation
+    delta_u_sampled = np.empty_like(delta_u)
+    for ch in range(2):
+        sampled = bilinear_sample_nan_aware(delta_u[..., ch], x_flat, y_flat)
+        delta_u_sampled[..., ch] = sampled.reshape(H, W)
 
-    delta_u_sampled[invalid_mask, 0] = np.nan
-    delta_u_sampled[invalid_mask, 1] = np.nan
+    # Also mark NaN where accumulated_u was NaN
+    delta_u_sampled[u_prev_nan, 0] = np.nan
+    delta_u_sampled[u_prev_nan, 1] = np.nan
 
     return delta_u_sampled
 

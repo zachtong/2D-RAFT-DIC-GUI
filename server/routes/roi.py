@@ -120,9 +120,17 @@ def add_circle():
 
 @roi_bp.route("/import", methods=["POST"])
 def import_mask():
-    """Import an ROI mask from an image file."""
+    """Import an ROI mask from an image file.
+
+    Optional parameters:
+    - min_area (int, default 0): remove connected components smaller than this.
+    - smooth_radius (int, default 0): Gaussian blur radius before binarization.
+      Kernel size = smooth_radius * 2 + 1.
+    """
     data = request.get_json(force=True)
     path = data.get("path", "").strip()
+    min_area = int(data.get("min_area", 0))
+    smooth_radius = int(data.get("smooth_radius", 0))
 
     if not path:
         return jsonify({"error": "Missing path"}), 400
@@ -134,12 +142,31 @@ def import_mask():
         return jsonify({"error": "Failed to read mask image"}), 400
 
     h, w = session.reference_image.shape[:2]
+
+    # 1. Resize to match reference image dimensions
     mask_img = cv2.resize(mask_img, (w, h), interpolation=cv2.INTER_NEAREST)
 
+    # 2. Optional smoothing (Gaussian blur before binarization)
+    if smooth_radius > 0:
+        ksize = smooth_radius * 2 + 1
+        mask_img = cv2.GaussianBlur(mask_img, (ksize, ksize), 0)
+
+    # 3. Binarize
+    binary = (mask_img > 127).astype(np.uint8)
+
+    # 4. Optional small-component removal
+    if min_area > 0:
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
+            binary, connectivity=8
+        )
+        for label_id in range(1, num_labels):
+            if stats[label_id, cv2.CC_STAT_AREA] < min_area:
+                binary[labels == label_id] = 0
+
     with session._lock:
-        session.roi_mask = mask_img > 127
+        session.roi_mask = binary.astype(bool)
         _update_rect()
-        session.roi_confirmed = False
+        session.roi_confirmed = True
 
     area = int(session.roi_mask.sum())
     return jsonify({"rect": session.roi_rect, "area_px": area})

@@ -40,6 +40,9 @@ class AppSession:
     roi_rect: Optional[Tuple[int, int, int, int]] = None
     roi_confirmed: bool = False
 
+    # Envelope rect — dynamic bounding box of displacement data (may grow beyond roi_rect)
+    envelope_rect: Optional[Tuple[int, int, int, int]] = None
+
     # Processing state
     processor: DICProcessor = field(default_factory=DICProcessor)
     processing_active: bool = False
@@ -115,6 +118,7 @@ class AppSession:
         self.roi_mask = None
         self.roi_rect = None
         self.roi_confirmed = False
+        self.envelope_rect = None
         self.processing_active = False
         self.stop_requested = False
         self.pause_requested = False

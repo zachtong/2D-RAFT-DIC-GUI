@@ -2,6 +2,7 @@
 
 import threading
 
+import numpy as np
 from flask import Blueprint, jsonify, request
 
 from raft_dic_gui.config import DICConfig
@@ -76,11 +77,44 @@ def validate_masks():
     )
 
     matched_frames = sorted([idx + 1 for idx in masks.keys()])  # 1-indexed for UI
+    has_frame_1 = 0 in masks  # 0-based index: frame 1 is index 0
+
     return jsonify({
         "matched_count": len(masks),
         "total_frames": len(session.image_files),
         "matched_frames": matched_frames,
+        "has_frame_1": has_frame_1,
     })
+
+
+@processing_bp.route("/apply-frame1-mask", methods=["POST"])
+def apply_frame1_mask():
+    """Load the Frame 1 mask from a mask folder and set it as the ROI."""
+    data = request.get_json(force=True)
+    mask_dir = data.get("mask_dir", "").strip()
+
+    if not mask_dir or not session.image_files:
+        return jsonify({"error": "Missing mask_dir or no images loaded"}), 400
+
+    from raft_dic_gui.mask_loader import discover_masks
+    image_shape = (session.image_height, session.image_width)
+    matched = discover_masks(mask_dir, session.image_files, image_shape)
+
+    if 0 not in matched:
+        return jsonify({"error": "No Frame 1 mask found in folder"}), 404
+
+    with session._lock:
+        session.roi_mask = matched[0]
+        y_idx, x_idx = np.where(session.roi_mask)
+        if len(x_idx) > 0:
+            session.roi_rect = (
+                int(x_idx.min()), int(y_idx.min()),
+                int(x_idx.max()) + 1, int(y_idx.max()) + 1,
+            )
+        session.roi_confirmed = True
+
+    area = int(session.roi_mask.sum())
+    return jsonify({"rect": session.roi_rect, "area_px": area})
 
 
 @processing_bp.route("/run", methods=["POST"])
@@ -147,6 +181,7 @@ def run_processing():
                 session.displacement_results = results
                 session.result_version += 1
                 session.processor = processor
+                session.envelope_rect = getattr(processor, 'envelope_rect', session.roi_rect)
                 session.processing_active = False
                 # New displacement results invalidate cached inverse maps
                 session.inverse_map_cache.clear()

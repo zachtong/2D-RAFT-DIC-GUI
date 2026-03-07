@@ -86,7 +86,7 @@ interface AppState {
   useMedianFilter: boolean;
   maskSource: "auto" | "folder";
   maskDir: string;
-  maskValidation: { matched_count: number; total_frames: number; matched_frames: number[] } | null;
+  maskValidation: { matched_count: number; total_frames: number; matched_frames: number[]; has_frame_1: boolean } | null;
 
   // View zoom & pan (shared by displacement + postprocessing)
   viewZoom: number;
@@ -125,7 +125,7 @@ interface AppState {
   setUseMedianFilter: (v: boolean) => void;
   setMaskSource: (source: "auto" | "folder") => void;
   setMaskDir: (dir: string) => void;
-  setMaskValidation: (result: { matched_count: number; total_frames: number; matched_frames: number[] } | null) => void;
+  setMaskValidation: (result: { matched_count: number; total_frames: number; matched_frames: number[]; has_frame_1: boolean } | null) => void;
   setExport: (active: boolean, progress?: number) => void;
   setViewOffset: (offset: { x: number; y: number }) => void;
   zoomIn: () => void;

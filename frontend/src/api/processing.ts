@@ -36,7 +36,16 @@ export async function validateMasks(maskDir: string): Promise<{
   matched_count: number;
   total_frames: number;
   matched_frames: number[];
+  has_frame_1: boolean;
 }> {
   const { data } = await client.post("/processing/validate-masks", { mask_dir: maskDir });
+  return data;
+}
+
+export async function applyFrame1Mask(maskDir: string): Promise<{
+  rect: [number, number, number, number];
+  area_px: number;
+}> {
+  const { data } = await client.post("/processing/apply-frame1-mask", { mask_dir: maskDir });
   return data;
 }

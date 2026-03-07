@@ -30,8 +30,16 @@ export async function addCircle(
   return data;
 }
 
-export async function importMask(path: string): Promise<RoiResult> {
-  const { data } = await client.post<RoiResult>("/roi/import", { path });
+export async function importMask(
+  path: string,
+  minArea: number = 0,
+  smoothRadius: number = 0,
+): Promise<RoiResult> {
+  const { data } = await client.post<RoiResult>("/roi/import", {
+    path,
+    min_area: minArea,
+    smooth_radius: smoothRadius,
+  });
   return data;
 }
 
