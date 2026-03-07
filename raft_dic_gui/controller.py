@@ -9,7 +9,7 @@ from raft_dic_gui.incremental import (
     build_ref_map,
     key_frames_every_n,
     accumulate_displacement,
-    warp_mask_with_holes,
+    median_filter_displacement,
 )
 
 
@@ -94,7 +94,9 @@ class DICProcessor:
         # ----------------------------------------------------------
         # Smart Resume: Check if configuration has changed
         # ----------------------------------------------------------
-        force_rerun = self._check_config_changed(config, roi_rect, out_dir)
+        force_rerun = self._check_config_changed(
+            config, roi_rect, out_dir, image_files
+        )
 
         # ----------------------------------------------------------
         # Discover per-frame user masks (if mask_dir configured)
@@ -120,9 +122,6 @@ class DICProcessor:
 
         # kf_images[frame_num] = loaded full-size image for reference frames
         kf_images = {}
-
-        # Original ROI mask crop (for auto-warping)
-        original_mask_crop = roi_mask[ymin:ymax, xmin:xmax].copy()
 
         # Load frame 1 image (always needed as a reference)
         ref1_path = os.path.join(img_dir, image_files[0])
@@ -197,8 +196,7 @@ class DICProcessor:
             # ----------------------------------------------------------
             current_mask = self._resolve_mask(
                 frame_num, list_idx, ref_num,
-                roi_mask, original_mask_crop,
-                kf_accumulated, user_masks,
+                roi_mask, kf_accumulated, user_masks,
                 xmin, ymin, xmax, ymax,
             )
 
@@ -234,6 +232,12 @@ class DICProcessor:
                 total_disp = accumulate_displacement(
                     kf_acc, delta_disp, debug=True
                 )
+
+            # ----------------------------------------------------------
+            # Optional median filter (reduces incremental error buildup)
+            # ----------------------------------------------------------
+            if not is_first_segment and config.use_median_filter:
+                total_disp = median_filter_displacement(total_disp)
 
             displacement_field = total_disp
 
@@ -319,15 +323,28 @@ class DICProcessor:
 
         return build_ref_map(total_frames, key_frames=kf)
 
-    def _check_config_changed(self, config: DICConfig, roi_rect: tuple, out_dir: str) -> bool:
+    def _check_config_changed(self, config: DICConfig, roi_rect: tuple,
+                              out_dir: str, image_files: list = None) -> bool:
         """Compare current config to saved config. Returns True if force rerun needed."""
+        import hashlib
         config_path = os.path.join(out_dir, "run_config.json")
 
         # Serialize key_frames as sorted list for stable comparison
         kf_serialized = sorted(config.key_frames) if config.key_frames else None
 
+        # Image set fingerprint: hash of sorted filenames + count
+        # Detects image directory change, file additions/deletions
+        if image_files:
+            img_fingerprint = hashlib.sha256(
+                "\n".join(image_files).encode()
+            ).hexdigest()[:16]
+        else:
+            img_fingerprint = None
+
         current_config_dict = {
             "model_path": config.model_path,
+            "img_dir": config.img_dir,
+            "image_fingerprint": img_fingerprint,
             "tile_overlap": config.tile_overlap,
             "context_padding": config.context_padding,
             "safety_factor": config.safety_factor,
@@ -340,6 +357,7 @@ class DICProcessor:
             "key_frames": kf_serialized,
             "key_frame_interval": config.key_frame_interval,
             "mask_dir": config.mask_dir,
+            "use_median_filter": config.use_median_filter,
         }
 
         force_rerun = False
@@ -410,36 +428,27 @@ class DICProcessor:
     @staticmethod
     def _resolve_mask(
         frame_num, list_idx, ref_num,
-        roi_mask, original_mask_crop,
-        kf_accumulated, user_masks,
+        roi_mask, kf_accumulated, user_masks,
         xmin, ymin, xmax, ymax,
     ):
         """Determine the mask for the current frame.
 
         Fallback chain:
         1. Per-frame user mask (from discover_masks, keyed by 0-based index)
-        2. Auto-warped mask from the key frame's accumulated displacement
-        3. Original ROI mask
+        2. Original ROI mask
+
+        Note: auto-warp was removed because it clips the warped contour
+        to the fixed crop bounding box, causing asymmetric mask shrinkage
+        under translation.  The DIC function already handles out-of-bound
+        correspondences via NaN, and the pixel-loss warning catches
+        excessive data loss.
         """
         # Check for user-provided per-frame mask (0-indexed)
         if list_idx in user_masks:
             print(f"[INFO] Frame {frame_num}: using user-provided mask")
             return user_masks[list_idx]
 
-        # Auto-warp from key frame if accumulated displacement is non-trivial
-        kf_acc = kf_accumulated.get(ref_num)
-        if kf_acc is not None:
-            has_displacement = not (
-                np.allclose(kf_acc, 0, atol=1e-12, equal_nan=False)
-                and not np.any(np.isnan(kf_acc))
-            )
-            if has_displacement:
-                warped_crop = warp_mask_with_holes(original_mask_crop, kf_acc)
-                current_mask = roi_mask.copy()
-                current_mask[ymin:ymax, xmin:xmax] = warped_crop
-                return current_mask
-
-        # Default: original mask
+        # Use original mask — DIC handles invalid correspondences via NaN
         return roi_mask
 
     def _update_progress_throttled(self, pair_idx, total_pairs, last_update_time):

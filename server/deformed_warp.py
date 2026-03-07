@@ -150,8 +150,12 @@ def compute_inverse_map(
     data_valid = valid_mask.astype(np.float64)
 
     # --- Step 4: Fixed-point iteration with convergence check ---
-    x_ref = out_cols.copy()
-    y_ref = out_rows.copy()
+    # Initial guess: offset by mean displacement so the first iterate
+    # lands inside (or near) the ROI even for large rigid-body motions.
+    mean_U = float(np.nanmean(U))
+    mean_V = float(np.nanmean(V))
+    x_ref = out_cols - mean_U
+    y_ref = out_rows - mean_V
     converged_all = False
 
     for iteration in range(n_iter):
@@ -162,13 +166,16 @@ def compute_inverse_map(
         local_row = y_ref - y0
         local_col = x_ref - x0
 
-        # Sample U and V at current reference estimate
+        # Sample U and V at current reference estimate.
+        # mode='nearest' extrapolates edge values for coordinates outside
+        # the ROI, preventing the iteration from stalling at U=0 when
+        # the current estimate overshoots the ROI boundary.
         coords = np.array([local_row.ravel(), local_col.ravel()])
         U_sampled = map_coordinates(
-            U_clean, coords, order=1, mode='constant', cval=0.0
+            U_clean, coords, order=1, mode='nearest',
         ).reshape(out_h, out_w)
         V_sampled = map_coordinates(
-            V_clean, coords, order=1, mode='constant', cval=0.0
+            V_clean, coords, order=1, mode='nearest',
         ).reshape(out_h, out_w)
 
         # Update: x_ref = x_def - U, y_ref = y_def - V

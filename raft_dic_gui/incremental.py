@@ -143,45 +143,45 @@ def warp_displacement_field(delta_u: np.ndarray,
     # Create validity mask for delta_u (1 = valid, 0 = NaN)
     delta_valid = (~np.isnan(delta_u[..., 0])).astype(np.float32)
     
-    # Sample delta_u at deformed positions using bilinear interpolation
+    # Sample delta_u at deformed positions using bilinear interpolation.
+    # BORDER_REPLICATE extrapolates edge values for out-of-bounds positions,
+    # which is a reasonable approximation for smooth displacement fields and
+    # prevents progressive NaN erosion at crop boundaries.
     delta_u_sampled = np.zeros_like(delta_u)
-    
+
     for i in range(2):
         # Replace NaN with 0 for remap
         channel = delta_u[..., i].astype(np.float32)
         channel = np.where(np.isnan(channel), 0, channel)
-        
+
         sampled = cv2.remap(
             channel,
             x_def_safe.astype(np.float32),
             y_def_safe.astype(np.float32),
             interpolation=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_CONSTANT,
-            borderValue=0
+            borderMode=cv2.BORDER_REPLICATE,
         )
-        
+
         delta_u_sampled[..., i] = sampled
-    
+
     # Also remap the validity mask to know which sampled values are reliable
     valid_sampled = cv2.remap(
         delta_valid,
         x_def_safe.astype(np.float32),
         y_def_safe.astype(np.float32),
-        interpolation=cv2.INTER_NEAREST,  # Use nearest to avoid blending valid/invalid
-        borderMode=cv2.BORDER_CONSTANT,
-        borderValue=0
+        interpolation=cv2.INTER_NEAREST,
+        borderMode=cv2.BORDER_REPLICATE,
     )
-    
-    # Mark invalid: out-of-bounds, or sampled from NaN region of delta_u
-    out_of_bounds = (x_def < 0) | (x_def >= W) | (y_def < 0) | (y_def >= H)
-    invalid_sample = (valid_sampled < 0.5)  # Sampled from NaN region
-    u_prev_nan = np.isnan(accumulated_u[..., 0])  # Previous displacement was NaN
-    
-    invalid_mask = out_of_bounds | invalid_sample | u_prev_nan
-    
+
+    # Mark invalid: sampled from NaN region of delta_u, or u_prev was NaN
+    invalid_sample = (valid_sampled < 0.5)
+    u_prev_nan = np.isnan(accumulated_u[..., 0])
+
+    invalid_mask = invalid_sample | u_prev_nan
+
     delta_u_sampled[invalid_mask, 0] = np.nan
     delta_u_sampled[invalid_mask, 1] = np.nan
-    
+
     return delta_u_sampled
 
 
@@ -250,7 +250,41 @@ def accumulate_displacement(u_prev: np.ndarray,
     return u_total
 
 
-def validate_key_frames(key_frames: List[int], 
+def median_filter_displacement(disp: np.ndarray, kernel_size: int = 5) -> np.ndarray:
+    """Apply median filter to accumulated displacement to suppress outlier pixels.
+
+    This is a post-accumulation smoothing step that reduces localized errors
+    introduced by repeated interpolation in incremental DIC.  It modifies the
+    displacement data (not a view-only effect).
+
+    NaN-safe: NaN regions are preserved and do not bleed into valid data.
+
+    Args:
+        disp: (H, W, 2) accumulated displacement field (may contain NaN)
+        kernel_size: median filter window size (must be odd, default 5)
+
+    Returns:
+        Filtered displacement field, same shape as input.
+    """
+    from scipy.ndimage import median_filter
+
+    if kernel_size < 3:
+        return disp
+
+    result = disp.copy()
+    valid = ~np.isnan(disp[..., 0])
+
+    for ch in range(2):
+        channel = disp[..., ch].copy()
+        # Fill NaN with 0 for median filter, then restore
+        channel_filled = np.where(valid, channel, 0.0)
+        filtered = median_filter(channel_filled, size=kernel_size)
+        result[..., ch] = np.where(valid, filtered, np.nan)
+
+    return result
+
+
+def validate_key_frames(key_frames: List[int],
                         total_frames: int) -> Tuple[bool, str]:
     """
     Validate key frame selection for incremental processing.

@@ -528,7 +528,19 @@ def load_model(weights_path: str,
 
 def inference(model, frame1, frame2, device: str, pad_mode: str = 'sintel',
               iters: int = 12, flow_init=None, upsample: bool = True, test_mode: bool = True):
-    """Run RAFT inference for a pair and crop to original size."""
+    """Run RAFT inference for a pair and crop to original size.
+
+    .. warning:: SIGN FLIP for full_resolution (RAFT-Fine) models
+
+       The current RAFT-Fine checkpoints were trained with displacement labels
+       whose sign convention is opposite to the standard RAFT optical-flow
+       convention (``flow = coords1 - coords0``).  As a result the raw network
+       output has the wrong sign.  We negate the flow here so that downstream
+       code sees a consistent convention regardless of model variant.
+
+       **TODO:** Remove the negation once RAFT-Fine models are retrained with
+       the correct sign convention.
+    """
     model.eval()
     mp_enabled = True
     try:
@@ -568,12 +580,23 @@ def inference(model, frame1, frame2, device: str, pad_mode: str = 'sintel',
                     flow_low = flow_low[:, :, :original_size[0], :original_size[1]]
                 else:
                     flow_low = flow_low[:, :, :original_size[0]//8, :original_size[1]//8]
+
+                # HACK: Negate flow for full_res models — see docstring warning.
+                if is_full_res:
+                    flow_low = -flow_low
+                    flow_up = -flow_up
+
                 return flow_low, flow_up
             else:
                 flow_iters = model(frame1, frame2, iters=iters,
                                    flow_init=flow_init,
                                    upsample=upsample,
                                    test_mode=test_mode)
+
+                # HACK: Negate flow for full_res models — see docstring warning.
+                if is_full_res:
+                    flow_iters = [-f for f in flow_iters]
+
                 return flow_iters
 
 
