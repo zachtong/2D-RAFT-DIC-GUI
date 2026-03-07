@@ -7,7 +7,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from flask import Blueprint, jsonify, request
-from scipy.ndimage import map_coordinates
 
 from server.render_cache import RenderCache, auto_cache_size
 from server.serializers import png_response
@@ -164,25 +163,50 @@ def render_arrows(idx: int):
                 y_stream = np.arange(h, dtype=float) + y_offset
 
             if deformed:
-                # Resample velocity onto regular deformed grid via inverse mapping.
+                # Forward-map velocity samples to their deformed positions,
+                # then interpolate onto the regular stream grid via Delaunay.
+                # (The old inverse-mapping approach had unit-mismatch bugs
+                # and first-order approximation errors that caused the valid
+                # region to shrink progressively with large displacements.)
+                from scipy.interpolate import griddata as _griddata
+
                 if ds > 1:
-                    U_disp_ds = U_disp[np.ix_(y_idx_s, x_idx_s)]
-                    V_disp_ds = V_disp[np.ix_(y_idx_s, x_idx_s)]
+                    U_ds = U_disp[np.ix_(y_idx_s, x_idx_s)]
+                    V_ds = V_disp[np.ix_(y_idx_s, x_idx_s)]
+                    ref_r, ref_c = np.meshgrid(y_idx_s, x_idx_s, indexing="ij")
                 else:
-                    U_disp_ds = U_disp
-                    V_disp_ds = V_disp
-                rows_ds, cols_ds = np.mgrid[0:len(y_stream), 0:len(x_stream)]
-                ref_rows = rows_ds.astype(np.float64) - V_disp_ds
-                ref_cols = cols_ds.astype(np.float64) - U_disp_ds
-                coords = np.array([ref_rows.ravel(), ref_cols.ravel()])
-                du_src = np.nan_to_num(du_raw, nan=0.0)
-                dv_src = np.nan_to_num(dv_raw, nan=0.0)
-                du_filled = map_coordinates(
-                    du_src, coords, order=1, mode="constant", cval=0.0,
-                ).reshape(len(y_stream), len(x_stream))
-                dv_filled = -map_coordinates(
-                    dv_src, coords, order=1, mode="constant", cval=0.0,
-                ).reshape(len(y_stream), len(x_stream))
+                    U_ds = U_disp
+                    V_ds = V_disp
+                    ref_r, ref_c = np.mgrid[0:h, 0:w]
+
+                # Deformed positions (full-image coordinates)
+                def_x = ref_c.astype(np.float64) + x_offset + U_ds
+                def_y = ref_r.astype(np.float64) + y_offset + V_ds
+
+                valid_vel = ~(np.isnan(du_raw) | np.isnan(dv_raw))
+
+                # Cap scatter points for griddata performance
+                n_valid = int(valid_vel.sum())
+                if n_valid > 20000:
+                    step = int(np.ceil(np.sqrt(n_valid / 20000)))
+                    sub = np.zeros_like(valid_vel)
+                    sub[::step, ::step] = True
+                    valid_vel = valid_vel & sub
+
+                if valid_vel.sum() > 10:
+                    pts = np.column_stack([def_x[valid_vel], def_y[valid_vel]])
+                    xx, yy = np.meshgrid(x_stream, y_stream)
+                    du_filled = _griddata(
+                        pts, du_raw[valid_vel].astype(np.float64),
+                        (xx, yy), method="linear", fill_value=0.0,
+                    )
+                    dv_filled = -_griddata(
+                        pts, dv_raw[valid_vel].astype(np.float64),
+                        (xx, yy), method="linear", fill_value=0.0,
+                    )
+                else:
+                    du_filled = np.zeros((len(y_stream), len(x_stream)))
+                    dv_filled = np.zeros((len(y_stream), len(x_stream)))
             else:
                 du_filled = np.nan_to_num(du_raw, nan=0.0)
                 dv_filled = -np.nan_to_num(dv_raw, nan=0.0)  # Negate for image coords
