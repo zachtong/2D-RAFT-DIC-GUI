@@ -52,7 +52,10 @@ def auto_inverse_cache_size() -> int:
 
 
 class InverseMapCache:
-    """Thread-safe LRU cache for InverseMapResult (keyed by frame index)."""
+    """Thread-safe LRU cache for InverseMapResult (keyed by frame index).
+
+    Automatically invalidates when the quality preset changes.
+    """
 
     def __init__(self, max_size: int = None):
         if max_size is None:
@@ -60,9 +63,14 @@ class InverseMapCache:
         self._max_size = max_size
         self._cache: OrderedDict[int, InverseMapResult] = OrderedDict()
         self._lock = threading.Lock()
+        self._quality: str = "balanced"
 
-    def get(self, frame_idx: int) -> Optional[InverseMapResult]:
+    def get(self, frame_idx: int, quality: str = "balanced") -> Optional[InverseMapResult]:
         with self._lock:
+            if quality != self._quality:
+                self._cache.clear()
+                self._quality = quality
+                return None
             if frame_idx in self._cache:
                 self._cache.move_to_end(frame_idx)
                 return self._cache[frame_idx]
@@ -86,46 +94,60 @@ class InverseMapCache:
 # Core algorithms
 # ---------------------------------------------------------------------------
 
+# Quality presets: name -> K (query grid subsample factor)
+# Higher K = fewer Delaunay points + coarser query grid = faster but less detail
+WARP_QUALITY_PRESETS = {
+    "fine": 3,       # every 3rd pixel — ROI < 500px
+    "balanced": 6,   # every 6th pixel — ROI 500–1500px
+    "fast": 12,      # every 12th pixel — ROI 1500–3000px
+    "draft": 20,     # every 20th pixel — ROI > 3000px
+}
+
+
 def compute_inverse_map(
     U: np.ndarray,
     V: np.ndarray,
     roi_rect: Tuple[int, int, int, int],
     image_shape: Tuple[int, int],
-    n_iter: int = 10,
-    tol: float = 1e-3,
+    quality: str = "balanced",
 ) -> InverseMapResult:
     """Compute the inverse mapping from deformed to reference coordinates.
+
+    Uses the forward displacement map to build scattered correspondences
+    (ref_pixel -> deformed_pixel), then interpolates the inverse via Delaunay
+    triangulation on a coarse grid and upsamples to full resolution.
+
+    The ``quality`` parameter controls the coarse grid spacing (K):
+      - "fine"     (K=4):  highest accuracy, ~1s for 500×500
+      - "balanced" (K=8):  good balance,     ~0.2s for 500×500
+      - "fast"     (K=16): fastest,          ~0.05s for 500×500
 
     Parameters
     ----------
     U, V : (roi_h, roi_w) displacement fields (may contain NaN)
     roi_rect : (x0, y0, x1, y1) ROI bounding box in full-image coords
     image_shape : (H, W) of the full image
-    n_iter : max number of fixed-point iterations
-    tol : convergence tolerance (max pixel residual between iterations)
+    quality : "fine", "balanced", or "fast"
 
     Returns
     -------
     InverseMapResult with precomputed reference coordinates for each output pixel.
     """
+    from scipy.interpolate import LinearNDInterpolator
+
+    K = WARP_QUALITY_PRESETS.get(quality, 8)
+
     x0, y0, x1, y1 = roi_rect
     roi_h, roi_w = y1 - y0, x1 - x0
     img_h, img_w = image_shape
 
-    # --- Step 1: Compute deformed bounding box via forward mapping ---
-    valid_mask = ~(np.isnan(U) | np.isnan(V))
-    row_grid, col_grid = np.mgrid[0:roi_h, 0:roi_w]
+    # Auto-cap K so the coarse grid has at least ~30 points per dimension,
+    # preventing excessive coarseness on small ROIs.
+    K = min(K, max(1, roi_h // 30), max(1, roi_w // 30))
 
-    # Absolute positions of valid ROI pixels in deformed frame
-    if valid_mask.any():
-        def_x = col_grid[valid_mask] + x0 + U[valid_mask]
-        def_y = row_grid[valid_mask] + y0 + V[valid_mask]
-        out_x0 = max(0, int(np.floor(def_x.min())) - 1)
-        out_y0 = max(0, int(np.floor(def_y.min())) - 1)
-        out_x1 = min(img_w, int(np.ceil(def_x.max())) + 2)
-        out_y1 = min(img_h, int(np.ceil(def_y.max())) + 2)
-    else:
-        # No valid data — return empty mapping
+    # --- Step 1: Forward map — subsample reference grid by K ---
+    valid_mask = ~(np.isnan(U) | np.isnan(V))
+    if not valid_mask.any():
         return InverseMapResult(
             frame_idx=-1,
             ref_row_coords=np.empty((0, 0)),
@@ -134,96 +156,89 @@ def compute_inverse_map(
             out_x0=x0, out_y0=y0, out_x1=x1, out_y1=y1,
         )
 
+    # Subsample the displacement field on a regular coarse grid.
+    # Always include boundary rows/columns so the Delaunay convex hull
+    # covers the full ROI extent.
+    row_idx = np.unique(np.append(np.arange(0, roi_h, K), roi_h - 1))
+    col_idx = np.unique(np.append(np.arange(0, roi_w, K), roi_w - 1))
+    row_grid, col_grid = np.meshgrid(row_idx, col_idx, indexing='ij')
+    U_coarse = U[np.ix_(row_idx, col_idx)]
+    V_coarse = V[np.ix_(row_idx, col_idx)]
+    valid_coarse = ~(np.isnan(U_coarse) | np.isnan(V_coarse))
+
+    if not valid_coarse.any():
+        return InverseMapResult(
+            frame_idx=-1,
+            ref_row_coords=np.empty((0, 0)),
+            ref_col_coords=np.empty((0, 0)),
+            validity_mask=np.empty((0, 0), dtype=bool),
+            out_x0=x0, out_y0=y0, out_x1=x1, out_y1=y1,
+        )
+
+    ref_rows = row_grid[valid_coarse].astype(np.float64)
+    ref_cols = col_grid[valid_coarse].astype(np.float64)
+    def_y = ref_rows + y0 + V_coarse[valid_coarse]
+    def_x = ref_cols + x0 + U_coarse[valid_coarse]
+
+    # --- Step 2: Deformed bounding box ---
+    # Use coarse scatter points (tight bounds prevent NaN border amplification
+    # during upsampling — extra margin pixels outside the Delaunay convex hull
+    # would become K-wide NaN strips after cv2.resize).
+    out_x0 = max(0, int(np.floor(def_x.min())))
+    out_y0 = max(0, int(np.floor(def_y.min())))
+    out_x1 = min(img_w, int(np.ceil(def_x.max())) + 1)
+    out_y1 = min(img_h, int(np.ceil(def_y.max())) + 1)
     out_h = out_y1 - out_y0
     out_w = out_x1 - out_x0
 
-    # --- Step 2: Create output meshgrid (deformed coordinates) ---
-    out_rows, out_cols = np.mgrid[out_y0:out_y1, out_x0:out_x1]
-    out_rows = out_rows.astype(np.float64)
-    out_cols = out_cols.astype(np.float64)
+    # --- Step 3: Build Delaunay on coarse scatter points ---
+    points = np.column_stack([def_y, def_x])
+    interp_row = LinearNDInterpolator(points, ref_rows, fill_value=np.nan)
+    interp_col = LinearNDInterpolator(points, ref_cols, fill_value=np.nan)
 
-    # --- Step 3: Prepare displacement fields for interpolation ---
-    U_clean = np.nan_to_num(U, nan=0.0).astype(np.float64)
-    V_clean = np.nan_to_num(V, nan=0.0).astype(np.float64)
+    # --- Step 4: Query on coarse output grid, then upsample ---
+    coarse_h = max(1, (out_h + K - 1) // K)
+    coarse_w = max(1, (out_w + K - 1) // K)
+    coarse_y = np.linspace(out_y0, out_y1 - 1, coarse_h)
+    coarse_x = np.linspace(out_x0, out_x1 - 1, coarse_w)
+    cg_y, cg_x = np.meshgrid(coarse_y, coarse_x, indexing='ij')
+    query = np.column_stack([cg_y.ravel(), cg_x.ravel()])
 
-    # Validity mask for interpolation (1.0 where data exists, 0.0 where NaN)
-    data_valid = valid_mask.astype(np.float64)
+    ref_row_coarse = interp_row(query).reshape(coarse_h, coarse_w)
+    ref_col_coarse = interp_col(query).reshape(coarse_h, coarse_w)
 
-    # --- Step 4: Fixed-point iteration with convergence check ---
-    # Initial guess: offset by mean displacement so the first iterate
-    # lands inside (or near) the ROI even for large rigid-body motions.
-    mean_U = float(np.nanmean(U))
-    mean_V = float(np.nanmean(V))
-    x_ref = out_cols - mean_U
-    y_ref = out_rows - mean_V
-    converged_all = False
+    # Upsample to full output resolution
+    if coarse_h < out_h or coarse_w < out_w:
+        # NaN-safe upsampling: interpolate values and validity separately
+        valid_coarse_map = np.isfinite(ref_row_coarse) & np.isfinite(ref_col_coarse)
+        rc_clean = np.nan_to_num(ref_row_coarse, nan=0.0)
+        cc_clean = np.nan_to_num(ref_col_coarse, nan=0.0)
+        vc_float = valid_coarse_map.astype(np.float64)
 
-    for iteration in range(n_iter):
-        x_ref_old = x_ref.copy()
-        y_ref_old = y_ref.copy()
+        ref_row_interp = cv2.resize(rc_clean, (out_w, out_h), interpolation=cv2.INTER_LINEAR)
+        ref_col_interp = cv2.resize(cc_clean, (out_w, out_h), interpolation=cv2.INTER_LINEAR)
+        valid_up = cv2.resize(vc_float, (out_w, out_h), interpolation=cv2.INTER_LINEAR)
 
-        # Convert to ROI-local coordinates for map_coordinates
-        local_row = y_ref - y0
-        local_col = x_ref - x0
-
-        # Sample U and V at current reference estimate.
-        # mode='nearest' extrapolates edge values for coordinates outside
-        # the ROI, preventing the iteration from stalling at U=0 when
-        # the current estimate overshoots the ROI boundary.
-        coords = np.array([local_row.ravel(), local_col.ravel()])
-        U_sampled = map_coordinates(
-            U_clean, coords, order=1, mode='nearest',
-        ).reshape(out_h, out_w)
-        V_sampled = map_coordinates(
-            V_clean, coords, order=1, mode='nearest',
-        ).reshape(out_h, out_w)
-
-        # Update: x_ref = x_def - U, y_ref = y_def - V
-        x_ref = out_cols - U_sampled
-        y_ref = out_rows - V_sampled
-
-        # Check convergence
-        max_residual = np.sqrt(
-            (x_ref - x_ref_old)**2 + (y_ref - y_ref_old)**2
-        ).max()
-        if max_residual < tol:
-            converged_all = True
-            break
-
-    # Per-pixel convergence check
-    if not converged_all:
-        final_residual = np.sqrt(
-            (x_ref - x_ref_old)**2 + (y_ref - y_ref_old)**2
-        )
-        pixel_converged = final_residual < tol * 10  # generous per-pixel threshold
+        # Pixels where the upsampled validity is low came from NaN regions
+        up_valid = valid_up > 0.5
+        ref_row_interp[~up_valid] = np.nan
+        ref_col_interp[~up_valid] = np.nan
     else:
-        pixel_converged = np.ones((out_h, out_w), dtype=bool)
+        ref_row_interp = ref_row_coarse
+        ref_col_interp = ref_col_coarse
 
-    # --- Step 5: Compute validity mask ---
-    # Final ROI-local coordinates
-    final_local_row = y_ref - y0
-    final_local_col = x_ref - x0
-
-    # Interpolate the data validity mask
-    coords_final = np.array([final_local_row.ravel(), final_local_col.ravel()])
-    valid_interp = map_coordinates(
-        data_valid, coords_final, order=1, mode='constant', cval=0.0
-    ).reshape(out_h, out_w)
-
-    # Check bounds: reference coords must land within ROI
+    # --- Step 5: Validity mask ---
     in_bounds = (
-        (final_local_row >= 0) & (final_local_row <= roi_h - 1) &
-        (final_local_col >= 0) & (final_local_col <= roi_w - 1)
+        np.isfinite(ref_row_interp) & np.isfinite(ref_col_interp) &
+        (ref_row_interp >= 0) & (ref_row_interp <= roi_h - 1) &
+        (ref_col_interp >= 0) & (ref_col_interp <= roi_w - 1)
     )
-
-    # Combined validity: interpolated source is valid AND within bounds AND converged
-    validity = (valid_interp > 0.5) & in_bounds & pixel_converged
 
     return InverseMapResult(
         frame_idx=-1,  # caller sets this
-        ref_row_coords=final_local_row,
-        ref_col_coords=final_local_col,
-        validity_mask=validity,
+        ref_row_coords=np.nan_to_num(ref_row_interp, nan=0.0),
+        ref_col_coords=np.nan_to_num(ref_col_interp, nan=0.0),
+        validity_mask=in_bounds,
         out_x0=out_x0, out_y0=out_y0,
         out_x1=out_x1, out_y1=out_y1,
     )
@@ -323,6 +338,7 @@ def get_warped_full_data(
     needs_upsample: bool = False,
     roi_h: int = 0,
     roi_w: int = 0,
+    quality: str = "balanced",
 ) -> np.ndarray:
     """Convenience function for render endpoints: upsample if needed, compute
     or retrieve cached inverse map, then warp data to deformed coordinates.
@@ -347,9 +363,9 @@ def get_warped_full_data(
         data = upsample_strain_to_roi(data, roi_h, roi_w)
 
     # Step 2: Get or compute inverse map
-    inv_map = cache.get(frame_idx)
+    inv_map = cache.get(frame_idx, quality=quality)
     if inv_map is None:
-        inv_map = compute_inverse_map(U, V, roi_rect, image_shape)
+        inv_map = compute_inverse_map(U, V, roi_rect, image_shape, quality=quality)
         inv_map.frame_idx = frame_idx
         cache.put(frame_idx, inv_map)
 

@@ -213,6 +213,22 @@ export function VisualizationControls() {
             />
             <span className={`text-[11px] ${vis.background === "deformed" ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]"}`}>Deformed Frame</span>
           </label>
+          {vis.background === "deformed" && (
+            <div className="ml-5 mt-1">
+              <FieldRow label="Warp Quality">
+                <SelectField
+                  value={vis.deformedQuality}
+                  options={[
+                    { value: "fine", label: "Fine (< 500px)" },
+                    { value: "balanced", label: "Balanced (500–1500px)" },
+                    { value: "fast", label: "Fast (1500–3000px)" },
+                    { value: "draft", label: "Draft (> 3000px)" },
+                  ]}
+                  onChange={(v) => update({ deformedQuality: v as "fine" | "balanced" | "fast" | "draft" })}
+                />
+              </FieldRow>
+            </div>
+          )}
         </div>
       </CollapsibleSection>
     </>

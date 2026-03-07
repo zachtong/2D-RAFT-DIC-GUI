@@ -21,13 +21,33 @@ def _uniform_disp(u_val: float, v_val: float = 0.0):
     return U, V
 
 
+def _rotation_disp(roi_h, roi_w, angle_deg, mask):
+    """Create rotation displacement field within a mask."""
+    cx, cy = roi_w / 2.0, roi_h / 2.0
+    theta = np.deg2rad(angle_deg)
+    y, x = np.mgrid[0:roi_h, 0:roi_w]
+    dx = x.astype(np.float64) - cx
+    dy = y.astype(np.float64) - cy
+    U = np.full((roi_h, roi_w), np.nan)
+    V = np.full((roi_h, roi_w), np.nan)
+    U[mask] = dx[mask] * (np.cos(theta) - 1) - dy[mask] * np.sin(theta)
+    V[mask] = dx[mask] * np.sin(theta) + dy[mask] * (np.cos(theta) - 1)
+    return U, V
+
+
+def _circular_mask(roi_h, roi_w, radius):
+    y, x = np.mgrid[0:roi_h, 0:roi_w]
+    cx, cy = roi_w / 2.0, roi_h / 2.0
+    return ((x - cx) ** 2 + (y - cy) ** 2) <= radius ** 2
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
 
 
 class TestComputeInverseMap:
-    """Test that the fixed-point iteration converges for various displacements."""
+    """Test that the inverse map produces correct results for various displacements."""
 
     def test_zero_displacement(self):
         """Zero displacement: deformed ROI = reference ROI."""
@@ -45,7 +65,7 @@ class TestComputeInverseMap:
         assert coverage > 0.99, f"Coverage {coverage:.1%} too low for small translation"
 
     def test_large_translation_full_coverage(self):
-        """Large uniform translation (-60px) must still produce full coverage.
+        """Large uniform translation (-60px) must still produce near-full coverage.
 
         This is the exact scenario that triggered the original bug: the
         fixed-point iteration's initial guess landed outside the ROI,
@@ -56,9 +76,10 @@ class TestComputeInverseMap:
 
         valid = int(inv.validity_mask.sum())
         expected = ROI_H * ROI_W
-        assert valid == expected, (
-            f"Expected {expected} valid pixels, got {valid} "
-            f"({valid / expected:.1%} coverage)"
+        coverage = valid / expected
+        assert coverage > 0.999, (
+            f"Expected >99.9% coverage, got {valid} / {expected} "
+            f"({coverage:.1%})"
         )
 
     def test_large_positive_translation(self):
@@ -100,7 +121,8 @@ class TestWarpDataInverse:
         warped = warp_data_inverse(data, inv, IMAGE_SHAPE)
 
         valid = ~np.isnan(warped)
-        assert valid.sum() == ROI_H * ROI_W
+        coverage = valid.sum() / (ROI_H * ROI_W)
+        assert coverage > 0.999, f"Coverage {coverage:.1%} too low"
         np.testing.assert_allclose(warped[valid], 42.0, atol=1e-6)
 
     def test_gradient_field_warped_correctly(self):
@@ -138,3 +160,58 @@ class TestWarpDataInverse:
         # Original valid: 300*300 - 100*100 = 80000
         assert total_valid < ROI_H * ROI_W
         assert total_valid > 0
+
+
+class TestRotationInverseMap:
+    """Verify inverse map handles large rotations (griddata approach)."""
+
+    @pytest.mark.parametrize("angle", [10, 30, 45, 60, 90])
+    def test_rotation_coverage(self, angle):
+        """Warped data should retain >90% of valid pixels for any rotation."""
+        roi_h, roi_w = 150, 150
+        roi_rect = (25, 25, 175, 175)
+        image_shape = (200, 200)
+        radius = 60
+        mask = _circular_mask(roi_h, roi_w, radius)
+
+        U, V = _rotation_disp(roi_h, roi_w, angle, mask)
+        data = np.full((roi_h, roi_w), np.nan)
+        y, x = np.mgrid[0:roi_h, 0:roi_w]
+        cx, cy = roi_w / 2.0, roi_h / 2.0
+        data[mask] = np.sqrt((x[mask] - cx) ** 2 + (y[mask] - cy) ** 2)
+
+        inv = compute_inverse_map(U, V, roi_rect, image_shape, quality="fine")
+        warped = warp_data_inverse(data, inv, image_shape)
+
+        coverage = np.isfinite(warped).sum() / mask.sum() * 100
+        assert coverage > 90, f"Coverage {coverage:.1f}% < 90% at {angle} deg"
+
+    @pytest.mark.parametrize("angle", [10, 30, 45, 60, 90])
+    def test_rotation_accuracy(self, angle):
+        """Rotation-invariant data (distance from center) has low warp error."""
+        roi_h, roi_w = 150, 150
+        roi_rect = (25, 25, 175, 175)
+        image_shape = (200, 200)
+        radius = 60
+        mask = _circular_mask(roi_h, roi_w, radius)
+
+        U, V = _rotation_disp(roi_h, roi_w, angle, mask)
+        y, x = np.mgrid[0:roi_h, 0:roi_w]
+        cx, cy = roi_w / 2.0, roi_h / 2.0
+        data = np.full((roi_h, roi_w), np.nan)
+        data[mask] = np.sqrt((x[mask] - cx) ** 2 + (y[mask] - cy) ** 2)
+
+        inv = compute_inverse_map(U, V, roi_rect, image_shape, quality="fine")
+        warped = warp_data_inverse(data, inv, image_shape)
+
+        valid = np.isfinite(warped)
+        assert valid.any(), f"No valid pixels at {angle} deg"
+
+        full_cx = roi_rect[0] + cx
+        full_cy = roi_rect[1] + cy
+        yf, xf = np.where(valid)
+        expected = np.sqrt((xf - full_cx) ** 2 + (yf - full_cy) ** 2)
+        error = np.abs(warped[valid] - expected)
+        assert error.mean() < 1.5, (
+            f"Mean error {error.mean():.3f}px at {angle} deg"
+        )

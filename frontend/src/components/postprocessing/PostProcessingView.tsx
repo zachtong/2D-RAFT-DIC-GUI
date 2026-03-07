@@ -7,6 +7,7 @@ import { principalRenderUrl } from "@/api/principal";
 import { addPoint, addLine, addArea, listProbes } from "@/api/probes";
 import { ColorbarOverlay } from "@/components/shared/ColorbarOverlay";
 import { useColorRange } from "@/hooks/useColorRange";
+import { useSyncedImagePair } from "@/hooks/useSyncedImagePair";
 import type { PreRenderState } from "@/hooks/usePreRenderCache";
 import type { StrainComponent } from "@/types/api";
 import { ImageIcon, Loader2, Download } from "lucide-react";
@@ -317,6 +318,7 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
     component: displayComponent,
     colormap: vis.colormap,
     background: vis.background,
+    ...(vis.background === "deformed" ? { warp_quality: vis.deformedQuality } : {}),
     overlay_only: "true",
     ...(containerSize.w > 0 ? { vw: containerSize.w } : {}),
     ...(containerSize.h > 0 ? { vh: containerSize.h } : {}),
@@ -338,6 +340,9 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
     vis.background === "deformed"
       ? `/api/images/frame/${currentFrame + 1}`
       : "/api/images/reference";
+
+  // Sync bg + overlay so both swap in the same paint (prevents deformed-mode desync)
+  const synced = useSyncedImagePair(bgSrc, overlaySrc, vis.background === "deformed");
 
   // Placement banner text
   const getBannerText = () => {
@@ -402,7 +407,7 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
             {/* Background layer */}
             <img
               ref={imgRef}
-              src={bgSrc}
+              src={synced.bg}
               alt="background"
               className="block max-w-full"
               style={{ maxHeight: containerSize.h > 0 ? `${containerSize.h}px` : undefined }}
@@ -410,7 +415,7 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
             />
             {/* Overlay layer — alpha applied via CSS opacity */}
             <img
-              src={overlaySrc}
+              src={synced.overlay}
               alt={`${displayComponent} frame ${currentFrame}`}
               className="absolute inset-0 w-full h-full pointer-events-none"
               style={{ opacity: vis.alpha }}

@@ -16,6 +16,7 @@ interface VisSettings {
   colormap: string;
   alpha: number;
   background: "reference" | "deformed";
+  deformedQuality: "fine" | "balanced" | "fast" | "draft";
   logScale: boolean;
   physicalEnabled: boolean;
   physicalRatio: number;
@@ -161,6 +162,7 @@ export const useAppStore = create<AppState>((set) => ({
     colormap: "turbo",
     alpha: 0.7,
     background: "reference",
+    deformedQuality: "balanced",
     logScale: false,
     physicalEnabled: false,
     physicalRatio: 1.0,
@@ -235,8 +237,15 @@ export const useAppStore = create<AppState>((set) => ({
       exportProgress: 0,
     }),
   setImageDir: (dir) => set({ imageDir: dir }),
-  setImageFiles: (files, w, h) =>
-    set({ imageFiles: files, imageWidth: w, imageHeight: h }),
+  setImageFiles: (files, w, h) => {
+    // Auto-select deformed warp quality based on image dimensions
+    const maxDim = Math.max(w, h);
+    const quality = maxDim > 3000 ? "draft" : maxDim > 1500 ? "fast" : maxDim > 500 ? "balanced" : "fine";
+    set((s) => ({
+      imageFiles: files, imageWidth: w, imageHeight: h,
+      visSettings: { ...s.visSettings, deformedQuality: quality as "fine" | "balanced" | "fast" | "draft" },
+    }));
+  },
   setModel: (path, meta) => set({ selectedModel: path, modelMetadata: meta }),
   setMode: (mode) => set({ mode }),
   setRoiConfirmed: (v) => set({ roiConfirmed: v }),

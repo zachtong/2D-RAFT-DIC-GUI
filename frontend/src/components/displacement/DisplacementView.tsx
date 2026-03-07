@@ -3,6 +3,7 @@ import { useAppStore } from "@/stores/appStore";
 import { renderUrl } from "@/api/displacement";
 import { ColorbarOverlay } from "@/components/shared/ColorbarOverlay";
 import { useColorRange } from "@/hooks/useColorRange";
+import { useSyncedImagePair } from "@/hooks/useSyncedImagePair";
 import type { PreRenderState } from "@/hooks/usePreRenderCache";
 import { ImageIcon, Loader2 } from "lucide-react";
 
@@ -62,6 +63,7 @@ function DisplacementPanel({
       component,
       colormap: vis.colormap,
       background: vis.background,
+      ...(vis.background === "deformed" ? { warp_quality: vis.deformedQuality } : {}),
       overlay_only: "true",
       ...(containerSize.w > 0 ? { vw: containerSize.w } : {}),
       ...(containerSize.h > 0 ? { vh: containerSize.h } : {}),
@@ -78,6 +80,9 @@ function DisplacementPanel({
       ? `/api/images/frame/${currentFrame + 1}`
       : "/api/images/reference";
 
+  // Sync bg + overlay so both swap in the same paint (prevents deformed-mode desync)
+  const synced = useSyncedImagePair(bgSrc, overlaySrc, vis.background === "deformed");
+
   return (
     <div
       ref={panelRef}
@@ -88,7 +93,7 @@ function DisplacementPanel({
       </div>
       {/* Background layer */}
       <img
-        src={bgSrc}
+        src={synced.bg}
         alt="background"
         className="max-w-full max-h-full object-contain"
         style={{
@@ -99,7 +104,7 @@ function DisplacementPanel({
       />
       {/* Overlay layer — alpha applied via CSS opacity */}
       <img
-        src={overlaySrc}
+        src={synced.overlay}
         alt={label}
         className="absolute inset-0 max-w-full max-h-full object-contain m-auto"
         style={{

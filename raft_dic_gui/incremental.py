@@ -18,6 +18,21 @@ import cv2
 from typing import Dict, List, Tuple, Optional
 
 
+def _smooth_contour(contour: np.ndarray, sigma: float = 2.0) -> np.ndarray:
+    """Gaussian-smooth contour coordinates to remove residual jitter.
+
+    Operates on a closed contour using wrap mode so endpoints blend
+    seamlessly.  Very mild (sigma=2) to avoid distorting the shape.
+    """
+    if len(contour) < 5:
+        return contour
+    from scipy.ndimage import gaussian_filter1d
+    pts = contour.reshape(-1, 2).astype(np.float64)
+    pts[:, 0] = gaussian_filter1d(pts[:, 0], sigma=sigma, mode='wrap')
+    pts[:, 1] = gaussian_filter1d(pts[:, 1], sigma=sigma, mode='wrap')
+    return pts.reshape(-1, 1, 2).astype(np.float32)
+
+
 def warp_mask_with_holes(mask: np.ndarray, displacement: np.ndarray) -> np.ndarray:
     """
     Warp a binary mask according to a displacement field, preserving holes.
@@ -45,29 +60,40 @@ def warp_mask_with_holes(mask: np.ndarray, displacement: np.ndarray) -> np.ndarr
     if len(contours) == 0:
         return np.zeros((H, W), dtype=bool)
     
-    # Warp each contour point
+    # Warp each contour point using spatial-median displacement
     def warp_contour(contour: np.ndarray) -> np.ndarray:
-        """Warp contour points using displacement field."""
+        """Warp contour points using median displacement from a spatial patch.
+
+        For each contour point, samples displacement from a (2R+1)x(2R+1)
+        neighborhood including interior pixels and takes the median.
+        This is robust against DIC errors at ROI boundaries where the
+        correlation quality is lowest.
+        """
+        R = 10  # patch half-size in pixels
         warped_pts = []
         for pt in contour:
             x, y = int(pt[0][0]), int(pt[0][1])
-            
-            # Bounds check
-            if 0 <= x < W and 0 <= y < H:
-                dx = displacement[y, x, 0]
-                dy = displacement[y, x, 1]
-                
-                if not np.isnan(dx) and not np.isnan(dy):
-                    new_x = x + dx
-                    new_y = y + dy
-                else:
-                    # Keep original position if displacement is NaN
-                    new_x, new_y = x, y
+
+            # Spatial patch bounds (clipped to image)
+            y0p = max(0, y - R)
+            y1p = min(H, y + R + 1)
+            x0p = max(0, x - R)
+            x1p = min(W, x + R + 1)
+
+            patch_dx = displacement[y0p:y1p, x0p:x1p, 0]
+            patch_dy = displacement[y0p:y1p, x0p:x1p, 1]
+            valid = ~(np.isnan(patch_dx) | np.isnan(patch_dy))
+
+            if valid.any():
+                dx = float(np.median(patch_dx[valid]))
+                dy = float(np.median(patch_dy[valid]))
+                new_x = x + dx
+                new_y = y + dy
             else:
-                new_x, new_y = x, y
-            
+                new_x, new_y = float(x), float(y)
+
             warped_pts.append([[new_x, new_y]])
-        
+
         return np.array(warped_pts, dtype=np.float32)
     
     # Separate outer contours and holes
@@ -77,6 +103,7 @@ def warp_mask_with_holes(mask: np.ndarray, displacement: np.ndarray) -> np.ndarr
     if hierarchy is not None:
         for i, cnt in enumerate(contours):
             warped_cnt = warp_contour(cnt)
+            warped_cnt = _smooth_contour(warped_cnt, sigma=2.0)
             # Clip to image bounds
             warped_cnt = np.clip(warped_cnt, 0, [[W-1, H-1]])
             warped_cnt = np.rint(warped_cnt).astype(np.int32)
