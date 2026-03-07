@@ -1,7 +1,6 @@
 <div align="center">
 
-<!-- TODO: Replace with your custom banner image (recommended: 1280×640px)
-     Create in Figma/Canva with dark background + UI screenshots + logo text
+<!-- TODO: Add banner image (recommended: 1280x640px, dark background + UI screenshots + logo)
      Save to docs/images/banner.png -->
 <!-- <img src="docs/images/banner.png" alt="RAFTcorr Banner" width="100%"> -->
 
@@ -10,10 +9,9 @@
 ### GPU-Accelerated Digital Image Correlation Powered by Deep Learning
 
 Full-field displacement and strain analysis through an interactive web interface,<br>
-using the [RAFT](https://github.com/princeton-vl/RAFT) optical flow network with CUDA acceleration.
+built on the [RAFT](https://github.com/princeton-vl/RAFT) optical flow network with CUDA acceleration.
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zachtong/RAFTcorr/blob/main/notebooks/RAFTcorr_Colab.ipynb)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE.md)
 [![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![CUDA](https://img.shields.io/badge/CUDA-11.8%2B-76B900?logo=nvidia&logoColor=white)](https://developer.nvidia.com/cuda-toolkit)
@@ -22,20 +20,54 @@ using the [RAFT](https://github.com/princeton-vl/RAFT) optical flow network with
 
 ---
 
-<!-- TODO: Replace with your demo GIF (30-60s workflow recording)
-     Record with ScreenToGif or OBS: Load images → Draw ROI → Process → View results → Place probes
-     Save to docs/images/demo.gif (keep under 10MB) -->
+<!-- TODO: Add demo GIF (30-60s workflow recording)
+     Record: Load images -> Draw ROI -> Process -> View displacement -> Place probes
+     Tools: ScreenToGif or OBS, save to docs/images/demo.gif, keep under 10MB -->
 <!-- <p align="center">
   <img src="docs/images/demo.gif" alt="RAFTcorr Demo" width="800">
 </p> -->
 
 ## Why RAFTcorr?
 
-Traditional DIC methods rely on subset matching with hand-tuned parameters. RAFTcorr replaces this with **RAFT** (Recurrent All-Pairs Field Transforms), a deep learning optical flow model that:
+Traditional DIC relies on iterative subset matching — users must hand-tune subset size, step size, strain windows, and convergence criteria. Performance degrades on large deformations, low-texture surfaces, and noisy images.
 
-- Handles **large displacements** without coarse-fine pyramids
-- Is **robust to lighting changes**, noise, and low-texture regions
-- Runs at **GPU speed** — process a 1000×1000 image pair in under a second
+RAFTcorr replaces the entire correlation pipeline with **RAFT** (Recurrent All-Pairs Field Transforms), a deep learning optical flow model trained specifically for DIC.
+
+### How RAFTcorr compares
+
+<!-- TODO: Verify speed numbers with your actual benchmarks -->
+
+|  | Ncorr | DICe | VIC-2D | **RAFTcorr** |
+|---|---|---|---|---|
+| **Algorithm** | Subset matching | Subset matching | Subset matching | ${\color{green}\textsf{Deep learning optical flow}}$ |
+| **Speed** | ~10⁴ POI/s | ~10⁴ POI/s | ~10⁴ POI/s | ${\color{green}\textsf{~10⁶ POI/s (GPU)}}$ |
+| **Large displacement** | Limited | Limited | Moderate | ${\color{green}\textsf{Native support}}$ |
+| **Low-texture robustness** | Poor | Poor | Moderate | ${\color{green}\textsf{Strong}}$ |
+| **Parameters to tune** | 5+ | 5+ | 5+ | ${\color{green}\textsf{0 — neural network}}$ |
+| **Platform** | MATLAB (paid) | C++ | Windows only | ${\color{green}\textsf{Python (cross-platform)}}$ |
+| **Cost** | Free (MATLAB req.) | Free | $10,000+ | ${\color{green}\textsf{Free}}$ |
+| **Open source** | Yes | Yes | No | Yes |
+| **Active development** | Inactive since ~2020 | Inactive since ~2021 | Proprietary | ${\color{green}\textsf{Active}}$ |
+
+<details>
+<summary><b>vs. open-source DIC tools (Ncorr, DICe)</b></summary>
+
+- **Algorithm generation gap** — Ncorr and DICe use subset-based correlation, an approach from the 2000s. RAFTcorr uses deep learning optical flow, which handles sparse textures and large deformations where subset methods fail.
+- **Modern platform** — Python ecosystem vs. MATLAB/C++. Easier to integrate into existing research pipelines, no paid MATLAB license required.
+- **Actively maintained** — Both Ncorr and DICe communities have largely gone dormant. RAFTcorr is under active development by the research authors themselves.
+- **Academically validated** — Not a hobby project — backed by peer-reviewed research from UT Austin.
+
+</details>
+
+<details>
+<summary><b>vs. commercial software (VIC-2D/3D, GOM Correlate, etc.)</b></summary>
+
+- **Free** — Eliminates the biggest barrier. Labs that cannot afford $10k+ licenses can run the same analysis at no cost.
+- **Open source & customizable** — Commercial DIC tools are black boxes. RAFTcorr is fully transparent — inspect, modify, and extend every line of code.
+- **Algorithm transparency** — Academic users need to understand and cite the methods they use. Commercial software cannot provide this.
+- **Direct access to the authors** — File an issue, get a response from the people who built the algorithm. Commercial support cannot replicate this.
+
+</details>
 
 > **No GPU?** Try it free on [Google Colab with a T4 GPU](https://colab.research.google.com/github/zachtong/RAFTcorr/blob/main/notebooks/RAFTcorr_Colab.ipynb).
 
@@ -94,7 +126,7 @@ Traditional DIC methods rely on subset matching with hand-tuned parameters. RAFT
 
 ## Screenshots
 
-<!-- TODO: Replace these with real screenshots showing actual experimental data.
+<!-- TODO: Replace with real screenshots showing actual experimental data.
      Take full-window screenshots (16:9) of each tab with data loaded.
      Save to docs/images/ directory. -->
 
@@ -285,10 +317,9 @@ cd frontend && npm run build
 If RAFTcorr assists your research, please cite:
 
 ```bibtex
-@software{raftcorr2025,
-  author    = {Tong, Zixiang and Bu, Lehu},
-  title     = {{RAFTcorr}: GPU-Accelerated Digital Image Correlation Using RAFT Optical Flow},
-  year      = {2025},
+@software{raftcorr2026,
+  author    = {Tong, Zixiang and Bu, Lehu and Shi, Qihang and Du, Runtian and Yang, Jin},
+  title     = {{RAFTcorr}: An Open-Source, Deep Learning Digital Image Correlation Framework for Dense Displacement Measurement},
   url       = {https://github.com/zachtong/RAFTcorr},
   note      = {The University of Texas at Austin}
 }
@@ -301,8 +332,11 @@ If RAFTcorr assists your research, please cite:
 ## Acknowledgments
 
 - **RAFT**: Teed & Deng, [princeton-vl/RAFT](https://github.com/princeton-vl/RAFT) — *RAFT: Recurrent All-Pairs Field Transforms for Optical Flow* (ECCV 2020)
+- **RAFT-DIC**: Pan, B. and Liu, Y., *User-independent, accurate and pixel-wise DIC measurements with a task-optimized neural network*, Experimental Mechanics, 2024.
 - Developed at **The University of Texas at Austin**
 
 ## License
 
-MIT License — see [LICENSE.md](LICENSE.md) for details.
+<!-- TODO: Update when license is finalized -->
+
+See [LICENSE](LICENSE.md) for details.

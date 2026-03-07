@@ -90,11 +90,12 @@ class TestWarpDisplacementField:
         # Non-NaN region (with margin from edges) should still be valid
         assert not np.isnan(result[2, 2, 0])
 
-    def test_out_of_bounds_deformed_coords_produce_nan(self):
-        """When accumulated_u pushes coords out of bounds, result is NaN.
+    def test_out_of_bounds_deformed_coords_use_edge_replication(self):
+        """When accumulated_u pushes coords out of bounds, edge values are used.
 
-        The NaN-aware sampler does not extrapolate; out-of-bounds queries
-        yield NaN to avoid fabricating data from edge replication.
+        Coordinates are clamped to valid bounds (BORDER_REPLICATE equivalent)
+        to prevent progressive NaN erosion at ROI boundaries during
+        incremental accumulation.
         """
         H, W = 16, 16
         delta_u = _uniform_disp(H, W, 1.0, 1.0)
@@ -103,9 +104,12 @@ class TestWarpDisplacementField:
 
         result = warp_displacement_field(delta_u, accumulated_u)
 
-        # All pixels should be NaN (all queries are out of bounds)
-        assert np.all(np.isnan(result[..., 0]))
-        assert np.all(np.isnan(result[..., 1]))
+        # Clamped to edge → valid values (edge replication), not NaN
+        assert np.all(np.isfinite(result[..., 0]))
+        assert np.all(np.isfinite(result[..., 1]))
+        # Edge-replicated value should be delta_u's edge value (1.0)
+        assert np.allclose(result[..., 0], 1.0)
+        assert np.allclose(result[..., 1], 1.0)
 
 
 # ===========================================================================
@@ -495,6 +499,59 @@ class TestBuildRefMap:
         from raft_dic_gui.incremental import build_ref_map
         ref_map = build_ref_map(total_frames=10, key_frames=[1, 5])
         assert 1 not in ref_map
+
+
+# ===========================================================================
+# 8b. DICProcessor._build_ref_map mode isolation
+# ===========================================================================
+
+class TestControllerBuildRefMap:
+    """Verify DICProcessor._build_ref_map ignores incremental params
+    when mode is accumulative (prevents config leak between modes)."""
+
+    def test_accumulative_ignores_key_frame_interval(self):
+        """Switching from incremental to accumulative should not use
+        a leftover key_frame_interval=1."""
+        from raft_dic_gui.config import DICConfig
+        from raft_dic_gui.controller import DICProcessor
+
+        cfg = DICConfig(mode="accumulative", key_frame_interval=1)
+        ref_map = DICProcessor._build_ref_map(cfg, total_frames=10)
+        # All frames should reference frame 1
+        for f in range(2, 11):
+            assert ref_map[f] == 1
+
+    def test_accumulative_ignores_key_frames(self):
+        from raft_dic_gui.config import DICConfig
+        from raft_dic_gui.controller import DICProcessor
+
+        cfg = DICConfig(mode="accumulative", key_frames=[1, 5])
+        ref_map = DICProcessor._build_ref_map(cfg, total_frames=10)
+        for f in range(2, 11):
+            assert ref_map[f] == 1
+
+    def test_incremental_uses_key_frame_interval(self):
+        from raft_dic_gui.config import DICConfig
+        from raft_dic_gui.controller import DICProcessor
+
+        cfg = DICConfig(mode="incremental", key_frame_interval=5)
+        ref_map = DICProcessor._build_ref_map(cfg, total_frames=10)
+        # key_frames_every_n(10, 5) = [1, 6]
+        assert ref_map[2] == 1
+        assert ref_map[6] == 1
+        assert ref_map[7] == 6
+
+    def test_incremental_default_every_frame(self):
+        from raft_dic_gui.config import DICConfig
+        from raft_dic_gui.controller import DICProcessor
+
+        cfg = DICConfig(mode="incremental")
+        ref_map = DICProcessor._build_ref_map(cfg, total_frames=5)
+        # Every frame references the previous one
+        assert ref_map[2] == 1
+        assert ref_map[3] == 2
+        assert ref_map[4] == 3
+        assert ref_map[5] == 4
 
 
 # ===========================================================================

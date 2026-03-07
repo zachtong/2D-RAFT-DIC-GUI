@@ -4,11 +4,7 @@ from collections import OrderedDict
 
 
 def auto_cache_size(target_mb: int = 500, avg_item_kb: int = 200) -> int:
-    """Compute cache size based on available system memory.
-
-    Uses at most target_mb or 10% of available RAM, whichever is smaller.
-    Falls back to 512 if psutil is not available.
-    """
+    """Compute max entry count. Used as fallback; byte limit is primary."""
     try:
         import psutil
         available_mb = psutil.virtual_memory().available / (1024 * 1024)
@@ -18,12 +14,32 @@ def auto_cache_size(target_mb: int = 500, avg_item_kb: int = 200) -> int:
         return 512
 
 
-class RenderCache:
-    """Bounded LRU cache mapping (result_id, frame_idx, params) → PNG bytes."""
+def auto_max_bytes(target_mb: int = 300) -> int:
+    """Compute byte budget: min(target_mb, 5% available RAM)."""
+    try:
+        import psutil
+        available_mb = psutil.virtual_memory().available / (1024 * 1024)
+        budget_mb = min(target_mb, available_mb * 0.05)
+        return max(50, int(budget_mb)) * 1024 * 1024
+    except (ImportError, Exception):
+        return target_mb * 1024 * 1024
 
-    def __init__(self, max_entries: int = 512):
+
+class RenderCache:
+    """Bounded LRU cache mapping (result_id, frame_idx, params) -> PNG bytes.
+
+    Evicts when either entry count OR total byte size is exceeded.
+    """
+
+    def __init__(self, max_entries: int = 512, max_bytes: int = 0):
         self._cache: OrderedDict[tuple, bytes] = OrderedDict()
         self._max = max_entries
+        self._max_bytes = max_bytes if max_bytes > 0 else auto_max_bytes()
+        self._total_bytes = 0
+
+    @property
+    def total_bytes(self) -> int:
+        return self._total_bytes
 
     def get(self, key: tuple) -> bytes | None:
         if key in self._cache:
@@ -32,13 +48,24 @@ class RenderCache:
         return None
 
     def put(self, key: tuple, data: bytes) -> None:
+        if key in self._cache:
+            self._total_bytes -= len(self._cache[key])
         self._cache[key] = data
         self._cache.move_to_end(key)
-        while len(self._cache) > self._max:
-            self._cache.popitem(last=False)
+        self._total_bytes += len(data)
+        self._evict()
+
+    def _evict(self) -> None:
+        while self._cache and (
+            len(self._cache) > self._max
+            or self._total_bytes > self._max_bytes
+        ):
+            _, evicted = self._cache.popitem(last=False)
+            self._total_bytes -= len(evicted)
 
     def clear(self) -> None:
         self._cache.clear()
+        self._total_bytes = 0
 
     def __len__(self) -> int:
         return len(self._cache)

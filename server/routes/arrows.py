@@ -38,6 +38,8 @@ def render_arrows(idx: int):
     line_width = request.args.get("line_width", 1.5, type=float)
     background = request.args.get("background", "reference")
     stream_ds = request.args.get("stream_ds", 4, type=int)  # downsample factor for streamlines
+    vw = request.args.get("vw", 0, type=int)
+    vh = request.args.get("vh", 0, type=int)
 
     if not show_quiver and not show_streamlines:
         return jsonify({"error": "Nothing to render"}), 400
@@ -89,11 +91,18 @@ def render_arrows(idx: int):
         U_disp = np.nan_to_num(disp[:, :, 0], nan=0.0)
         V_disp = np.nan_to_num(disp[:, :, 1], nan=0.0)
 
-    # Create transparent figure matching full image size
+    # Create transparent figure — viewport-sized for performance
     dpi = 100
+    if vw > 0 and vh > 0:
+        render_scale = min(vw / img_w, vh / img_h, 1.0)
+    else:
+        render_scale = 1.0
+    render_w = max(1, int(img_w * render_scale))
+    render_h = max(1, int(img_h * render_scale))
+
     fig = None
     try:
-        fig, ax = plt.subplots(figsize=(img_w / dpi, img_h / dpi), dpi=dpi)
+        fig, ax = plt.subplots(figsize=(render_w / dpi, render_h / dpi), dpi=dpi)
         fig.patch.set_alpha(0)
         ax.set_position([0, 0, 1, 1])
         ax.set_xlim(0, img_w)

@@ -204,9 +204,14 @@ def render_frame(idx: int):
     vmax = request.args.get("vmax", type=float)
     background = request.args.get("background", "reference")
     log_scale = request.args.get("log_scale", "false").lower() in ("true", "1", "yes")
+    vw = request.args.get("vw", 0, type=int)
+    vh = request.args.get("vh", 0, type=int)
+    overlay_only = request.args.get("overlay_only", "false").lower() in ("true", "1")
 
-    # Check cache
+    # Check cache — exclude alpha when overlay_only (applied client-side)
     cache_params = {k: v for k, v in request.args.items() if k != "_t"}
+    if overlay_only:
+        cache_params.pop("alpha", None)
     cache_key = (session.result_version, idx, tuple(sorted(cache_params.items())))
     cached = _render_cache.get(cache_key)
     if cached is not None:
@@ -218,19 +223,15 @@ def render_frame(idx: int):
 
     strain_data = strain_dict[component]
 
-    # Load background
-    if background == "deformed" and idx + 1 < len(session.image_files):
-        bg_path = os.path.join(session.image_dir, session.image_files[idx + 1])
-        from raft_dic_gui.processing import load_and_convert_image
-        bg_img = load_and_convert_image(bg_path)
-    else:
-        bg_img = session.reference_image
+    # Get full image dimensions
+    h, w = session.image_height, session.image_width
+    if h == 0 or w == 0:
+        if session.reference_image is not None:
+            h, w = session.reference_image.shape[:2]
+        else:
+            return jsonify({"error": "No image dimensions"}), 500
 
-    if bg_img is None:
-        return jsonify({"error": "No reference image"}), 500
-
-    h, w = bg_img.shape[:2]
-
+    # Place strain data in full image coordinates
     if background == "deformed" and session.roi_rect:
         from server.deformed_warp import get_warped_full_data
         x0, y0, x1, y1 = session.roi_rect
@@ -251,7 +252,6 @@ def render_frame(idx: int):
     else:
         full_data = np.full((h, w), np.nan)
 
-        # Strain may be downsampled — upsample to ROI size, then place
         if session.roi_rect:
             x0, y0, x1, y1 = session.roi_rect
             roi_h, roi_w = y1 - y0, x1 - x0
@@ -267,6 +267,70 @@ def render_frame(idx: int):
                 full_data[y0:y1, x0:x1] = data_resized
             else:
                 full_data[y0:y1, x0:x1] = strain_data
+
+    if overlay_only:
+        # --- Overlay-only mode: return RGBA overlay, no background ---
+        # Viewport downsampling (data only, skip bg)
+        if vw > 0 and vh > 0:
+            import cv2 as _cv2
+            scale = min(vw / w, vh / h, 1.0)
+            if scale < 1.0:
+                out_w, out_h = max(1, int(w * scale)), max(1, int(h * scale))
+                mask_f = np.isfinite(full_data).astype(np.float32)
+                filled = np.nan_to_num(full_data, nan=0.0).astype(np.float32)
+                full_data = _cv2.resize(filled, (out_w, out_h), interpolation=_cv2.INTER_AREA).astype(np.float64)
+                mask_s = _cv2.resize(mask_f, (out_w, out_h), interpolation=_cv2.INTER_AREA)
+                full_data[mask_s < 0.5] = np.nan
+                h, w = out_h, out_w
+
+        mask = ~np.isnan(full_data)
+        valid_vals = full_data[mask]
+        if vmin is None:
+            vmin = float(valid_vals.min()) if valid_vals.size > 0 else 0.0
+        if vmax is None:
+            vmax = float(valid_vals.max()) if valid_vals.size > 0 else 1.0
+        if vmin >= vmax:
+            vmax = vmin + 1e-10
+
+        cmap = cm.get_cmap(colormap)
+        if log_scale:
+            log_vmin = vmin if vmin > 0 else 1e-10
+            log_vmax = vmax if vmax > 0 else 1.0
+            if log_vmin >= log_vmax:
+                log_vmin = log_vmax / 1000
+            norm = mcolors.LogNorm(vmin=log_vmin, vmax=log_vmax)
+        else:
+            norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+        normalized = norm(np.nan_to_num(full_data, nan=0.0))
+        colored = cmap(normalized)
+        colored[:, :, 3] = mask.astype(np.float64)
+        overlay_rgba = (colored * 255).astype(np.uint8)
+        overlay_pil = Image.fromarray(overlay_rgba, "RGBA")
+
+        buf = io.BytesIO()
+        overlay_pil.save(buf, format="PNG")
+        buf.seek(0)
+        png_bytes = buf.read()
+        _render_cache.put(cache_key, png_bytes)
+        return png_response(png_bytes)
+
+    # --- Composited mode (legacy) ---
+    # Load background
+    if background == "deformed" and idx + 1 < len(session.image_files):
+        bg_path = os.path.join(session.image_dir, session.image_files[idx + 1])
+        from raft_dic_gui.processing import load_and_convert_image
+        bg_img = load_and_convert_image(bg_path)
+    else:
+        bg_img = session.reference_image
+
+    if bg_img is None:
+        return jsonify({"error": "No reference image"}), 500
+
+    h, w = bg_img.shape[:2]
+
+    # Viewport downsampling
+    from server.viewport import downsample_for_viewport
+    full_data, bg_img, h, w = downsample_for_viewport(full_data, bg_img, vw, vh)
 
     # Build valid-data mask
     mask = ~np.isnan(full_data)

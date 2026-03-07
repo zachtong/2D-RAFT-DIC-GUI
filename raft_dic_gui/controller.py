@@ -264,10 +264,11 @@ class DICProcessor:
                 print(f"[INFO] Cached key frame {frame_num} accumulated displacement")
 
             # ----------------------------------------------------------
-            # Evict reference images that are no longer needed
+            # Evict reference images and accumulated state no longer needed
             # ----------------------------------------------------------
-            self._evict_unused_ref_images(
-                frame_num, ref_map, key_frame_set, kf_images, total_frames
+            self._evict_unused_ref_state(
+                frame_num, ref_map, key_frame_set,
+                kf_images, kf_accumulated, total_frames,
             )
 
             # ----------------------------------------------------------
@@ -310,29 +311,29 @@ class DICProcessor:
     def _build_ref_map(config: DICConfig, total_frames: int):
         """Build the frame -> reference mapping from config settings.
 
-        Strategy priority:
+        For accumulative mode, always use kf=[1] (all frames reference
+        frame 1).  Incremental params (key_frame_interval, key_frames)
+        are ignored to prevent config leak when switching modes.
+
+        For incremental mode:
         1. key_frame_interval -> generate key frames via key_frames_every_n()
         2. key_frames -> use directly
-        3. Default: key_frames=[1] (all frames reference frame 1)
-
-        For accumulative mode the default is used, which makes every frame
-        reference frame 1 -- equivalent to the original accumulative behavior.
+        3. Default: every frame is a key frame
         """
-        kf = None
+        if config.mode != "incremental":
+            # Accumulative: single segment, all frames ref frame 1
+            return build_ref_map(total_frames, key_frames=[1])
 
+        # Incremental mode
+        kf = None
         if config.key_frame_interval is not None and config.key_frame_interval >= 1:
             kf = key_frames_every_n(total_frames, config.key_frame_interval)
         elif config.key_frames is not None and len(config.key_frames) > 0:
             kf = list(config.key_frames)
 
-        # Default depends on mode
         if kf is None:
-            if config.mode == "incremental":
-                # Classic incremental DIC: every frame is a key frame
-                kf = list(range(1, total_frames + 1))
-            else:
-                # Accumulative: single segment, all frames ref frame 1
-                kf = [1]
+            # Classic incremental DIC: every frame is a key frame
+            kf = list(range(1, total_frames + 1))
 
         return build_ref_map(total_frames, key_frames=kf)
 
@@ -497,19 +498,23 @@ class DICProcessor:
         return last_update_time
 
     @staticmethod
-    def _evict_unused_ref_images(frame_num, ref_map, key_frame_set, kf_images, total_frames):
-        """Remove cached reference images that are no longer needed by future frames.
+    def _evict_unused_ref_state(
+        frame_num, ref_map, key_frame_set,
+        kf_images, kf_accumulated, total_frames,
+    ):
+        """Remove cached reference images and accumulated displacements
+        that are no longer needed by future frames.
 
-        A reference image is needed only while there are future frames that
-        reference it. Once we've processed past the last such frame, the image
-        can be evicted to free memory.
+        A key frame's state is needed only while there are future frames
+        that reference it.  Once we've processed past the last such frame,
+        both the image and the accumulated displacement can be evicted.
         """
-        # Check each cached image (except frame 1 which is cheap to keep)
+        # Check each cached key frame (except frame 1 which is always needed)
         to_evict = []
-        for cached_kf in list(kf_images.keys()):
+        all_cached = set(kf_images.keys()) | set(kf_accumulated.keys())
+        for cached_kf in all_cached:
             if cached_kf == 1:
                 continue
-            # Find the last frame that references this key frame
             still_needed = False
             for future_frame in range(frame_num + 1, total_frames + 1):
                 if future_frame in ref_map and ref_map[future_frame] == cached_kf:
@@ -519,5 +524,12 @@ class DICProcessor:
                 to_evict.append(cached_kf)
 
         for kf in to_evict:
-            del kf_images[kf]
-            print(f"[INFO] Evicted reference image for key frame {kf} (no longer needed)")
+            evicted = []
+            if kf in kf_images:
+                del kf_images[kf]
+                evicted.append("image")
+            if kf in kf_accumulated:
+                del kf_accumulated[kf]
+                evicted.append("accumulated")
+            if evicted:
+                print(f"[INFO] Evicted {', '.join(evicted)} for key frame {kf}")

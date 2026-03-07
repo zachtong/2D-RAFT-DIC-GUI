@@ -16,7 +16,15 @@ export function PostProcessingPage() {
   const splitContainerRef = useRef<HTMLDivElement>(null);
   const [topRatio, setTopRatio] = useState(0.7);
 
-  const cache = usePreRenderCache();
+  // Approximate viewport for pre-render cache
+  const [vpSize, setVpSize] = useState({ vw: window.innerWidth, vh: window.innerHeight });
+  useEffect(() => {
+    const h = () => setVpSize({ vw: window.innerWidth, vh: window.innerHeight });
+    window.addEventListener("resize", h);
+    return () => window.removeEventListener("resize", h);
+  }, []);
+
+  const cache = usePreRenderCache(undefined, vpSize);
   const hasResults = useAppStore((s) => s.hasResults);
   const numFrames = useAppStore((s) => s.numFrames);
 

@@ -166,6 +166,11 @@ def run_processing():
             session.pause_requested = False
             session.pause_event.set()  # Start unblocked
 
+            # Free memory from previous run before starting new one
+            with session._lock:
+                session.displacement_results = []
+                session.strain_results = []
+
             processor = DICProcessor(
                 update_progress_callback=progress_callback,
                 check_stop_callback=check_stop,

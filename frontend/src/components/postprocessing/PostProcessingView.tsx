@@ -38,6 +38,8 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
   const referenceFrame = useAppStore((s) => s.referenceFrame);
   const resultVersion = useAppStore((s) => s.resultVersion);
   const hasStrain = useAppStore((s) => s.hasStrain);
+  const imageWidth = useAppStore((s) => s.imageWidth);
+  const imageHeight = useAppStore((s) => s.imageHeight);
 
   const placingMode = useAppStore((s) => s.probePlacingMode);
   const placingFirst = useAppStore((s) => s.probePlacingFirst);
@@ -77,21 +79,22 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
 
   const autoRange = useColorRange(currentFrame, displayComponent, hasResults);
 
-  // Convert screen click coordinates to image pixel coordinates
+  // Convert screen click coordinates to full-image pixel coordinates
   const screenToImage = useCallback(
     (clientX: number, clientY: number): [number, number] | null => {
       const img = imgRef.current;
-      if (!img) return null;
+      if (!img || imageWidth === 0 || imageHeight === 0) return null;
       const rect = img.getBoundingClientRect();
       const sx = clientX - rect.left;
       const sy = clientY - rect.top;
-      const scaleX = img.naturalWidth / rect.width;
-      const scaleY = img.naturalHeight / rect.height;
+      // Map to full-image coords (not naturalWidth which may be viewport-downsampled)
+      const scaleX = imageWidth / rect.width;
+      const scaleY = imageHeight / rect.height;
       const ix = Math.round(sx * scaleX);
       const iy = Math.round(sy * scaleY);
-      if (ix < 0 || ix >= img.naturalWidth || iy < 0 || iy >= img.naturalHeight) return null;
+      if (ix < 0 || ix >= imageWidth || iy < 0 || iy >= imageHeight) return null;
       return [ix, iy];
-    }, []
+    }, [imageWidth, imageHeight]
   );
 
   // Track mouse position for live preview during area/line placement
@@ -313,8 +316,10 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
   const renderParams = {
     component: displayComponent,
     colormap: vis.colormap,
-    alpha: vis.alpha,
     background: vis.background,
+    overlay_only: "true",
+    ...(containerSize.w > 0 ? { vw: containerSize.w } : {}),
+    ...(containerSize.h > 0 ? { vh: containerSize.h } : {}),
     ...(vis.fixedRange && vmin ? { vmin } : {}),
     ...(vis.fixedRange && vmax ? { vmax } : {}),
     ...(vis.logScale ? { log_scale: "true" } : {}),
@@ -326,7 +331,13 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
     ? strainRenderUrl(currentFrame, renderParams)
     : renderUrl(currentFrame, renderParams);
   const cachedSrc = cache?.getFrame(currentFrame);
-  const src = cachedSrc ?? liveSrc;
+  const overlaySrc = cachedSrc ?? liveSrc;
+
+  // Background image URL (separate from overlay)
+  const bgSrc =
+    vis.background === "deformed"
+      ? `/api/images/frame/${currentFrame + 1}`
+      : "/api/images/reference";
 
   // Placement banner text
   const getBannerText = () => {
@@ -388,12 +399,21 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
             onDoubleClick={handleDoubleClick}
             onMouseMove={handleMouseMoveAll}
           >
+            {/* Background layer */}
             <img
               ref={imgRef}
-              src={src}
-              alt={`${displayComponent} frame ${currentFrame}`}
+              src={bgSrc}
+              alt="background"
               className="block max-w-full"
               style={{ maxHeight: containerSize.h > 0 ? `${containerSize.h}px` : undefined }}
+              draggable={false}
+            />
+            {/* Overlay layer — alpha applied via CSS opacity */}
+            <img
+              src={overlaySrc}
+              alt={`${displayComponent} frame ${currentFrame}`}
+              className="absolute inset-0 w-full h-full pointer-events-none"
+              style={{ opacity: vis.alpha }}
               draggable={false}
               onLoad={() => {
                 if (loadTimerRef.current) clearTimeout(loadTimerRef.current);
@@ -411,6 +431,8 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
                   line_width: arrows.lineWidth,
                   background: vis.background,
                   stream_ds: arrows.streamQuality,
+                  ...(containerSize.w > 0 ? { vw: containerSize.w } : {}),
+                  ...(containerSize.h > 0 ? { vh: containerSize.h } : {}),
                 })}
                 alt="velocity arrows"
                 className="absolute inset-0 w-full h-full pointer-events-none"
@@ -423,6 +445,8 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
                   spacing: arrows.spacing,
                   scale: arrows.scale,
                   line_width: arrows.lineWidth,
+                  ...(containerSize.w > 0 ? { vw: containerSize.w } : {}),
+                  ...(containerSize.h > 0 ? { vh: containerSize.h } : {}),
                 })}
                 alt="principal strain directions"
                 className="absolute inset-0 w-full h-full pointer-events-none"
@@ -430,11 +454,11 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
               />
             )}
 
-            {/* SVG overlay for probe markers */}
-            {imgRef.current && (
+            {/* SVG overlay for probe markers — use full image coords, not naturalWidth */}
+            {imgRef.current && imageWidth > 0 && imageHeight > 0 && (
               <svg
                 className="absolute inset-0 w-full h-full pointer-events-none"
-                viewBox={`0 0 ${imgRef.current.naturalWidth} ${imgRef.current.naturalHeight}`}
+                viewBox={`0 0 ${imageWidth} ${imageHeight}`}
                 preserveAspectRatio="xMidYMid meet"
               >
                 {probes.map((probe) => {

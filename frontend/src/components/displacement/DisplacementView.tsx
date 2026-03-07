@@ -22,9 +22,25 @@ function DisplacementPanel({
   const viewOffset = useAppStore((s) => s.viewOffset);
   const referenceFrame = useAppStore((s) => s.referenceFrame);
   const resultVersion = useAppStore((s) => s.resultVersion);
+  const imageWidth = useAppStore((s) => s.imageWidth);
+  const imageHeight = useAppStore((s) => s.imageHeight);
+  const numFrames = useAppStore((s) => s.numFrames);
 
-  // Loading indicator — matches PostProcessingView logic:
-  // only show spinner after 150ms delay, clear on load
+  // Track container size for viewport downsampling
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    const el = panelRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const { width, height } = entries[0].contentRect;
+      setContainerSize({ w: Math.round(width), h: Math.round(height) });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Loading indicator — only show spinner after 150ms delay
   const [imgLoading, setImgLoading] = useState(false);
   const loadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -38,31 +54,58 @@ function DisplacementPanel({
   const vmax = component === "u" ? vis.vmaxU : vis.vmaxV;
   const autoRange = useColorRange(currentFrame, component, hasResults);
 
-  const liveSrc = renderUrl(currentFrame, {
-    component,
-    colormap: vis.colormap,
-    alpha: vis.alpha,
-    background: vis.background,
-    ...(vis.fixedRange && vmin ? { vmin } : {}),
-    ...(vis.fixedRange && vmax ? { vmax } : {}),
-    ...(referenceFrame > 0 ? { ref_frame: referenceFrame } : {}),
-    _v: resultVersion,
-  });
-  const cachedSrc = cache?.getFrame(currentFrame);
-  const src = cachedSrc ?? liveSrc;
+  // Overlay URL: overlay_only mode + viewport params, no alpha
+  const overlaySrc = (() => {
+    const cachedSrc = cache?.getFrame(currentFrame);
+    if (cachedSrc) return cachedSrc;
+    return renderUrl(currentFrame, {
+      component,
+      colormap: vis.colormap,
+      background: vis.background,
+      overlay_only: "true",
+      ...(containerSize.w > 0 ? { vw: containerSize.w } : {}),
+      ...(containerSize.h > 0 ? { vh: containerSize.h } : {}),
+      ...(vis.fixedRange && vmin ? { vmin } : {}),
+      ...(vis.fixedRange && vmax ? { vmax } : {}),
+      ...(referenceFrame > 0 ? { ref_frame: referenceFrame } : {}),
+      _v: resultVersion,
+    });
+  })();
+
+  // Background URL
+  const bgSrc =
+    vis.background === "deformed"
+      ? `/api/images/frame/${currentFrame + 1}`
+      : "/api/images/reference";
 
   return (
-    <div className="relative flex-1 overflow-hidden flex items-center justify-center bg-[var(--background)]">
+    <div
+      ref={panelRef}
+      className="relative flex-1 overflow-hidden flex items-center justify-center bg-[var(--background)]"
+    >
       <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 bg-[var(--card)]/80 px-3 py-1 rounded text-[11px] text-[var(--foreground)]">
         {label}
       </div>
+      {/* Background layer */}
       <img
-        src={src}
-        alt={label}
+        src={bgSrc}
+        alt="background"
         className="max-w-full max-h-full object-contain"
         style={{
           transform: `translate(${viewOffset.x}px, ${viewOffset.y}px) scale(${viewZoom})`,
           transformOrigin: "0 0",
+        }}
+        draggable={false}
+      />
+      {/* Overlay layer — alpha applied via CSS opacity */}
+      <img
+        src={overlaySrc}
+        alt={label}
+        className="absolute inset-0 max-w-full max-h-full object-contain m-auto"
+        style={{
+          transform: `translate(${viewOffset.x}px, ${viewOffset.y}px) scale(${viewZoom})`,
+          transformOrigin: "0 0",
+          opacity: vis.alpha,
         }}
         draggable={false}
         onLoad={() => {

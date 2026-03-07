@@ -143,13 +143,17 @@ def warp_displacement_field(delta_u: np.ndarray,
     # Mask: accumulated_u itself is NaN → result is NaN
     u_prev_nan = np.isnan(u_prev_x)
 
-    # Flatten for vectorized sampling
+    # Flatten for vectorized sampling.
+    # Clamp to valid bounds (equivalent to BORDER_REPLICATE) so that
+    # edge pixels outside the ROI sample from the nearest edge value
+    # instead of returning NaN.  This prevents progressive NaN erosion
+    # at ROI boundaries during incremental accumulation.
     x_flat = x_def.ravel()
     y_flat = y_def.ravel()
 
-    # Replace NaN coords with -999 (will be OOB → NaN result)
-    x_flat = np.where(np.isnan(x_flat), -999.0, x_flat)
-    y_flat = np.where(np.isnan(y_flat), -999.0, y_flat)
+    nan_coord = np.isnan(x_flat) | np.isnan(y_flat)
+    x_flat = np.where(nan_coord, 0.0, np.clip(x_flat, 0, W - 1))
+    y_flat = np.where(nan_coord, 0.0, np.clip(y_flat, 0, H - 1))
 
     # Sample each channel with NaN-aware interpolation
     delta_u_sampled = np.empty_like(delta_u)

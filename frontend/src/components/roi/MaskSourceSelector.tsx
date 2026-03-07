@@ -1,6 +1,7 @@
 import { SmallInput } from "@/components/shared/SmallInput";
 import { applyFrame1Mask } from "@/api/processing";
 import { useAppStore } from "@/stores/appStore";
+import { useRoiStore } from "@/stores/roiStore";
 
 interface MaskSourceSelectorProps {
   maskSource: "auto" | "folder";
@@ -36,9 +37,10 @@ export function MaskSourceSelector({
     if (!maskDir) return;
     try {
       await applyFrame1Mask(maskDir);
+      useRoiStore.getState().setMaskUrl(`/api/roi/mask?t=${Date.now()}`);
       useAppStore.getState().setRoiConfirmed(true);
-    } catch {
-      // silent — user will see no change
+    } catch (err: any) {
+      console.error("Apply frame-1 mask failed:", err);
     }
   };
 

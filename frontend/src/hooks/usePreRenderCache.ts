@@ -40,7 +40,10 @@ function buildFrameUrl(
   return `${base}/${idx}?${qs}`;
 }
 
-export function usePreRenderCache(componentOverride?: string): PreRenderState {
+export function usePreRenderCache(
+  componentOverride?: string,
+  viewportSize?: { vw: number; vh: number },
+): PreRenderState {
   const numFrames = useAppStore((s) => s.numFrames);
   const hasResults = useAppStore((s) => s.hasResults);
   const storeComponent = useAppStore((s) => s.displayComponent);
@@ -87,10 +90,14 @@ export function usePreRenderCache(componentOverride?: string): PreRenderState {
     // Pick correct per-component vmin/vmax (V component uses vminV/vmaxV)
     const vmin = displayComponent === "v" ? vis.vminV : vis.vminU;
     const vmax = displayComponent === "v" ? vis.vmaxV : vis.vmaxU;
+    const vw = viewportSize?.vw ?? 0;
+    const vh = viewportSize?.vh ?? 0;
     const params: Record<string, string | number> = {
       colormap: vis.colormap,
-      alpha: vis.alpha,
       background: vis.background,
+      overlay_only: "true",
+      ...(vw > 0 ? { vw } : {}),
+      ...(vh > 0 ? { vh } : {}),
       ...(vis.fixedRange && vmin ? { vmin } : {}),
       ...(vis.fixedRange && vmax ? { vmax } : {}),
       ...(vis.logScale ? { log_scale: "true" } : {}),
@@ -155,15 +162,15 @@ export function usePreRenderCache(componentOverride?: string): PreRenderState {
         setIsPreRendering(false);
       }
     });
-  }, [hasResults, numFrames, displayComponent, vis.colormap, vis.alpha,
-      vis.background, vis.fixedRange, vis.vminU, vis.vmaxU, vis.vminV, vis.vmaxV, vis.logScale, referenceFrame, resultVersion, invalidate]);
+  }, [hasResults, numFrames, displayComponent, vis.colormap,
+      vis.background, vis.fixedRange, vis.vminU, vis.vmaxU, vis.vminV, vis.vmaxV, vis.logScale, referenceFrame, resultVersion, viewportSize?.vw, viewportSize?.vh, invalidate]);
 
   // Invalidate cache when relevant settings change or results recomputed
   useEffect(() => {
     invalidate();
     cancelPreRender();
-  }, [displayComponent, vis.colormap, vis.alpha, vis.background,
-      vis.fixedRange, vis.vminU, vis.vmaxU, vis.vminV, vis.vmaxV, vis.logScale, referenceFrame, resultVersion, invalidate, cancelPreRender]);
+  }, [displayComponent, vis.colormap, vis.background,
+      vis.fixedRange, vis.vminU, vis.vmaxU, vis.vminV, vis.vmaxV, vis.logScale, referenceFrame, resultVersion, viewportSize?.vw, viewportSize?.vh, invalidate, cancelPreRender]);
 
   // Cleanup on unmount
   useEffect(() => {

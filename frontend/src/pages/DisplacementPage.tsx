@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useState } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { VisualizationSettings } from "@/components/roi/VisualizationSettings";
 import { DisplacementView } from "@/components/displacement/DisplacementView";
@@ -6,9 +6,22 @@ import { FramePlayback } from "@/components/displacement/FramePlayback";
 import { usePreRenderCache } from "@/hooks/usePreRenderCache";
 import { useAppStore } from "@/stores/appStore";
 
+function useWindowViewport() {
+  const [vp, setVp] = useState({ vw: window.innerWidth, vh: window.innerHeight });
+  useEffect(() => {
+    const h = () => setVp({ vw: window.innerWidth, vh: window.innerHeight });
+    window.addEventListener("resize", h);
+    return () => window.removeEventListener("resize", h);
+  }, []);
+  return vp;
+}
+
 export function DisplacementPage() {
-  const cacheU = usePreRenderCache("u");
-  const cacheV = usePreRenderCache("v");
+  const vp = useWindowViewport();
+  // Each panel is roughly half the window width
+  const panelVp = { vw: Math.round(vp.vw / 2), vh: vp.vh };
+  const cacheU = usePreRenderCache("u", panelVp);
+  const cacheV = usePreRenderCache("v", panelVp);
   const hasResults = useAppStore((s) => s.hasResults);
   const numFrames = useAppStore((s) => s.numFrames);
 

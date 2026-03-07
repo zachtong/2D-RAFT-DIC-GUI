@@ -27,6 +27,8 @@ def render_principal(idx: int):
     spacing = request.args.get("spacing", 30, type=int)
     scale = request.args.get("scale", 15, type=float)
     line_width = request.args.get("line_width", 1.0, type=float)
+    vw = request.args.get("vw", 0, type=int)
+    vh = request.args.get("vh", 0, type=int)
 
     # Check cache
     cache_params = {k: v for k, v in request.args.items() if k != "_t"}
@@ -77,9 +79,16 @@ def render_principal(idx: int):
     theta = 0.5 * np.arctan2(2 * exy, exx - eyy)  # radians
 
     dpi = 100
+    if vw > 0 and vh > 0:
+        render_scale = min(vw / img_w, vh / img_h, 1.0)
+    else:
+        render_scale = 1.0
+    render_w = max(1, int(img_w * render_scale))
+    render_h = max(1, int(img_h * render_scale))
+
     fig = None
     try:
-        fig, ax = plt.subplots(figsize=(img_w / dpi, img_h / dpi), dpi=dpi)
+        fig, ax = plt.subplots(figsize=(render_w / dpi, render_h / dpi), dpi=dpi)
         fig.patch.set_alpha(0)
         ax.set_position([0, 0, 1, 1])
         ax.set_xlim(0, img_w)
