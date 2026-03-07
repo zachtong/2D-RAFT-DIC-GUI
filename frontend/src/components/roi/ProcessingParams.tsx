@@ -34,6 +34,8 @@ export function ProcessingParams() {
   const setKeyFrames = useAppStore((s) => s.setKeyFrames);
   const setKeyFrameMode = useAppStore((s) => s.setKeyFrameMode);
   const setKeyFrameInterval = useAppStore((s) => s.setKeyFrameInterval);
+  const useMedianFilter = useAppStore((s) => s.useMedianFilter);
+  const setUseMedianFilter = useAppStore((s) => s.setUseMedianFilter);
   const setMaskSource = useAppStore((s) => s.setMaskSource);
   const setMaskDir = useAppStore((s) => s.setMaskDir);
   const setMaskValidation = useAppStore((s) => s.setMaskValidation);
@@ -108,6 +110,11 @@ export function ProcessingParams() {
   const handleKeyFramesChange = (kf: number[]) => {
     setKeyFrames(kf);
     syncKeyFrameConfig("custom", undefined, kf);
+  };
+
+  const handleMedianFilterChange = (checked: boolean) => {
+    setUseMedianFilter(checked);
+    configureProcessing({ use_median_filter: checked }).catch(() => {});
   };
 
   const handleMaskSourceChange = (source: "auto" | "folder") => {
@@ -245,6 +252,19 @@ export function ProcessingParams() {
               validationResult={maskValidation}
               onValidate={handleValidateMasks}
             />
+          )}
+
+          <FieldRow label="Median Filter">
+            <Toggle
+              checked={useMedianFilter}
+              onChange={handleMedianFilterChange}
+            />
+          </FieldRow>
+          {useMedianFilter && (
+            <p className="text-[10px] text-yellow-400/80 leading-tight px-1 -mt-0.5">
+              Applies median filter to accumulated displacement.
+              Reduces error buildup but modifies raw output data.
+            </p>
           )}
         </CollapsibleSection>
       )}

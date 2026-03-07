@@ -40,6 +40,7 @@ class DICConfig:
     key_frames: Optional[list] = None        # User-specified key frames (1-indexed)
     key_frame_interval: Optional[int] = None  # Every N frames shortcut
     mask_dir: Optional[str] = None            # Per-frame mask folder path
+    use_median_filter: bool = False           # Median filter accumulated displacement (reduces error accumulation)
 
     # Internal / Metadata
     model_metadata: Optional[Any] = None

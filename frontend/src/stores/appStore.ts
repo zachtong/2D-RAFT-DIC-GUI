@@ -83,6 +83,7 @@ interface AppState {
   keyFrames: number[];
   keyFrameMode: "every_frame" | "every_n" | "custom";
   keyFrameInterval: number;
+  useMedianFilter: boolean;
   maskSource: "auto" | "folder";
   maskDir: string;
   maskValidation: { matched_count: number; total_frames: number; matched_frames: number[] } | null;
@@ -121,6 +122,7 @@ interface AppState {
   setKeyFrames: (kf: number[]) => void;
   setKeyFrameMode: (mode: "every_frame" | "every_n" | "custom") => void;
   setKeyFrameInterval: (n: number) => void;
+  setUseMedianFilter: (v: boolean) => void;
   setMaskSource: (source: "auto" | "folder") => void;
   setMaskDir: (dir: string) => void;
   setMaskValidation: (result: { matched_count: number; total_frames: number; matched_frames: number[] } | null) => void;
@@ -188,6 +190,7 @@ export const useAppStore = create<AppState>((set) => ({
   keyFrames: [1],
   keyFrameMode: "every_frame",
   keyFrameInterval: 10,
+  useMedianFilter: false,
   maskSource: "auto",
   maskDir: "",
   maskValidation: null,
@@ -222,6 +225,7 @@ export const useAppStore = create<AppState>((set) => ({
       keyFrames: [1],
       keyFrameMode: "every_frame",
       keyFrameInterval: 10,
+      useMedianFilter: false,
       maskSource: "auto",
       maskDir: "",
       maskValidation: null,
@@ -266,6 +270,7 @@ export const useAppStore = create<AppState>((set) => ({
   setKeyFrames: (kf) => set({ keyFrames: kf }),
   setKeyFrameMode: (mode) => set({ keyFrameMode: mode }),
   setKeyFrameInterval: (n) => set({ keyFrameInterval: n }),
+  setUseMedianFilter: (v) => set({ useMedianFilter: v }),
   setMaskSource: (source) => set({ maskSource: source }),
   setMaskDir: (dir) => set({ maskDir: dir }),
   setMaskValidation: (result) => set({ maskValidation: result }),

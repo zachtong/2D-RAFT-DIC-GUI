@@ -49,6 +49,8 @@ def configure():
         if "mask_dir" in data:
             val = data["mask_dir"]
             cfg.mask_dir = val if val else None
+        if "use_median_filter" in data:
+            cfg.use_median_filter = bool(data["use_median_filter"])
 
     return jsonify({"ok": True})
 
