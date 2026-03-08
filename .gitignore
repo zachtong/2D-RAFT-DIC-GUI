@@ -1,5 +1,3 @@
-000_strain_display/
-
 # Worktrees
 .worktrees/
 
@@ -7,13 +5,18 @@
 __pycache__/
 *.pyc
 *.egg-info/
+.pytest_cache/
 
 # Legacy and Large Files
 legacy_archive/
 _backup_tkinter/
 assets/
-models/*
-!models/active/
+models/
 
-# Examples (large image datasets)
+# Examples and test data (large image datasets)
 examples/
+test_data/
+
+# Frontend build artifacts
+frontend/dist/
+frontend/node_modules/
