@@ -53,23 +53,13 @@ def render_arrows(idx: int):
     # Compute velocity field (du, dv) = difference between consecutive frames
     disp = session.displacement_results[idx]
     if idx == 0:
-        # Frame 0: velocity is zero — return 1x1 transparent PNG
-        buf = io.BytesIO()
-        fig = None
-        try:
-            fig, ax = plt.subplots(figsize=(1, 1), dpi=1)
-            fig.patch.set_alpha(0)
-            ax.axis("off")
-            fig.savefig(buf, format="png", transparent=True)
-        finally:
-            if fig is not None:
-                plt.close(fig)
-        buf.seek(0)
-        return png_response(buf.read())
-
-    prev = session.displacement_results[idx - 1]
-    du = disp[:, :, 0] - prev[:, :, 0]
-    dv = disp[:, :, 1] - prev[:, :, 1]
+        # Frame 0: velocity = disp[0] (displacement from zero reference)
+        du = disp[:, :, 0].copy()
+        dv = disp[:, :, 1].copy()
+    else:
+        prev = session.displacement_results[idx - 1]
+        du = disp[:, :, 0] - prev[:, :, 0]
+        dv = disp[:, :, 1] - prev[:, :, 1]
     h, w = du.shape
 
     # ROI offset for coordinate grids
@@ -135,8 +125,9 @@ def render_arrows(idx: int):
 
                 ax.quiver(
                     X[valid], Y[valid], U_norm[valid], V_norm[valid],
-                    color=color, scale=quiver_scale, scale_units="xy",
-                    width=quiver_width, headwidth=4, headlength=5, alpha=0.9,
+                    angles="xy", color=color, scale=quiver_scale,
+                    scale_units="xy", width=quiver_width,
+                    headwidth=4, headlength=5, alpha=0.9,
                 )
 
         # --- Streamlines rendering (with optional downsampling for speed) ---
@@ -200,7 +191,7 @@ def render_arrows(idx: int):
                         pts, du_raw[valid_vel].astype(np.float64),
                         (xx, yy), method="linear", fill_value=0.0,
                     )
-                    dv_filled = -_griddata(
+                    dv_filled = _griddata(
                         pts, dv_raw[valid_vel].astype(np.float64),
                         (xx, yy), method="linear", fill_value=0.0,
                     )
@@ -209,7 +200,7 @@ def render_arrows(idx: int):
                     dv_filled = np.zeros((len(y_stream), len(x_stream)))
             else:
                 du_filled = np.nan_to_num(du_raw, nan=0.0)
-                dv_filled = -np.nan_to_num(dv_raw, nan=0.0)  # Negate for image coords
+                dv_filled = np.nan_to_num(dv_raw, nan=0.0)
 
             density = max(0.5, 30.0 / max(1, spacing))
             base_arrowsize = max(h, w) / 500.0

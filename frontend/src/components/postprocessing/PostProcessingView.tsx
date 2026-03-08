@@ -425,7 +425,7 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
                 setImgLoading(false);
               }}
             />
-            {showArrows && currentFrame > 0 && (
+            {showArrows && (
               <img
                 src={arrowRenderUrl(currentFrame, {
                   show_quiver: arrows.showQuiver,
