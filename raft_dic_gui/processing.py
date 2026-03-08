@@ -7,6 +7,7 @@ Processing helpers for RAFT-DIC
 
 import os
 import time
+from typing import Optional, Callable
 import numpy as np
 import cv2
 import tifffile
@@ -90,162 +91,8 @@ def calculate_window_positions(image_size: int, crop_size: int, shift: int):
 
 
 
-def cut_image_pair_with_flow(ref_img: np.ndarray, def_img: np.ndarray, project_root: str, model, device: str,
-                             crop_size=(128, 128), shift=64, plot_windows=False,
-                             roi_mask=None, use_smooth=True, sigma=2.0):
-    start_total = time.time()
-
-    windows_dir = os.path.join(project_root, "windows")
-    os.makedirs(windows_dir, exist_ok=True)
-
-    H, W, _ = ref_img.shape
-    crop_h, crop_w = crop_size
-
-    x_positions = calculate_window_positions(W, crop_w, shift)
-    y_positions = calculate_window_positions(H, crop_h, shift)
-
-    windows = []
-    global_flow = np.zeros((H, W, 2), dtype=np.float64)
-    count_field = np.zeros((H, W), dtype=np.float64)
-
-    if roi_mask is not None:
-        roi_mask = roi_mask.astype(bool)
-    else:
-        roi_mask = np.ones((H, W), dtype=bool)
-
-    # Smooth fusion weights: raised-cosine (Hanning) window to taper borders
-    wy = np.hanning(max(crop_h, 2))  # ensure length >= 2
-    wx = np.hanning(max(crop_w, 2))
-    weight2d = np.outer(wy, wx).astype(np.float64)
-    # Avoid extremely small weights causing numerical issues
-    weight2d = np.clip(weight2d, 1e-6, None)
-
-    count = 0
-    inference_time = 0
-    for y in y_positions:
-        for x in x_positions:
-            ref_window = ref_img[y:y+crop_h, x:x+crop_w, :]
-            def_window = def_img[y:y+crop_h, x:x+crop_w, :]
-
-            windows.append({'index': count, 'position': (x, y, x+crop_w, y+crop_h)})
-
-            t0 = time.time()
-            flow_low, flow_up = inference(model, ref_window, def_window, device, test_mode=True)
-            flow_up = flow_up.squeeze(0)
-            inference_time += time.time() - t0
-
-            u = flow_up[0].cpu().numpy()
-            v = flow_up[1].cpu().numpy()
-            window_flow = np.stack((u, v), axis=-1)
-
-            # Local ROI weighting
-            if roi_mask is not None:
-                local_roi = roi_mask[y:y+crop_h, x:x+crop_w].astype(np.float64)
-                local_weight = weight2d * local_roi
-            else:
-                local_weight = weight2d
-            global_flow[y:y+crop_h, x:x+crop_w, :] += window_flow * local_weight[..., None]
-            count_field[y:y+crop_h, x:x+crop_w] += local_weight
-
-            count += 1
-
-    final_flow = np.where(count_field[..., None] > 0,
-                          global_flow / count_field[..., None],
-                          np.nan)
-    final_flow[~roi_mask] = np.nan
-
-    displacement_field = smooth_displacement_field(final_flow, sigma=sigma) if use_smooth else final_flow
-
-    if plot_windows:
-        try:
-            ref_gray = cv2.cvtColor(ref_img, cv2.COLOR_RGB2GRAY)
-            fig, ax = plt.subplots(1, figsize=(8, 8))
-            ax.imshow(ref_gray, cmap='gray')
-            ax.axis('off')
-            colormap = cm.get_cmap('hsv', len(windows))
-            patches_list = []
-            for w in windows:
-                x0, y0, x1, y1 = w['position']
-                rect = patches.Rectangle((x0, y0), x1-x0, y1-y0, linewidth=1,
-                                         edgecolor=colormap(w['index']), facecolor='none')
-                patches_list.append(rect)
-            ax.add_collection(collections.PatchCollection(patches_list, match_original=True))
-            plt.title("Sliding Windows Layout")
-            plt.savefig(os.path.join(windows_dir, "windows_layout.png"), bbox_inches='tight', dpi=300)
-            plt.close(fig)
-        except Exception as e:
-            print(f"Warning: Failed to save windows layout: {str(e)}")
-
-    total_time = time.time() - start_total
-    _emit_status("\nTime statistics:")
-    _emit_status(f"Total processing time: {total_time:.2f} seconds")
-    _emit_status(f"RAFT inference time: {inference_time:.2f} seconds")
-    if total_time > 0:
-        _emit_status(f"RAFT inference percentage: {(inference_time/total_time*100):.1f}%")
-        _emit_status(f"Other operations time: {(total_time-inference_time):.2f} seconds")
-
-    return displacement_field, windows
-
-
-def process_image_pair(ref_img: np.ndarray, def_img: np.ndarray, project_root: str, model, device: str,
-                       roi_mask=None, use_smooth: bool = True, sigma: float = 2.0, iters: int = 12):
-    start_total = time.time()
-    H, W, _ = ref_img.shape
-    if roi_mask is not None:
-        roi_mask = roi_mask.astype(bool)
-    else:
-        roi_mask = np.ones((H, W), dtype=bool)
-
-    t0 = time.time()
-    try:
-        flow_low, flow_up = inference(model, ref_img, def_img, device, test_mode=True, iters=iters)
-    except torch.cuda.OutOfMemoryError:
-        try:
-            torch.cuda.empty_cache()
-        except Exception:
-            pass
-        # Retry with fewer iterations to reduce memory footprint
-        flow_low, flow_up = inference(model, ref_img, def_img, device, test_mode=True, iters=max(4, iters // 2))
-    flow_up = flow_up.squeeze(0)
-    inference_time = time.time() - t0
-
-    u = flow_up[0].cpu().numpy()
-    v = flow_up[1].cpu().numpy()
-    displacement_field = np.stack((u, v), axis=-1)
-    displacement_field[~roi_mask] = np.nan
-
-    if use_smooth:
-        displacement_field = smooth_displacement_field(displacement_field, sigma=sigma)
-
-    total_time = time.time() - start_total
-    _emit_status("\nTime statistics:")
-    _emit_status(f"Total processing time: {total_time:.2f} seconds")
-    _emit_status(f"RAFT inference time: {inference_time:.2f} seconds")
-    if total_time > 0:
-        _emit_status(f"RAFT inference percentage: {(inference_time/total_time*100):.1f}%")
-        _emit_status(f"Other operations time: {(total_time-inference_time):.2f} seconds")
-
-    return displacement_field, None
-
-
 # ------------------------- New tiled ROI processing -------------------------
 import torch
-
-_status_logger = None
-
-def set_status_logger(callback):
-    global _status_logger
-    _status_logger = callback
-
-def _emit_status(message: str):
-    print(message, flush=True)
-    if _status_logger:
-        try:
-            _status_logger(message)
-        except Exception:
-            pass
-
-
 
 _status_logger = None
 
@@ -292,7 +139,10 @@ def _generate_tile_starts(total_len, tile_len, overlap):
     
     stride = tile_len - overlap
     if stride <= 0:
-        stride = 1 # Fallback to avoid infinite loop
+        raise ValueError(
+            f"Tile overlap ({overlap}) must be smaller than tile size ({tile_len}). "
+            f"Reduce overlap or increase memory budget."
+        )
         
     starts = []
     pos = 0
@@ -314,19 +164,21 @@ def dic_over_roi_with_tiling(ref_img: np.ndarray,
                              roi_mask_full: np.ndarray,
                              model,
                              device: str,
-                             context_padding: int = 32,
-                             tile_overlap: int = 32,
+                             context_padding: int = 64,
+                             tile_overlap: int = 64,
                              p_max_pixels: int = 1100*1100,
                              use_smooth: bool = True,
                              sigma: float = 2.0,
-                             iters: int = 12):
+                             iters: int = 12,
+                             tile_callback: Optional[Callable] = None):
     """
     Perform DIC over the ROI using an adaptive tiling strategy with weighted fusion.
-    
+
     Args:
-        context_padding: Extra pixels around the ROI bounding box to include (default 32).
-        tile_overlap: Overlap between tiles in pixels (default 32).
+        context_padding: Extra pixels around the ROI bounding box to include (default 64).
+        tile_overlap: Overlap between tiles in pixels (default 64).
         p_max_pixels: Maximum pixels allowed per inference pass (VRAM limit).
+        tile_callback: Optional callable(tile_idx, tile_total) called before each tile inference.
     """
     H, W, _ = ref_img.shape
     start_total = time.time()
@@ -340,102 +192,109 @@ def dic_over_roi_with_tiling(ref_img: np.ndarray,
     # 1. Define Work Area (ROI + Padding)
     xC, yC, wC, hC = _expand_bbox(bbox, int(context_padding), W, H)
 
-    # 2. Prepare Accumulators
-    accum = np.zeros((hC, wC, 2), dtype=np.float64)
-    wsum = np.zeros((hC, wC), dtype=np.float64)
-    
     # ROI mask cropped to Work Area
     roiC = roi_mask_full[yC:yC+hC, xC:xC+wC]
 
-    # 3. Determine Tiling Strategy
-    # Max safe square tile dimension
-    max_T = int(np.sqrt(p_max_pixels))
-    
-    # Check if single shot is possible
-    if wC * hC <= p_max_pixels:
-        tiles = [(0, 0, wC, hC)]
-        is_tiled = False
-    else:
-        is_tiled = True
-        # Ensure tile size is at least larger than overlap
-        T = max(max_T, tile_overlap * 2 + 16)
-        # But must not exceed budget (if possible, otherwise we clamp T to max_T)
-        T = min(T, max_T)
-        
-        # If T is too small relative to overlap, reduce overlap
-        if T <= tile_overlap:
-             tile_overlap = T // 4
-        
-        starts_x = _generate_tile_starts(wC, T, int(tile_overlap))
-        starts_y = _generate_tile_starts(hC, T, int(tile_overlap))
-        
-        tiles = []
-        for sy in starts_y:
-            for sx in starts_x:
-                # Clip tile size if at edges (though _generate_tile_starts usually handles this by shifting start)
-                # But here we use fixed size T unless total size is smaller
-                tw = min(T, wC - sx)
-                th = min(T, hC - sy)
-                tiles.append((sx, sy, tw, th))
+    # --- Retry loop for OOM recovery ---
+    max_retries = 1
+    retry_count = 0
+    current_p_max = p_max_pixels
 
-    # 4. Execute Inference
-    inference_time = 0.0
-    
-    # Pre-compute Hanning window cache
-    window_cache = {}
-
-    for (sx, sy, tw, th) in tiles:
-        x0, y0 = xC + sx, yC + sy
-        x1, y1 = x0 + tw, y0 + th
-        
-        ref_tile = ref_img[y0:y1, x0:x1, :]
-        def_tile = def_img[y0:y1, x0:x1, :]
-        
-        t0 = time.time()
+    while True:
         try:
-            _, flow_up = inference(model, ref_tile, def_tile, device, test_mode=True, iters=iters)
+            # 2. Prepare Accumulators
+            accum = np.zeros((hC, wC, 2), dtype=np.float64)
+            wsum = np.zeros((hC, wC), dtype=np.float64)
+
+            # 3. Determine Tiling Strategy
+            max_T = int(np.sqrt(current_p_max))
+            _tile_overlap = tile_overlap
+
+            if wC * hC <= current_p_max:
+                tiles = [(0, 0, wC, hC)]
+                is_tiled = False
+            else:
+                is_tiled = True
+                T = max_T
+                # If tile is too small for meaningful overlap blending, reduce overlap
+                if T < _tile_overlap * 2 + 16:
+                    _tile_overlap = max(4, T // 4)
+
+                starts_x = _generate_tile_starts(wC, T, int(_tile_overlap))
+                starts_y = _generate_tile_starts(hC, T, int(_tile_overlap))
+
+                tiles = []
+                for sy in starts_y:
+                    for sx in starts_x:
+                        tw = min(T, wC - sx)
+                        th = min(T, hC - sy)
+                        tiles.append((sx, sy, tw, th))
+
+            # 4. Execute Inference
+            inference_time = 0.0
+            window_cache = {}
+
+            for tile_idx, (sx, sy, tw, th) in enumerate(tiles):
+                if tile_callback:
+                    tile_callback(tile_idx, len(tiles))
+
+                x0, y0 = xC + sx, yC + sy
+                x1, y1 = x0 + tw, y0 + th
+
+                ref_tile = ref_img[y0:y1, x0:x1, :]
+                def_tile = def_img[y0:y1, x0:x1, :]
+
+                t0 = time.time()
+                _, flow_up = inference(model, ref_tile, def_tile, device, test_mode=True, iters=iters)
+                flow_up = flow_up.squeeze(0)
+                inference_time += (time.time() - t0)
+
+                u = flow_up[0].cpu().numpy()
+                v = flow_up[1].cpu().numpy()
+                flow = np.stack((u, v), axis=-1)
+
+                # 5. Weighted Fusion
+                k = (tw, th)
+                if k not in window_cache:
+                    if not is_tiled:
+                        window_cache[k] = np.ones((th, tw), dtype=np.float64)
+                    else:
+                        wy = np.hanning(max(th, 4))
+                        wx = np.hanning(max(tw, 4))
+                        window_cache[k] = np.outer(wy, wx).astype(np.float64)
+
+                weight = window_cache[k]
+                accum[sy:sy+th, sx:sx+tw, :] += flow * weight[..., None]
+                wsum[sy:sy+th, sx:sx+tw] += weight
+
+            # Success — exit retry loop
+            break
+
         except torch.cuda.OutOfMemoryError:
+            if retry_count >= max_retries:
+                raise RuntimeError(
+                    f"CUDA out of memory even after reducing tile size. "
+                    f"Current p_max_pixels={current_p_max}. Try reducing Memory Budget."
+                )
+            retry_count += 1
             try:
                 torch.cuda.empty_cache()
             except Exception:
                 pass
-            # Simple retry with fewer iterations
-            _, flow_up = inference(model, ref_tile, def_tile, device, test_mode=True, iters=max(4, iters // 2))
-        
-        flow_up = flow_up.squeeze(0)
-        inference_time += (time.time() - t0)
-        
-        u = flow_up[0].cpu().numpy()
-        v = flow_up[1].cpu().numpy()
-        flow = np.stack((u, v), axis=-1)
-        
-        # 5. Weighted Fusion
-        # Generate or retrieve window
-        k = (tw, th)
-        if k not in window_cache:
-            # Hanning window for smooth blending
-            # If single shot, window is all 1s (or we can still use Hanning to suppress edge artifacts if we wanted, but usually 1s)
-            if not is_tiled:
-                window_cache[k] = np.ones((th, tw), dtype=np.float64)
-            else:
-                wy = np.hanning(max(th, 4))
-                wx = np.hanning(max(tw, 4))
-                window_cache[k] = np.outer(wy, wx).astype(np.float64)
-        
-        weight = window_cache[k]
-        
-        accum[sy:sy+th, sx:sx+tw, :] += flow * weight[..., None]
-        wsum[sy:sy+th, sx:sx+tw] += weight
+            current_p_max = current_p_max // 2
+            _emit_status(
+                f"OOM: retrying with p_max_pixels={current_p_max} "
+                f"(tile ~{int(np.sqrt(current_p_max))}x{int(np.sqrt(current_p_max))})"
+            )
 
     # 6. Normalize
     with np.errstate(divide='ignore', invalid='ignore'):
         result_C = np.where(wsum[..., None] > 0, accum / wsum[..., None], np.nan)
 
     # 7. Post-processing (Smoothing & Masking)
-    # Mask out non-ROI areas in the work rectangle
     invalid_mask = ~roiC.astype(bool)
     result_C[invalid_mask] = np.nan
-    
+
     if use_smooth:
         result_C = smooth_displacement_field(result_C, sigma=sigma)
 

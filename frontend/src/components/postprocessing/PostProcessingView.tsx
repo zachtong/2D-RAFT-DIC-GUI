@@ -17,7 +17,7 @@ import { getUnitInfo } from "@/utils/unitConversion";
 
 const STRAIN_COMPONENTS: string[] = [
   "exx", "eyy", "exy", "e1", "e2", "max_shear", "von_mises", "rotation",
-  "rotation_cumulative", "confidence", "dexx_dt", "deyy_dt", "dexy_dt",
+  "dexx_dt", "deyy_dt", "dexy_dt",
 ];
 
 interface PostProcessingViewProps {

@@ -12,6 +12,9 @@ export function RoiCanvas() {
   const imageHeight = useAppStore((s) => s.imageHeight);
   const setRoiConfirmed = useAppStore((s) => s.setRoiConfirmed);
 
+  const showTileGrid = useAppStore((s) => s.showTileGrid);
+  const tilingPreview = useAppStore((s) => s.tilingPreview);
+
   const drawingMode = useRoiStore((s) => s.drawingMode);
   const currentPoints = useRoiStore((s) => s.currentPoints);
   const addPoint = useRoiStore((s) => s.addPoint);
@@ -317,6 +320,75 @@ export function RoiCanvas() {
                   />
                 );
               })()}
+
+            {/* Tile Grid Overlay */}
+            {showTileGrid && tilingPreview && (() => {
+              const wa = tilingPreview.work_area;
+
+              return (
+                <>
+                  {/* Work area boundary (orange dashed) */}
+                  {(() => {
+                    const tl = imgToScreen(wa.x, wa.y);
+                    return (
+                      <rect
+                        x={tl.x}
+                        y={tl.y}
+                        width={wa.w * scale}
+                        height={wa.h * scale}
+                        fill="none"
+                        stroke="#f97316"
+                        strokeWidth="1"
+                        strokeDasharray="6 3"
+                        opacity={0.7}
+                      />
+                    );
+                  })()}
+
+                  {/* Individual tiles */}
+                  {tilingPreview.tiles.map((tile, i) => {
+                    const [tx, ty, tw, th] = tile;
+                    const screenPos = imgToScreen(wa.x + tx, wa.y + ty);
+                    const screenW = tw * scale;
+                    const screenH = th * scale;
+
+                    return (
+                      <g key={i}>
+                        <rect
+                          x={screenPos.x}
+                          y={screenPos.y}
+                          width={screenW}
+                          height={screenH}
+                          fill="none"
+                          stroke="#22d3ee"
+                          strokeWidth="1.5"
+                          strokeDasharray="6 3"
+                          opacity={0.8}
+                        />
+                        {/* Tile number */}
+                        {screenW > 30 && screenH > 20 && (
+                          <text
+                            x={screenPos.x + screenW / 2}
+                            y={screenPos.y + screenH / 2}
+                            textAnchor="middle"
+                            dominantBaseline="central"
+                            fill="#22d3ee"
+                            fontSize={Math.min(13, screenW / 3)}
+                            fontWeight="bold"
+                            opacity={0.7}
+                            stroke="#000"
+                            strokeWidth="2.5"
+                            paintOrder="stroke"
+                          >
+                            #{i + 1}
+                          </text>
+                        )}
+                      </g>
+                    );
+                  })}
+                </>
+              );
+            })()}
           </svg>
         </>
       ) : (

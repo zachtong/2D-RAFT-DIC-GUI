@@ -27,12 +27,13 @@ class DICProcessor:
     def __init__(self, update_progress_callback=None, check_stop_callback=None):
         """
         Initialize the processor.
-        :param update_progress_callback: Callable(percent, current, total) to update UI progress.
+        :param update_progress_callback: Callable(percent, current, total, **extra) to update UI progress.
         :param check_stop_callback: Callable() -> bool that returns True if processing should stop.
         """
         self.update_progress = update_progress_callback
         self.check_stop = check_stop_callback
         self.displacement_results = []
+        self._extra_progress = {}
 
     # ------------------------------------------------------------------
     # Public API
@@ -136,6 +137,7 @@ class DICProcessor:
 
         sequence_displacements = []
         last_update_time = 0
+        loop_start_time = time.time()
 
         # ----------------------------------------------------------
         # Main processing loop: frames 2..N  (1-indexed)
@@ -205,8 +207,33 @@ class DICProcessor:
             )
 
             # ----------------------------------------------------------
+            # Update timing + VRAM in extra progress
+            # ----------------------------------------------------------
+            elapsed = time.time() - loop_start_time
+            if pair_idx > 1:
+                est_remaining = elapsed / (pair_idx - 1) * (total_pairs - pair_idx + 1)
+            else:
+                est_remaining = 0
+            self._extra_progress.update({
+                "elapsed_seconds": round(elapsed, 1),
+                "est_remaining_seconds": round(est_remaining, 1),
+            })
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    free_mem, total_mem = torch.cuda.mem_get_info(0)
+                    self._extra_progress["vram_used_mb"] = round((total_mem - free_mem) / 1024 / 1024)
+                    self._extra_progress["vram_total_mb"] = round(total_mem / 1024 / 1024)
+            except Exception:
+                pass
+
+            # ----------------------------------------------------------
             # Run DIC
             # ----------------------------------------------------------
+            def _tile_cb(tile_idx, tile_total):
+                self._extra_progress["tile_current"] = tile_idx + 1
+                self._extra_progress["tile_total"] = tile_total
+
             disp_full, _ = proc.dic_over_roi_with_tiling(
                 ref_image,
                 def_image,
@@ -218,6 +245,7 @@ class DICProcessor:
                 p_max_pixels=config.p_max_pixels,
                 use_smooth=config.use_smooth,
                 sigma=config.sigma,
+                tile_callback=_tile_cb,
             )
             # Keep full-image for accumulation (disp_full already full-image
             # from dic_over_roi_with_tiling)
@@ -361,7 +389,6 @@ class DICProcessor:
             "image_fingerprint": img_fingerprint,
             "tile_overlap": config.tile_overlap,
             "context_padding": config.context_padding,
-            "safety_factor": config.safety_factor,
             "use_smooth": config.use_smooth,
             "sigma": config.sigma,
             "p_max_pixels": config.p_max_pixels,
@@ -493,7 +520,7 @@ class DICProcessor:
             current_time - last_update_time > 0.1 or pair_idx == total_pairs
         ):
             percent = (pair_idx / max(1, total_pairs)) * 100.0
-            self.update_progress(percent, pair_idx, total_pairs)
+            self.update_progress(percent, pair_idx, total_pairs, **self._extra_progress)
             return current_time
         return last_update_time
 

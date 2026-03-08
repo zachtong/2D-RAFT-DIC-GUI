@@ -8,7 +8,6 @@ export interface DICConfig {
   tileOverlap: number;
   useSmooth: boolean;
   sigma: number;
-  safetyFactor: number;
   pMaxPixels: number;
   device: string;
   projectRoot: string;
@@ -50,6 +49,12 @@ export interface ProcessingProgress {
   percent: number;
   current: number;
   total: number;
+  tile_current?: number;
+  tile_total?: number;
+  vram_used_mb?: number;
+  vram_total_mb?: number;
+  elapsed_seconds?: number;
+  est_remaining_seconds?: number;
 }
 
 export interface DisplacementInfo {
@@ -98,12 +103,24 @@ export interface ExportProgress {
   message: string;
 }
 
+export interface TilingPreview {
+  image_size: [number, number];
+  roi_bbox: [number, number, number, number];
+  work_area: { x: number; y: number; w: number; h: number };
+  tile_size: number;
+  tiles: [number, number, number, number][];
+  tile_count: number;
+  overlap_ratio: number;
+  gpu: { name: string; total_mb: number; free_mb: number };
+  est_memory_per_tile_mb: number;
+  est_time_seconds: number;
+  is_single_shot: boolean;
+}
+
 export type StrainComponent =
   | "exx" | "eyy" | "exy"
   | "e1" | "e2"
   | "max_shear" | "von_mises" | "rotation"
-  | "rotation_cumulative"
-  | "confidence"
   | "dexx_dt" | "deyy_dt" | "dexy_dt";
 
 export type DisplacementComponent = "u" | "v" | "magnitude" | "velocity";

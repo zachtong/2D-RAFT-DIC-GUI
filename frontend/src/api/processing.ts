@@ -1,4 +1,5 @@
 import client from "./client";
+import type { TilingPreview } from "@/types/api";
 
 export async function configureProcessing(
   config: Record<string, unknown>
@@ -47,5 +48,10 @@ export async function applyFrame1Mask(maskDir: string): Promise<{
   area_px: number;
 }> {
   const { data } = await client.post("/processing/apply-frame1-mask", { mask_dir: maskDir });
+  return data;
+}
+
+export async function fetchTilingPreview(): Promise<TilingPreview> {
+  const { data } = await client.get<TilingPreview>("/tiling/preview");
   return data;
 }

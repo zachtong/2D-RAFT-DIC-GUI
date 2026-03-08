@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ModelMetadata, ProbeData, DisplayComponent } from "@/types/api";
+import type { ModelMetadata, ProbeData, DisplayComponent, TilingPreview } from "@/types/api";
 
 interface ArrowSettings {
   showQuiver: boolean;
@@ -45,6 +45,7 @@ interface AppState {
 
   // ROI
   roiConfirmed: boolean;
+  roiVersion: number;
 
   // Processing
   processingActive: boolean;
@@ -89,6 +90,10 @@ interface AppState {
   maskDir: string;
   maskValidation: { matched_count: number; total_frames: number; matched_frames: number[]; has_frame_1: boolean } | null;
 
+  // Tiling state
+  tilingPreview: TilingPreview | null;
+  showTileGrid: boolean;
+
   // View zoom & pan (shared by displacement + postprocessing)
   viewZoom: number;
   viewOffset: { x: number; y: number };
@@ -127,6 +132,8 @@ interface AppState {
   setMaskSource: (source: "auto" | "folder") => void;
   setMaskDir: (dir: string) => void;
   setMaskValidation: (result: { matched_count: number; total_frames: number; matched_frames: number[]; has_frame_1: boolean } | null) => void;
+  setTilingPreview: (preview: TilingPreview | null) => void;
+  setShowTileGrid: (show: boolean) => void;
   setExport: (active: boolean, progress?: number) => void;
   setViewOffset: (offset: { x: number; y: number }) => void;
   zoomIn: () => void;
@@ -143,6 +150,7 @@ export const useAppStore = create<AppState>((set) => ({
   modelMetadata: null,
   mode: "accumulative",
   roiConfirmed: false,
+  roiVersion: 0,
   processingActive: false,
   processingPaused: false,
   processingProgress: 0,
@@ -196,6 +204,8 @@ export const useAppStore = create<AppState>((set) => ({
   maskSource: "auto",
   maskDir: "",
   maskValidation: null,
+  tilingPreview: null,
+  showTileGrid: false,
   viewZoom: 1,
   viewOffset: { x: 0, y: 0 },
   exportActive: false,
@@ -206,6 +216,7 @@ export const useAppStore = create<AppState>((set) => ({
       imageWidth: 0,
       imageHeight: 0,
       roiConfirmed: false,
+  roiVersion: 0,
       processingActive: false,
       processingPaused: false,
       processingProgress: 0,
@@ -231,6 +242,8 @@ export const useAppStore = create<AppState>((set) => ({
       maskSource: "auto",
       maskDir: "",
       maskValidation: null,
+      tilingPreview: null,
+      showTileGrid: false,
       viewZoom: 1,
       viewOffset: { x: 0, y: 0 },
       exportActive: false,
@@ -248,7 +261,10 @@ export const useAppStore = create<AppState>((set) => ({
   },
   setModel: (path, meta) => set({ selectedModel: path, modelMetadata: meta }),
   setMode: (mode) => set({ mode }),
-  setRoiConfirmed: (v) => set({ roiConfirmed: v }),
+  setRoiConfirmed: (v) => set((state) => ({
+    roiConfirmed: v,
+    roiVersion: v ? state.roiVersion + 1 : 0,
+  })),
   setProcessing: (active, progress = 0, current = 0, total = 0) =>
     set({
       processingActive: active,
@@ -283,6 +299,8 @@ export const useAppStore = create<AppState>((set) => ({
   setMaskSource: (source) => set({ maskSource: source }),
   setMaskDir: (dir) => set({ maskDir: dir }),
   setMaskValidation: (result) => set({ maskValidation: result }),
+  setTilingPreview: (preview) => set({ tilingPreview: preview }),
+  setShowTileGrid: (show) => set({ showTileGrid: show }),
   setExport: (active, progress = 0) =>
     set({ exportActive: active, exportProgress: progress }),
   setViewOffset: (offset) => set({ viewOffset: offset }),

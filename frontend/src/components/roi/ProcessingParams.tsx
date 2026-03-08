@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { CollapsibleSection } from "@/components/shared/CollapsibleSection";
 import { FieldRow } from "@/components/shared/FieldRow";
 import { SegmentedControl } from "@/components/shared/SegmentedControl";
@@ -6,9 +6,17 @@ import { SelectField } from "@/components/shared/SelectField";
 import { Toggle } from "@/components/shared/Toggle";
 import { SmallInput } from "@/components/shared/SmallInput";
 import { useAppStore } from "@/stores/appStore";
-import { configureProcessing, validateMasks } from "@/api/processing";
+import { configureProcessing, validateMasks, fetchTilingPreview } from "@/api/processing";
 import { KeyFrameTimeline } from "./KeyFrameTimeline";
 import { MaskSourceSelector } from "./MaskSourceSelector";
+import type { TilingPreview } from "@/types/api";
+import {
+  memoryBudgetToPixels,
+  pixelsToMemoryBudget,
+  blendQualityToParams,
+  formatTileSize,
+  formatMemory,
+} from "@/utils/tilingCalculations";
 
 const keyFrameModeOptions = [
   { value: "every_frame", label: "Every Frame" },
@@ -21,7 +29,15 @@ const maskSourceOptions = [
   { value: "folder", label: "Custom (load folder)" },
 ];
 
+// Tooltip content for computed parameters
+const TOOLTIPS: Record<string, string> = {
+  tileOverlap: "Overlapping pixels between adjacent tiles. Larger = smoother blending, more computation.",
+  roiMargin: "Extra pixels beyond ROI boundary for model context. Improves accuracy at ROI edges.",
+  smoothingRadius: "Gaussian smoothing radius. Larger = smoother displacement, less detail. 0 = disabled.",
+};
+
 export function ProcessingParams() {
+  // Existing store selectors
   const mode = useAppStore((s) => s.mode);
   const setMode = useAppStore((s) => s.setMode);
   const totalFrames = useAppStore((s) => s.imageFiles.length);
@@ -40,28 +56,101 @@ export function ProcessingParams() {
   const setMaskDir = useAppStore((s) => s.setMaskDir);
   const setMaskValidation = useAppStore((s) => s.setMaskValidation);
 
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  // New tiling-related selectors
+  const modelMetadata = useAppStore((s) => s.modelMetadata);
+  const roiConfirmed = useAppStore((s) => s.roiConfirmed);
+  const roiVersion = useAppStore((s) => s.roiVersion);
+  const tilingPreview = useAppStore((s) => s.tilingPreview);
+  const showTileGrid = useAppStore((s) => s.showTileGrid);
+  const setTilingPreview = useAppStore((s) => s.setTilingPreview);
+  const setShowTileGrid = useAppStore((s) => s.setShowTileGrid);
+  const processingActive = useAppStore((s) => s.processingActive);
 
-  // Advanced params with sensible defaults
-  const [contextPadding, setContextPadding] = useState("64");
-  const [tileOverlap, setTileOverlap] = useState("64");
-  const [sigma, setSigma] = useState("1.5");
-  const [safetyFactor, setSafetyFactor] = useState("0.75");
+  // Maximum p_max_pixels from model (or default)
+  const maxPmax = modelMetadata?.safe_pmax ?? 4_000_000;
+  // Recommended position (from safe_pmax)
+  const recommendedPmax = maxPmax;
+  // Allow going up to 2x recommended (with warning)
+  const sliderMaxPmax = Math.min(maxPmax * 2, 16_000_000);
+
+  // Slider states (0-1)
+  const [memoryBudget, setMemoryBudget] = useState(() =>
+    pixelsToMemoryBudget(maxPmax, sliderMaxPmax)
+  );
+  const [blendQuality, setBlendQuality] = useState(0.5); // Balanced default
+
+  // Override states: null means auto-computed, number means user override
+  const [overrides, setOverrides] = useState<{
+    tileOverlap: number | null;
+    roiMargin: number | null;
+    smoothingRadius: number | null;
+  }>({
+    tileOverlap: null,
+    roiMargin: null,
+    smoothingRadius: null,
+  });
+
+  // Editing states for click-to-edit
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
 
   // Local state for interval input (synced on blur / Enter)
   const [intervalInput, setIntervalInput] = useState(String(keyFrameInterval));
 
+  // Computed values
+  const pMaxPixels = memoryBudgetToPixels(memoryBudget, sliderMaxPmax);
+  const blendParams = blendQualityToParams(blendQuality);
+
+  const effectiveTileOverlap = overrides.tileOverlap ?? blendParams.overlap;
+  const effectiveRoiMargin = overrides.roiMargin ?? 64;
+  const effectiveSmoothingRadius = overrides.smoothingRadius ?? blendParams.sigma;
+
+  // Sync to backend when computed values change
+  const syncRef = useRef(false);
+  useEffect(() => {
+    if (!syncRef.current) {
+      syncRef.current = true;
+      return;
+    }
+    configureProcessing({
+      p_max_pixels: pMaxPixels,
+      tile_overlap: effectiveTileOverlap,
+      context_padding: effectiveRoiMargin,
+      sigma: effectiveSmoothingRadius,
+      use_smooth: effectiveSmoothingRadius > 0,
+    }).catch(() => {});
+  }, [pMaxPixels, effectiveTileOverlap, effectiveRoiMargin, effectiveSmoothingRadius]);
+
+  // Fetch tiling preview when relevant state changes
+  useEffect(() => {
+    if (!roiConfirmed || !modelMetadata) {
+      setTilingPreview(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      fetchTilingPreview()
+        .then(setTilingPreview)
+        .catch((err) => {
+          console.error("[TilingPreview] fetch failed:", err?.response?.status, err?.message);
+          setTilingPreview(null);
+        });
+    }, 300); // debounce 300ms
+    return () => clearTimeout(timer);
+  }, [roiConfirmed, roiVersion, modelMetadata, pMaxPixels, effectiveTileOverlap, effectiveRoiMargin, setTilingPreview]);
+
+  // Update memory budget slider when model changes
+  useEffect(() => {
+    if (modelMetadata?.safe_pmax) {
+      const newBudget = pixelsToMemoryBudget(modelMetadata.safe_pmax, sliderMaxPmax);
+      setMemoryBudget(newBudget);
+    }
+  }, [modelMetadata?.safe_pmax, sliderMaxPmax]);
+
+  // --- Mode handler ---
   const handleModeChange = (val: string) => {
     const m = val.toLowerCase() as "accumulative" | "incremental";
     setMode(m);
     configureProcessing({ mode: m }).catch(() => {});
-  };
-
-  const handleParamChange = (key: string, value: string) => {
-    const num = parseFloat(value);
-    if (!isNaN(num)) {
-      configureProcessing({ [key]: num }).catch(() => {});
-    }
   };
 
   // --- Incremental settings handlers ---
@@ -144,58 +233,177 @@ export function ProcessingParams() {
     }
   };
 
+  // Click-to-edit handlers
+  const startEdit = (key: string, currentValue: number) => {
+    setEditing(key);
+    setEditValue(String(currentValue));
+  };
+
+  const commitEdit = (key: string) => {
+    const num = parseFloat(editValue);
+    if (!isNaN(num) && num >= 0) {
+      setOverrides((prev) => ({ ...prev, [key]: num }));
+    }
+    setEditing(null);
+  };
+
+  const resetOverride = (key: string) => {
+    setOverrides((prev) => ({ ...prev, [key]: null }));
+  };
+
+  // Determine if memory budget exceeds recommendation
+  const isOverBudget = pMaxPixels > recommendedPmax;
+  const recommendedSliderPos = pixelsToMemoryBudget(recommendedPmax, sliderMaxPmax);
+
+  // Helper to render a computed parameter row
+  function renderComputedParam(key: string, label: string, value: number, displayValue: string) {
+    const isOverridden = overrides[key as keyof typeof overrides] !== null;
+    const isEditingThis = editing === key;
+
+    return (
+      <div key={key} className="flex items-center justify-between gap-2 group">
+        <div className="flex items-center gap-1">
+          <span
+            className={`text-[11px] ${isOverridden ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]"}`}
+          >
+            {label}
+          </span>
+          <span
+            className="text-[10px] text-[var(--muted-foreground)] opacity-0 group-hover:opacity-60 cursor-help"
+            title={TOOLTIPS[key]}
+          >
+            &#9432;
+          </span>
+        </div>
+        <div className="flex items-center gap-1">
+          {isEditingThis ? (
+            <input
+              type="text"
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              onBlur={() => commitEdit(key)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitEdit(key);
+                if (e.key === "Escape") setEditing(null);
+              }}
+              className="w-16 h-5 px-1 text-[11px] bg-[var(--input)] border border-[var(--primary)] rounded text-right text-[var(--foreground)] outline-none"
+              autoFocus
+            />
+          ) : (
+            <span
+              className={`text-[11px] cursor-pointer hover:underline ${
+                isOverridden ? "text-[var(--foreground)] font-medium" : "text-[var(--muted-foreground)]"
+              }`}
+              onClick={() => !processingActive && startEdit(key, value)}
+            >
+              {displayValue}
+            </span>
+          )}
+          {isOverridden && !isEditingThis && (
+            <button
+              onClick={() => resetOverride(key)}
+              className="text-[10px] text-[var(--muted-foreground)] hover:text-[var(--foreground)] opacity-60 hover:opacity-100"
+              title="Reset to auto"
+            >
+              &#8634;
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <CollapsibleSection title="Processing Mode">
+        {/* Mode selector */}
         <SegmentedControl
           options={["Accumulative", "Incremental"]}
           value={mode === "accumulative" ? "Accumulative" : "Incremental"}
           onChange={handleModeChange}
         />
 
-        <FieldRow label="Show Advanced">
-          <Toggle checked={showAdvanced} onChange={setShowAdvanced} />
-        </FieldRow>
+        {/* Tiling controls — only shown after ROI is confirmed */}
+        {roiConfirmed && (
+          <>
+            {/* Memory Budget Slider */}
+            <div className="mt-3 space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] text-[var(--muted-foreground)]">Memory Budget</span>
+                <span className="text-[11px] text-[var(--muted-foreground)]">
+                  {formatTileSize(pMaxPixels)}
+                </span>
+              </div>
+              <div className="relative">
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={memoryBudget}
+                  onChange={(e) => setMemoryBudget(parseFloat(e.target.value))}
+                  className="w-full h-1 rounded appearance-none cursor-pointer"
+                  style={{
+                    background: isOverBudget
+                      ? `linear-gradient(to right, var(--primary) 0%, var(--primary) ${recommendedSliderPos * 100}%, #f59e0b ${recommendedSliderPos * 100}%, #f59e0b 100%)`
+                      : "var(--secondary)",
+                    accentColor: isOverBudget ? "#f59e0b" : "var(--primary)",
+                  }}
+                  disabled={processingActive}
+                />
+                {isOverBudget && (
+                  <span className="text-[9px] text-yellow-400 mt-0.5 block">
+                    Exceeds recommended — may cause OOM
+                  </span>
+                )}
+              </div>
+            </div>
 
-        {showAdvanced && (
-          <div className="flex flex-col gap-1.5 pt-1">
-            <FieldRow label="Context Pad">
-              <SmallInput
-                value={contextPadding}
-                onChange={(v) => {
-                  setContextPadding(v);
-                  handleParamChange("context_padding", v);
-                }}
+            {/* Blend Quality Slider */}
+            <div className="mt-2 space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] text-[var(--muted-foreground)]">Blend Quality</span>
+                <span className="text-[11px] text-[var(--muted-foreground)]">
+                  {blendQuality < 0.25 ? "Fast" : blendQuality < 0.75 ? "Balanced" : "High"}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={blendQuality}
+                onChange={(e) => setBlendQuality(parseFloat(e.target.value))}
+                className="w-full h-1 bg-[var(--secondary)] rounded appearance-none cursor-pointer accent-[var(--primary)]"
+                disabled={processingActive}
               />
+              <div className="flex justify-between text-[9px] text-[var(--muted-foreground)] opacity-60">
+                <span>Fast</span>
+                <span>Balanced</span>
+                <span>High</span>
+              </div>
+            </div>
+
+            {/* Computed Parameters */}
+            <div className="mt-3 space-y-1 border-t border-[var(--border)] pt-2">
+              <span className="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wider">
+                Parameters
+              </span>
+              {renderComputedParam("tileOverlap", "Tile Overlap", effectiveTileOverlap, `${effectiveTileOverlap} px`)}
+              {renderComputedParam("roiMargin", "ROI Margin", effectiveRoiMargin, `${effectiveRoiMargin} px`)}
+              {renderComputedParam("smoothingRadius", "Smoothing Radius", effectiveSmoothingRadius, `${effectiveSmoothingRadius}`)}
+            </div>
+
+            {/* Show Tile Grid toggle */}
+            <FieldRow label="Show Tile Grid">
+              <Toggle checked={showTileGrid} onChange={setShowTileGrid} />
             </FieldRow>
-            <FieldRow label="Tile Overlap">
-              <SmallInput
-                value={tileOverlap}
-                onChange={(v) => {
-                  setTileOverlap(v);
-                  handleParamChange("tile_overlap", v);
-                }}
-              />
-            </FieldRow>
-            <FieldRow label="Smooth σ">
-              <SmallInput
-                value={sigma}
-                onChange={(v) => {
-                  setSigma(v);
-                  handleParamChange("sigma", v);
-                }}
-              />
-            </FieldRow>
-            <FieldRow label="Safety Factor">
-              <SmallInput
-                value={safetyFactor}
-                onChange={(v) => {
-                  setSafetyFactor(v);
-                  handleParamChange("safety_factor", v);
-                }}
-              />
-            </FieldRow>
-          </div>
+
+            {/* Tiling Status Panel */}
+            {tilingPreview && (
+              <TilingStatusPanel preview={tilingPreview} />
+            )}
+          </>
         )}
       </CollapsibleSection>
 
@@ -271,5 +479,51 @@ export function ProcessingParams() {
         </CollapsibleSection>
       )}
     </>
+  );
+}
+
+// Tiling Status Panel sub-component
+function TilingStatusPanel({ preview }: { preview: TilingPreview }) {
+  return (
+    <div className="mt-2 space-y-0.5 border-t border-[var(--border)] pt-2">
+      <span className="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wider">
+        Status
+      </span>
+      <StatusRow label="Image" value={`${preview.image_size[0]} \u00d7 ${preview.image_size[1]} px`} />
+      <StatusRow label="ROI Area" value={`${preview.roi_bbox[2]} \u00d7 ${preview.roi_bbox[3]} px`} />
+      <StatusRow label="Work Area" value={`${preview.work_area.w} \u00d7 ${preview.work_area.h} px`} />
+      <StatusRow
+        label="Tiling"
+        value={preview.is_single_shot
+          ? "Single shot"
+          : `${preview.tile_count} tiles`}
+      />
+      {!preview.is_single_shot && (
+        <StatusRow label="Overlap" value={`${(preview.overlap_ratio * 100).toFixed(1)}%`} />
+      )}
+      <div className="border-t border-[var(--border)] my-1" />
+      <StatusRow label="GPU" value={preview.gpu.name} />
+      <StatusRow
+        label="VRAM Free"
+        value={`${formatMemory(preview.gpu.free_mb)} / ${formatMemory(preview.gpu.total_mb)}`}
+      />
+      <StatusRow
+        label="Est. Memory"
+        value={`~${formatMemory(preview.est_memory_per_tile_mb)} / tile`}
+      />
+      <StatusRow
+        label="Est. Time"
+        value={`~${preview.est_time_seconds.toFixed(1)}s`}
+      />
+    </div>
+  );
+}
+
+function StatusRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-[10px] text-[var(--muted-foreground)]">{label}</span>
+      <span className="text-[10px] text-[var(--foreground)]">{value}</span>
+    </div>
   );
 }

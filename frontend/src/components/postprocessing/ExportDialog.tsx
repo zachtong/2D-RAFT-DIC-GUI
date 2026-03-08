@@ -24,8 +24,6 @@ const STRAIN_COMPONENTS: { value: DisplayComponent; label: string }[] = [
   { value: "max_shear", label: "Max Shear" },
   { value: "von_mises", label: "Von Mises" },
   { value: "rotation", label: "Rotation" },
-  { value: "rotation_cumulative", label: "Rotation (cumul.)" },
-  { value: "confidence", label: "Confidence" },
   { value: "dexx_dt", label: "dεxx/dt" },
   { value: "deyy_dt", label: "dεyy/dt" },
   { value: "dexy_dt", label: "dεxy/dt" },

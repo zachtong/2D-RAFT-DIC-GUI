@@ -13,29 +13,22 @@ class DICConfig:
     project_root: str = ""
     model_path: str = ""
     model_label: str = ""
-    
+
     # Processing Mode
     mode: str = "accumulative"  # 'accumulative' or 'incremental'
-    
-    # Crop Settings
-    use_crop: bool = False
-    crop_size: Tuple[int, int] = (0, 0)  # (H, W)
-    shift: int = 1800
-    
+
     # Smoothing Settings
     use_smooth: bool = True
     sigma: float = 2.0
-    
+
     # Tiling / ROI Settings
-    context_padding: int = 32    # Context padding (px)
-    tile_overlap: int = 32       # Tile overlap (px)
+    context_padding: int = 64    # Context padding (px)
+    tile_overlap: int = 64       # Tile overlap (px)
     p_max_pixels: int = 1100 * 1100
-    safety_factor: float = 0.55
-    allow_shared_memory: bool = False
-    
+
     # Runtime / Hardware
     device: str = "cuda"
-    
+
     # Incremental mode settings
     key_frames: Optional[list] = None        # User-specified key frames (1-indexed)
     key_frame_interval: Optional[int] = None  # Every N frames shortcut
@@ -53,10 +46,5 @@ class DICConfig:
         #     return False, "Output directory is not selected."
         if not self.model_path:
             return False, "Model checkpoint is not selected."
-        
-        if self.use_crop:
-            h, w = self.crop_size
-            if h <= 0 or w <= 0:
-                return False, "Invalid crop size."
-                
+
         return True, ""

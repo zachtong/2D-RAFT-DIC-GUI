@@ -22,7 +22,7 @@ export interface PreRenderState {
 
 const STRAIN_COMPONENTS = new Set([
   "exx", "eyy", "exy", "e1", "e2", "max_shear", "von_mises", "rotation",
-  "rotation_cumulative", "confidence", "dexx_dt", "deyy_dt", "dexy_dt",
+  "dexx_dt", "deyy_dt", "dexy_dt",
 ]);
 
 function buildFrameUrl(

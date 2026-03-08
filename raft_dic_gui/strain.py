@@ -324,28 +324,6 @@ def calculate_strain_field(displacement_field: np.ndarray, method: str = 'green_
     t5 = time.perf_counter()
     print(f"[TIMING] Strain calc - linear solve: {t5-t4:.3f}s")
 
-    # Compute fitting residual as confidence metric
-    # Residual = ||M*a - b||^2 / (||b||^2 + eps)
-    confidence = np.full(N_pixels, np.nan)
-    if np.any(valid_solve_mask):
-        # Predicted b values: M @ coeffs
-        pred_u = np.einsum('nij,nj->ni', M_stack[valid_solve_mask], coeffs_u[valid_solve_mask])
-        pred_v = np.einsum('nij,nj->ni', M_stack[valid_solve_mask], coeffs_v[valid_solve_mask])
-
-        # Residual sum of squares
-        resid_u = np.sum((pred_u - b_u_stack[valid_solve_mask])**2, axis=1)
-        resid_v = np.sum((pred_v - b_v_stack[valid_solve_mask])**2, axis=1)
-
-        # Normalization
-        norm_u = np.sum(b_u_stack[valid_solve_mask]**2, axis=1)
-        norm_v = np.sum(b_v_stack[valid_solve_mask]**2, axis=1)
-
-        # Combined normalized residual
-        nresid = (resid_u + resid_v) / (norm_u + norm_v + 1e-20)
-        confidence[valid_solve_mask] = np.clip(1.0 - nresid, 0.0, 1.0)
-
-    confidence_map = confidence.reshape(H_down, W_down)
-
     # 5. Extract Gradients
     # a0, a1(x), a2(y), ...
     # du/dx = a1
@@ -394,7 +372,7 @@ def calculate_strain_field(displacement_field: np.ndarray, method: str = 'green_
 
     # Apply mask to all components
     for key, val in locals().items():
-        if key in ['exx', 'eyy', 'exy', 'e1', 'e2', 'max_shear', 'von_mises', 'rotation', 'confidence_map']:
+        if key in ['exx', 'eyy', 'exy', 'e1', 'e2', 'max_shear', 'von_mises', 'rotation']:
             val[~mask_down] = np.nan
 
     return {
@@ -406,7 +384,6 @@ def calculate_strain_field(displacement_field: np.ndarray, method: str = 'green_
         'max_shear': max_shear,
         'von_mises': von_mises,
         'rotation': rotation,
-        'confidence': confidence_map
     }
 
 
@@ -477,31 +454,5 @@ def calculate_strain_rate(strain_results: list, fps: float = 1.0) -> list:
                 # Central difference
                 if comp in strain_results[i - 1] and comp in strain_results[i + 1]:
                     strain_results[i][rate_key] = (strain_results[i + 1][comp] - strain_results[i - 1][comp]) / (2.0 * dt)
-
-    return strain_results
-
-
-def accumulate_rotation(strain_results: list) -> list:
-    """Add cumulative rotation to strain results.
-
-    For each frame i, rotation_cumulative[i] = sum(rotation[0..i]).
-    This is an additive approximation valid for small incremental rotations.
-
-    Modifies strain_results in-place, adding 'rotation_cumulative' key.
-    """
-    if not strain_results:
-        return strain_results
-
-    first = strain_results[0]
-    if 'rotation' not in first or first['rotation'] is None:
-        return strain_results
-
-    cumulative = np.zeros_like(first['rotation'])
-    for s in strain_results:
-        if 'rotation' in s and s['rotation'] is not None:
-            cumulative = cumulative + np.nan_to_num(s['rotation'], nan=0.0)
-            s['rotation_cumulative'] = cumulative.copy()
-        else:
-            s['rotation_cumulative'] = cumulative.copy()
 
     return strain_results

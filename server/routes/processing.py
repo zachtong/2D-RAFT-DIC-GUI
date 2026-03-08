@@ -31,8 +31,6 @@ def configure():
             cfg.use_smooth = bool(data["use_smooth"])
         if "sigma" in data:
             cfg.sigma = float(data["sigma"])
-        if "safety_factor" in data:
-            cfg.safety_factor = float(data["safety_factor"])
         if "p_max_pixels" in data:
             cfg.p_max_pixels = int(data["p_max_pixels"])
         if "device" in data:
@@ -140,12 +138,18 @@ def run_processing():
             tempfile.gettempdir(), "raft_dic_output"
         )
 
-    def progress_callback(percent, current, total):
-        socketio.emit("processing:progress", {
+    def progress_callback(percent, current, total, **extra):
+        payload = {
             "percent": round(percent, 1),
             "current": current,
             "total": total,
-        })
+        }
+        # Forward tile-level progress, timing, VRAM info from controller
+        for key in ("tile_current", "tile_total", "vram_used_mb", "vram_total_mb",
+                    "elapsed_seconds", "est_remaining_seconds"):
+            if key in extra:
+                payload[key] = extra[key]
+        socketio.emit("processing:progress", payload)
 
     def check_stop():
         """Check stop/pause. Blocks while paused."""

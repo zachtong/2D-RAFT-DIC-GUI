@@ -17,8 +17,6 @@ _render_cache = RenderCache(auto_cache_size())
 
 STRAIN_COMPONENTS = [
     "exx", "eyy", "exy", "e1", "e2", "max_shear", "von_mises", "rotation",
-    "rotation_cumulative",
-    "confidence",
     "dexx_dt", "deyy_dt", "dexy_dt",
 ]
 
@@ -91,10 +89,6 @@ def calculate():
             # Compute strain rate (central difference)
             from raft_dic_gui.strain import calculate_strain_rate
             results = calculate_strain_rate(results, fps=strain_fps)
-
-            # Accumulate rotation across frames
-            from raft_dic_gui.strain import accumulate_rotation
-            results = accumulate_rotation(results)
 
             # Compute max strain for large-deformation warning
             max_strain = 0.0
