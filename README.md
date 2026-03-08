@@ -38,18 +38,18 @@ RAFTcorr replaces the entire correlation pipeline with **RAFT** (Recurrent All-P
 |  | Ncorr | DICe | OpenCorr | VIC-2D/3D | ZEISS Correlate | **RAFTcorr** |
 |---|---|---|---|---|---|---|
 | **Algorithm** | Subset (IC-GN) | Subset + Global | Subset (IC-GN/NR) | Subset (proprietary) | Facet-based | ${\color{green}\textsf{Deep learning (RAFT)}}$ |
-| **Sub-pixel accuracy** | ~0.01 px | ~0.01–0.05 px | ~0.01 px | ~0.01 px | ~0.01 px | ~0.03–0.08 px ¹ |
-| **Dense-field speed** | Minutes (CPU) | Minutes (MPI/CPU) | Fast (CPU+GPU) | Fast (CPU) | Fast (CPU) | ${\color{green}\textsf{Seconds (GPU)}}$ |
-| **Large displacement** | ~½ subset | ~½ subset | ~½ subset | Moderate | Moderate | ${\color{green}\textsf{50+ px native}}$ |
-| **Low-texture** | Poor | Moderate ² | Moderate | Moderate | Moderate | ${\color{green}\textsf{Strong}}$ |
-| **Parameters to tune** | 5–8 | Many | 5+ | 3–5 (guided) | 3–5 (guided) | ${\color{green}\textsf{0 — neural network}}$ |
-| **GPU acceleration** | No | No | CUDA (IC-GN) | No | No | ${\color{green}\textsf{CUDA native}}$ |
-| **2D / 3D / DVC** | 2D | 2D + Stereo | 2D + Stereo + DVC | 2D + 3D | 2D (free) + 3D | 2D only ³ |
-| **Strain** | Green-Lagrange | Robust (LSQ) | 2D + 3D surface | Comprehensive | Full | Green-Lagrange + eng. |
-| **Platform** | MATLAB | C++ (cross) | C++ (cross) | Windows | Windows | ${\color{green}\textsf{Browser (cross-platform)}}$ |
-| **Cost** | Free (MATLAB) | Free (BSD-3) | Free (MPL-2.0) | $5K–150K+ | Free / paid | ${\color{green}\textsf{Free (MIT)}}$ |
-| **Open source** | Yes | Yes | Yes | No | No | ${\color{green}\textsf{Yes}}$ |
-| **Development** | Dormant (~2019) | Active (v3.0) | Active (2025) | Active (v11) | Active (2025) | ${\color{green}\textsf{Active}}$ |
+| **Sub-pixel accuracy** | ${\color{green}\textsf{0.01 px}}$ | 0.01–0.05 px | ${\color{green}\textsf{0.01 px}}$ | ${\color{green}\textsf{0.01 px}}$ | ${\color{green}\textsf{0.01 px}}$ | ${\color{red}\textsf{0.03–0.08 px}}$ ¹ |
+| **Dense-field speed** | ${\color{red}\textsf{Minutes (CPU)}}$ | ${\color{red}\textsf{Minutes (MPI/CPU)}}$ | Fast (CPU+GPU) | Fast (CPU) | Fast (CPU) | ${\color{green}\textsf{Seconds (GPU)}}$ |
+| **Large displacement** | ${\color{red}\textsf{Half subset}}$ | ${\color{red}\textsf{Half subset}}$ | ${\color{red}\textsf{Half subset}}$ | Moderate | Moderate | ${\color{green}\textsf{50+ px native}}$ |
+| **Low-texture** | ${\color{red}\textsf{Poor}}$ | Moderate ² | Moderate | Moderate | Moderate | ${\color{green}\textsf{Strong}}$ |
+| **Parameters to tune** | ${\color{red}\textsf{5–8}}$ | ${\color{red}\textsf{Many}}$ | ${\color{red}\textsf{5+}}$ | 3–5 (guided) | 3–5 (guided) | ${\color{green}\textsf{0 — neural network}}$ |
+| **GPU acceleration** | ${\color{red}\textsf{No}}$ | ${\color{red}\textsf{No}}$ | ${\color{green}\textsf{CUDA (IC-GN)}}$ | ${\color{red}\textsf{No}}$ | ${\color{red}\textsf{No}}$ | ${\color{green}\textsf{CUDA native}}$ |
+| **2D / 3D / DVC** | ${\color{red}\textsf{2D only}}$ | ${\color{green}\textsf{2D + Stereo}}$ | ${\color{green}\textsf{2D + Stereo + DVC}}$ | ${\color{green}\textsf{2D + 3D}}$ | 2D (free) + 3D | ${\color{red}\textsf{2D only}}$ ³ |
+| **Strain** | Green-Lagrange | Robust (LSQ) | 2D + 3D surface | ${\color{green}\textsf{Comprehensive}}$ | ${\color{green}\textsf{Full}}$ | Green-Lagrange + eng. |
+| **Platform** | ${\color{red}\textsf{MATLAB}}$ | C++ (cross) | C++ (cross) | ${\color{red}\textsf{Windows}}$ | ${\color{red}\textsf{Windows}}$ | ${\color{green}\textsf{Browser (cross-platform)}}$ |
+| **Cost** | Free (MATLAB req.) | ${\color{green}\textsf{Free (BSD-3)}}$ | ${\color{green}\textsf{Free (MPL-2.0)}}$ | ${\color{red}\textsf{5K–150K+ USD}}$ | Free (2D) / paid (3D) | ${\color{green}\textsf{Free (MIT)}}$ |
+| **Open source** | ${\color{green}\textsf{Yes}}$ | ${\color{green}\textsf{Yes}}$ | ${\color{green}\textsf{Yes}}$ | ${\color{red}\textsf{No}}$ | ${\color{red}\textsf{No}}$ | ${\color{green}\textsf{Yes}}$ |
+| **Development** | ${\color{red}\textsf{Dormant (~2019)}}$ | ${\color{green}\textsf{Active (v3.0)}}$ | ${\color{green}\textsf{Active (2025)}}$ | ${\color{green}\textsf{Active (v11)}}$ | ${\color{green}\textsf{Active (2025)}}$ | ${\color{green}\textsf{Active}}$ |
 
 <sup>¹ DIC-optimized RAFT models achieve ~0.03–0.08 px; standard IC-GN methods reach ~0.01 px. Deep learning DIC trades modest sub-pixel precision for order-of-magnitude gains in speed, robustness, and ease of use. Active research is closing this gap.</sup><br>
 <sup>² DICe offers a simplex (gradient-free) optimizer that improves robustness in low-contrast regions.</sup><br>
