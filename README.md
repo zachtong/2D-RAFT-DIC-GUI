@@ -35,37 +35,45 @@ RAFTcorr replaces the entire correlation pipeline with **RAFT** (Recurrent All-P
 
 ### How RAFTcorr compares
 
-<!-- TODO: Verify speed numbers with your actual benchmarks -->
+|  | Ncorr | DICe | OpenCorr | VIC-2D/3D | ZEISS Correlate | **RAFTcorr** |
+|---|---|---|---|---|---|---|
+| **Algorithm** | Subset (IC-GN) | Subset + Global | Subset (IC-GN/NR) | Subset (proprietary) | Facet-based | ${\color{green}\textsf{Deep learning (RAFT)}}$ |
+| **Sub-pixel accuracy** | ~0.01 px | ~0.01–0.05 px | ~0.01 px | ~0.01 px | ~0.01 px | ~0.03–0.08 px ¹ |
+| **Dense-field speed** | Minutes (CPU) | Minutes (MPI/CPU) | Fast (CPU+GPU) | Fast (CPU) | Fast (CPU) | ${\color{green}\textsf{Seconds (GPU)}}$ |
+| **Large displacement** | ~½ subset | ~½ subset | ~½ subset | Moderate | Moderate | ${\color{green}\textsf{50+ px native}}$ |
+| **Low-texture** | Poor | Moderate ² | Moderate | Moderate | Moderate | ${\color{green}\textsf{Strong}}$ |
+| **Parameters to tune** | 5–8 | Many | 5+ | 3–5 (guided) | 3–5 (guided) | ${\color{green}\textsf{0 — neural network}}$ |
+| **GPU acceleration** | No | No | CUDA (IC-GN) | No | No | ${\color{green}\textsf{CUDA native}}$ |
+| **2D / 3D / DVC** | 2D | 2D + Stereo | 2D + Stereo + DVC | 2D + 3D | 2D (free) + 3D | 2D only ³ |
+| **Strain** | Green-Lagrange | Robust (LSQ) | 2D + 3D surface | Comprehensive | Full | Green-Lagrange + eng. |
+| **Platform** | MATLAB | C++ (cross) | C++ (cross) | Windows | Windows | ${\color{green}\textsf{Browser (cross-platform)}}$ |
+| **Cost** | Free (MATLAB) | Free (BSD-3) | Free (MPL-2.0) | $5K–150K+ | Free / paid | ${\color{green}\textsf{Free (MIT)}}$ |
+| **Open source** | Yes | Yes | Yes | No | No | ${\color{green}\textsf{Yes}}$ |
+| **Development** | Dormant (~2019) | Active (v3.0) | Active (2025) | Active (v11) | Active (2025) | ${\color{green}\textsf{Active}}$ |
 
-|  | Ncorr | DICe | VIC-2D | **RAFTcorr** |
-|---|---|---|---|---|
-| **Algorithm** | Subset matching | Subset matching | Subset matching | ${\color{green}\textsf{Deep learning optical flow}}$ |
-| **Speed** | ~10⁴ POI/s | ~10⁴ POI/s | ~10⁴ POI/s | ${\color{green}\textsf{~10⁶ POI/s (GPU)}}$ |
-| **Large displacement** | Limited | Limited | Moderate | ${\color{green}\textsf{Native support}}$ |
-| **Low-texture robustness** | Poor | Poor | Moderate | ${\color{green}\textsf{Strong}}$ |
-| **Parameters to tune** | 5+ | 5+ | 5+ | ${\color{green}\textsf{0 — neural network}}$ |
-| **Platform** | MATLAB (paid) | C++ | Windows only | ${\color{green}\textsf{Python (cross-platform)}}$ |
-| **Cost** | Free (MATLAB req.) | Free | $10,000+ | ${\color{green}\textsf{Free}}$ |
-| **Open source** | Yes | Yes | No | Yes |
-| **Active development** | Inactive since ~2020 | Inactive since ~2021 | Proprietary | ${\color{green}\textsf{Active}}$ |
+<sup>¹ DIC-optimized RAFT models achieve ~0.03–0.08 px; standard IC-GN methods reach ~0.01 px. Deep learning DIC trades modest sub-pixel precision for order-of-magnitude gains in speed, robustness, and ease of use. Active research is closing this gap.</sup><br>
+<sup>² DICe offers a simplex (gradient-free) optimizer that improves robustness in low-contrast regions.</sup><br>
+<sup>³ Stereo 3D DIC support is planned for a future release.</sup>
 
 <details>
-<summary><b>vs. open-source DIC tools (Ncorr, DICe)</b></summary>
+<summary><b>vs. open-source DIC tools (Ncorr, DICe, OpenCorr, muDIC)</b></summary>
 
-- **Algorithm generation gap** — Ncorr and DICe use subset-based correlation, an approach from the 2000s. RAFTcorr uses deep learning optical flow, which handles sparse textures and large deformations where subset methods fail.
-- **Modern platform** — Python ecosystem vs. MATLAB/C++. Easier to integrate into existing research pipelines, no paid MATLAB license required.
-- **Actively maintained** — Both Ncorr and DICe communities have largely gone dormant. RAFTcorr is under active development by the research authors themselves.
-- **Academically validated** — Not a hobby project — backed by peer-reviewed research from UT Austin.
+- **Algorithm generation gap** — Ncorr, DICe, and OpenCorr all use subset-based IC-GN optimization, an approach from the 2000s. RAFTcorr uses deep learning optical flow, which handles sparse textures and large deformations where subset methods fail.
+- **Zero-parameter workflow** — Traditional DIC requires careful tuning of subset size, step size, strain window, seed points, and convergence criteria. RAFTcorr requires none of these — the neural network handles everything automatically.
+- **Modern platform** — Browser-based GUI vs. MATLAB (Ncorr) or C++ requiring compilation (DICe, OpenCorr). No MATLAB license, no build toolchain needed.
+- **vs. OpenCorr specifically** — OpenCorr is the strongest open-source traditional DIC tool: actively maintained, GPU-accelerated IC-GN, and supports 2D + Stereo 3D + DVC. However, it still requires traditional parameter tuning and is limited by subset-based displacement range. RAFTcorr's deep learning approach is fundamentally different — zero parameters, native large-displacement support, and stronger robustness to degraded speckle patterns.
+- **Honest trade-off** — Traditional IC-GN DIC (including OpenCorr) achieves ~0.01 px sub-pixel accuracy, roughly 3–8× better than current deep learning methods. For applications where sub-pixel precision is paramount (e.g., measuring <100 microstrain), traditional DIC may still be the better choice. RAFTcorr excels where speed, large deformation, and robustness matter more than extreme sub-pixel precision.
 
 </details>
 
 <details>
-<summary><b>vs. commercial software (VIC-2D/3D, GOM Correlate, etc.)</b></summary>
+<summary><b>vs. commercial software (VIC-2D/3D, ZEISS Correlate, MatchID)</b></summary>
 
-- **Free** — Eliminates the biggest barrier. Labs that cannot afford $10k+ licenses can run the same analysis at no cost.
+- **Free** — Eliminates the biggest barrier. Labs that cannot afford $5K–150K+ licenses can run full-field DIC at no cost.
 - **Open source & customizable** — Commercial DIC tools are black boxes. RAFTcorr is fully transparent — inspect, modify, and extend every line of code.
-- **Algorithm transparency** — Academic users need to understand and cite the methods they use. Commercial software cannot provide this.
-- **Direct access to the authors** — File an issue, get a response from the people who built the algorithm. Commercial support cannot replicate this.
+- **Algorithm transparency** — Academic users need to understand and cite the methods they use. Commercial software cannot provide this level of reproducibility.
+- **Direct access to the authors** — File an issue, get a response from the people who built the algorithm.
+- **Honest trade-off** — Commercial tools (especially VIC-2D/3D and MatchID) offer mature 3D stereo DIC, extensive validation against engineering standards (ASTM, iDICs), uncertainty quantification, and decades of industrial trust. RAFTcorr is currently 2D-only and has not yet undergone standardized benchmark validation. Choose the right tool for your application.
 
 </details>
 
