@@ -41,6 +41,10 @@ def calculate():
     gaussian_sigma_raw = data.get("gaussian_sigma", None)
     gaussian_sigma = float(gaussian_sigma_raw) if gaussian_sigma_raw is not None else None
     spatial_sigma = float(data.get("spatial_sigma", 0))
+    adaptive = data.get("adaptive", False)
+    cond_threshold = float(data.get("cond_threshold", 1000))
+    coverage_threshold = float(data.get("coverage_threshold", 0.7))
+    boundary_erosion = int(data.get("boundary_erosion", -1))
 
     def compute():
         try:
@@ -73,6 +77,10 @@ def calculate():
                     weighting=weighting,
                     step=step,
                     gaussian_sigma=gaussian_sigma,
+                    adaptive=adaptive,
+                    cond_threshold=cond_threshold,
+                    coverage_threshold=coverage_threshold,
+                    boundary_erosion=boundary_erosion,
                 )
                 results.append(strain_dict)
 

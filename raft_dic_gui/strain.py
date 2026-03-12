@@ -2,6 +2,8 @@
 Strain calculation utilities for RAFT-DIC.
 
 - Virtual Strain Gauge (VSG) method with weighted least-squares
+- Adaptive multi-pass VSG for robust boundary handling near holes
+- Condition number pre-filtering via eigenvalue analysis
 - Rotation field via polar decomposition (Numba-optimized)
 """
 
@@ -126,263 +128,315 @@ def _compute_rotation_field_numba(du_dx, du_dy, dv_dx, dv_dy):
 
     return rotation
 
-def calculate_strain_field(displacement_field: np.ndarray, method: str = 'green_lagrange',
-                         vsg_size: int = 31, poly_order: int = 1, weighting: str = 'Gaussian',
-                         step: int = 1, gaussian_sigma=None):
+
+# ---------------------------------------------------------------------------
+# Adaptive VSG helpers
+# ---------------------------------------------------------------------------
+
+def _adaptive_vsg_sizes(vsg_size, min_vsg=15):
+    """Generate decreasing odd window sizes for adaptive passes.
+
+    Example: vsg_size=31, min_vsg=15 -> [15]
+             vsg_size=31, min_vsg=7  -> [15, 7]
+    Uses min_vsg=15 by default to avoid excessive noise amplification
+    in real DIC data (typical noise ~0.01-0.02 px).
     """
-    Calculate strain field from displacement using VSG method with robust boundary handling.
-    Implements "Vectorized Weighted Least Squares" to handle invalid pixels (Strategy 2).
+    sizes = []
+    s = vsg_size
+    while True:
+        s = max(min_vsg, (s // 2) | 1)  # halve and ensure odd
+        if s >= (sizes[-1] if sizes else vsg_size):
+            break
+        sizes.append(s)
+        if s <= min_vsg:
+            break
+    return sizes
+
+
+def _vsg_gradients(u_filled, v_filled, mask_float, vsg_size, poly_order,
+                   weighting, step, gaussian_sigma, min_weight, cond_threshold):
+    """Compute displacement gradients via single-pass VSG with quality filtering.
+
+    Args:
+        u_filled, v_filled: NaN-free displacement arrays (H, W).
+        mask_float: Validity mask as float64 (1=valid, 0=invalid).
+        vsg_size: Window size (odd).
+        poly_order: 1 or 2.
+        weighting: 'Gaussian' or 'Uniform'.
+        step: Output downsampling stride.
+        gaussian_sigma: Gaussian weight sigma (None -> vsg_size/4).
+        min_weight: Minimum weighted pixel count to attempt solve.
+        cond_threshold: Max condition number (0 to skip check).
+
+    Returns:
+        (du_dx, du_dy, dv_dx, dv_dy, coverage, n_solved, n_filtered)
+        Gradients are 2D (H_down, W_down), NaN where invalid.
+        coverage: ratio of weighted valid pixels to full-window weight (0..1).
+    """
+    if vsg_size % 2 == 0:
+        raise ValueError("VSG size must be odd.")
+
+    half = vsg_size // 2
+    x_range = np.arange(-half, half + 1)
+    y_range = np.arange(-half, half + 1)
+    X_grid, Y_grid = np.meshgrid(x_range, y_range)
+
+    # Weight kernel
+    if weighting.lower() == 'gaussian':
+        sigma = gaussian_sigma if gaussian_sigma is not None else vsg_size / 4.0
+        G = np.exp(-(X_grid**2 + Y_grid**2) / (2 * sigma**2))
+    else:
+        G = np.ones((vsg_size, vsg_size))
+
+    # Basis functions
+    basis_funcs = [np.ones_like(X_grid), X_grid, Y_grid]
+    if poly_order == 2:
+        basis_funcs.extend([X_grid**2, X_grid * Y_grid, Y_grid**2])
+    num_params = len(basis_funcs)
+
+    s_slice = slice(None, None, step)
+
+    # Build M matrix (symmetric) via FFT convolution
+    M_elements = [[None] * num_params for _ in range(num_params)]
+    for i in range(num_params):
+        for j in range(i, num_params):
+            kernel = G * basis_funcs[i] * basis_funcs[j]
+            res = fftconvolve(mask_float, kernel[::-1, ::-1], mode='same')
+            down = res[s_slice, s_slice]
+            M_elements[i][j] = down
+            if i != j:
+                M_elements[j][i] = down
+
+    # Build b vectors
+    u_masked = u_filled * mask_float
+    v_masked = v_filled * mask_float
+    b_u_els = []
+    b_v_els = []
+    for k in range(num_params):
+        kernel = G * basis_funcs[k]
+        kf = kernel[::-1, ::-1]
+        b_u_els.append(fftconvolve(u_masked, kf, mode='same')[s_slice, s_slice])
+        b_v_els.append(fftconvolve(v_masked, kf, mode='same')[s_slice, s_slice])
+
+    # Stack into batch arrays
+    H_down, W_down = M_elements[0][0].shape
+    N = H_down * W_down
+
+    M_stack = np.empty((N, num_params, num_params))
+    b_u_stack = np.empty((N, num_params))
+    b_v_stack = np.empty((N, num_params))
+
+    for i in range(num_params):
+        b_u_stack[:, i] = b_u_els[i].ravel()
+        b_v_stack[:, i] = b_v_els[i].ravel()
+        for j in range(num_params):
+            M_stack[:, i, j] = M_elements[i][j].ravel()
+
+    # --- Quality filtering: min_weight + condition number ---
+    valid = M_stack[:, 0, 0] > min_weight
+
+    # Condition number pre-filtering (eigvalsh is fast for symmetric matrices)
+    if cond_threshold > 0 and np.any(valid):
+        M_check = M_stack[valid]
+        eigvals = np.linalg.eigvalsh(M_check)  # (N_valid, p) sorted ascending
+        cond = eigvals[:, -1] / np.maximum(eigvals[:, 0], 1e-15)
+        ill = cond > cond_threshold
+        if np.any(ill):
+            valid_indices = np.where(valid)[0]
+            valid[valid_indices[ill]] = False
+
+    n_filtered = int(np.sum(M_stack[:, 0, 0] > min_weight)) - int(np.sum(valid))
+
+    # --- Batch solve ---
+    coeffs_u = np.full((N, num_params), np.nan)
+    coeffs_v = np.full((N, num_params), np.nan)
+
+    if np.any(valid):
+        M_valid = M_stack[valid]
+        b_u_valid = b_u_stack[valid][..., None]
+        b_v_valid = b_v_stack[valid][..., None]
+
+        try:
+            coeffs_u[valid] = np.linalg.solve(M_valid, b_u_valid).squeeze(-1)
+            coeffs_v[valid] = np.linalg.solve(M_valid, b_v_valid).squeeze(-1)
+        except np.linalg.LinAlgError:
+            M_inv = np.linalg.pinv(M_valid)
+            coeffs_u[valid] = (M_inv @ b_u_valid).squeeze(-1)
+            coeffs_v[valid] = (M_inv @ b_v_valid).squeeze(-1)
+
+    du_dx = coeffs_u[:, 1].reshape(H_down, W_down)
+    du_dy = coeffs_u[:, 2].reshape(H_down, W_down)
+    dv_dx = coeffs_v[:, 1].reshape(H_down, W_down)
+    dv_dy = coeffs_v[:, 2].reshape(H_down, W_down)
+
+    # Coverage: ratio of weighted valid pixels to full-window weight
+    g_sum = float(G.sum())
+    coverage = (M_stack[:, 0, 0] / g_sum).reshape(H_down, W_down)
+
+    return du_dx, du_dy, dv_dx, dv_dy, coverage, int(np.sum(valid)), n_filtered
+
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
+
+def calculate_strain_field(displacement_field: np.ndarray, method: str = 'green_lagrange',
+                          vsg_size: int = 31, poly_order: int = 1, weighting: str = 'Gaussian',
+                          step: int = 1, gaussian_sigma=None,
+                          adaptive: bool = False, cond_threshold: float = 1000.0,
+                          coverage_threshold: float = 0.7,
+                          boundary_erosion: int = -1):
+    """
+    Calculate strain field with adaptive VSG and quality filtering.
 
     Args:
         displacement_field: (H, W, 2) array with (u, v) displacements.
         method: 'green_lagrange' (default) or 'engineering'.
-        vsg_size: Size of the local window (odd int).
+        vsg_size: Primary VSG window size (odd int).
         poly_order: Polynomial order (1 or 2).
         weighting: 'Uniform' or 'Gaussian'.
         step: Calculation stride (downsampling factor).
         gaussian_sigma: Custom Gaussian sigma. If None, defaults to vsg_size / 4.
+        adaptive: Enable multi-pass adaptive VSG for boundary pixels.
+        cond_threshold: Max condition number; pixels above are NaN (0 to disable).
+        coverage_threshold: Min coverage ratio (0..1) before preferring smaller window.
+        boundary_erosion: Pixels to erode from NaN boundaries (masks out unreliable
+            border strain). -1 = auto (vsg_size // 2), 0 = disabled.
 
     Returns:
-        strain_dict: Dictionary containing strain components.
+        strain_dict: Dictionary containing strain components, or None.
     """
-    import time
     t_start = time.perf_counter()
 
     u = displacement_field[..., 0]
     v = displacement_field[..., 1]
-
     H, W = u.shape
-    print(f"[TIMING] Strain calc: input size {H}x{W}, VSG={vsg_size}, step={step}")
 
-    # 1. Create Validity Mask (1 for valid, 0 for invalid)
+    num_params = 3 if poly_order == 1 else 6
+    min_weight = num_params * 3.0
+
+    print(f"[TIMING] Strain calc: {H}x{W}, VSG={vsg_size}, step={step}, "
+          f"adaptive={adaptive}, cond_thresh={cond_threshold}, min_weight={min_weight}")
+
+    # Validity mask
     mask = (~np.isnan(u)) & (~np.isnan(v))
     mask_float = mask.astype(np.float64)
 
     if not np.any(mask):
         return None
 
-    # Fill NaNs with 0 for correlation (they will be weighted by 0 via mask_float)
     u_filled = np.nan_to_num(u)
     v_filled = np.nan_to_num(v)
 
-    # 2. Generate Basis Kernels for the Window
-    if vsg_size % 2 == 0:
-        raise ValueError("VSG Size must be odd.")
-
-    half = vsg_size // 2
-    x_range = np.arange(-half, half + 1)
-    y_range = np.arange(-half, half + 1)
-    X_grid, Y_grid = np.meshgrid(x_range, y_range) # Local coordinates
-
-    # Weighting Kernel
-    if weighting.lower() == 'gaussian':
-        sigma = gaussian_sigma if gaussian_sigma is not None else vsg_size / 4.0
-        dist_sq = X_grid**2 + Y_grid**2
-        G = np.exp(-dist_sq / (2 * sigma**2))
-    else:
-        G = np.ones((vsg_size, vsg_size))
-
-    # Define Basis Functions
-    # Order 1: [1, x, y]
-    # Order 2: [1, x, y, x^2, xy, y^2]
-    basis_funcs = [np.ones_like(X_grid), X_grid, Y_grid]
-    if poly_order == 2:
-        basis_funcs.extend([X_grid**2, X_grid*Y_grid, Y_grid**2])
-
-    num_params = len(basis_funcs)
-
-    # 3. Construct Linear System M * a = b for each pixel
-    # M_kl = sum(w * phi_k * phi_l) -> Correlate(mask_float, G * phi_k * phi_l)
-    # b_k  = sum(w * u * phi_k)     -> Correlate(mask_float * u_filled, G * phi_k)
-
-    # Pre-compute weighted basis kernels for M
-    # We need to compute upper triangular part of M (symmetric)
-    # M is (H, W, num_params, num_params)
-
-    # To save memory, we can compute and downsample immediately if step > 1?
-    # No, correlation needs full grid. But we can slice result immediately.
-
-    # Output grid coordinates
-    # If step > 1, we only solve for pixels on the grid
-    # But correlation must run on full image to capture neighbors correctly.
-
-    # Initialize M and b containers (downsampled size)
-    # We use lists to store columns/elements to avoid huge 4D arrays
-
-    # Slicing for downsampling
     s_slice = slice(None, None, step)
+    mask_down = mask[s_slice, s_slice]
 
+    # --- Primary VSG pass ---
     t1 = time.perf_counter()
-    print(f"[TIMING] Strain calc - setup: {t1-t_start:.3f}s")
-
-    # Build M (Symmetric) - Using FFT convolution for ~40x speedup
-    M_elements = [[None for _ in range(num_params)] for _ in range(num_params)]
-
-    for i in range(num_params):
-        for j in range(i, num_params):
-            # Kernel for M_ij: G * phi_i * phi_j
-            kernel_M = G * basis_funcs[i] * basis_funcs[j]
-            # Use FFT convolution - flip kernel to match correlate behavior
-            kernel_flipped = kernel_M[::-1, ::-1]
-            res = fftconvolve(mask_float, kernel_flipped, mode='same')
-
-            # Downsample
-            res_down = res[s_slice, s_slice]
-            M_elements[i][j] = res_down
-            if i != j:
-                M_elements[j][i] = res_down # Symmetry
-
+    du_dx, du_dy, dv_dx, dv_dy, coverage, n_solved, n_cond_filtered = _vsg_gradients(
+        u_filled, v_filled, mask_float, vsg_size, poly_order,
+        weighting, step, gaussian_sigma, min_weight, cond_threshold,
+    )
     t2 = time.perf_counter()
-    print(f"[TIMING] Strain calc - M matrix FFT ({6 if poly_order==1 else 21} convolutions): {t2-t1:.3f}s")
+    n_valid_down = int(np.sum(mask_down))
+    n_got = int(np.sum(~np.isnan(du_dx) & mask_down))
+    n_low_cov = int(np.sum(mask_down & ~np.isnan(du_dx) & (coverage < coverage_threshold)))
+    print(f"[TIMING] Primary pass (vsg={vsg_size}): {t2-t1:.3f}s, "
+          f"solved={n_solved}, cond_filtered={n_cond_filtered}, "
+          f"output={n_got}/{n_valid_down}, low_coverage={n_low_cov}")
 
-    # Build b for u and v
-    # b_u_k = sum(w * u * phi_k)
-    b_u_elements = []
-    b_v_elements = []
+    # --- Adaptive passes with smaller windows ---
+    # Replace pixels that are NaN OR have low coverage (biased by asymmetric window)
+    if adaptive:
+        smaller_sizes = _adaptive_vsg_sizes(vsg_size)
+        for sv in smaller_sizes:
+            needs_replace = mask_down & (
+                np.isnan(du_dx) | (coverage < coverage_threshold)
+            )
+            n_need = int(np.sum(needs_replace))
+            if n_need == 0:
+                break
 
-    # Pre-multiply data by mask
-    u_masked = u_filled * mask_float
-    v_masked = v_filled * mask_float
+            # Scale gaussian_sigma proportionally for smaller window
+            gs = None
+            if gaussian_sigma is not None:
+                gs = gaussian_sigma * sv / vsg_size
 
-    for k in range(num_params):
-        # Kernel for b_k: G * phi_k
-        kernel_b = G * basis_funcs[k]
-        kernel_b_flipped = kernel_b[::-1, ::-1]
+            ta = time.perf_counter()
+            du2, duy2, dvx2, dvy2, cov2, n_s, n_cf = _vsg_gradients(
+                u_filled, v_filled, mask_float, sv, poly_order,
+                weighting, step, gs, min_weight, cond_threshold,
+            )
+            tb = time.perf_counter()
 
-        res_u = fftconvolve(u_masked, kernel_b_flipped, mode='same')
-        res_v = fftconvolve(v_masked, kernel_b_flipped, mode='same')
+            # Replace if smaller window produced a valid result
+            replace = needs_replace & ~np.isnan(du2)
+            n_replaced = int(np.sum(replace))
+            print(f"[TIMING] Adaptive pass (vsg={sv}): {tb-ta:.3f}s, "
+                  f"replaced {n_replaced}/{n_need} boundary pixels "
+                  f"(cond_filtered={n_cf})")
 
-        b_u_elements.append(res_u[s_slice, s_slice])
-        b_v_elements.append(res_v[s_slice, s_slice])
+            du_dx[replace] = du2[replace]
+            du_dy[replace] = duy2[replace]
+            dv_dx[replace] = dvx2[replace]
+            dv_dy[replace] = dvy2[replace]
+            coverage[replace] = cov2[replace]
 
-    t3 = time.perf_counter()
-    print(f"[TIMING] Strain calc - b vector FFT ({3 if poly_order==1 else 6}x2 convolutions): {t3-t2:.3f}s")
-
-    # 4. Solve Linear Systems
-    # Stack into arrays
-    # M_stack: (N_pixels, num_params, num_params)
-    # b_u_stack: (N_pixels, num_params)
-
-    # Flatten spatial dimensions for batch solving
-    H_down, W_down = M_elements[0][0].shape
-    N_pixels = H_down * W_down
-
-    M_stack = np.empty((N_pixels, num_params, num_params))
-    b_u_stack = np.empty((N_pixels, num_params))
-    b_v_stack = np.empty((N_pixels, num_params))
-
-    for i in range(num_params):
-        b_u_stack[:, i] = b_u_elements[i].flatten()
-        b_v_stack[:, i] = b_v_elements[i].flatten()
-        for j in range(num_params):
-            M_stack[:, i, j] = M_elements[i][j].flatten()
-
-    # Solve
-    # Check for singular matrices (too few points)
-    # We can check condition number or determinant, but simplest is to try solve and catch,
-    # or rely on pseudoinverse. Pinv is safer for ill-conditioned boundaries.
-
-    # Using pinv is slower but robust.
-    # M_inv = np.linalg.pinv(M_stack)
-    # coeffs_u = M_inv @ b_u_stack[..., None]
-
-    # Let's use solve for speed, but mask out bad pixels?
-    # A pixel is "bad" if sum of weights (M_00) is too small.
-    min_weight = 1e-6
-    valid_solve_mask = M_stack[:, 0, 0] > min_weight
-
-    coeffs_u = np.full((N_pixels, num_params), np.nan)
-    coeffs_v = np.full((N_pixels, num_params), np.nan)
-
-    t4 = time.perf_counter()
-    print(f"[TIMING] Strain calc - stack arrays: {t4-t3:.3f}s, solving {np.sum(valid_solve_mask)}/{N_pixels} pixels")
-
-    # Only solve for valid pixels
-    if np.any(valid_solve_mask):
-        try:
-            # Standard solve
-            M_valid = M_stack[valid_solve_mask]
-            # Reshape b to (N, 3, 1) to ensure correct broadcasting
-            b_u_valid = b_u_stack[valid_solve_mask][..., None]
-            b_v_valid = b_v_stack[valid_solve_mask][..., None]
-
-            # Result will be (N, 3, 1), squeeze back to (N, 3)
-            coeffs_u[valid_solve_mask] = np.linalg.solve(M_valid, b_u_valid).squeeze(-1)
-            coeffs_v[valid_solve_mask] = np.linalg.solve(M_valid, b_v_valid).squeeze(-1)
-        except np.linalg.LinAlgError:
-            # Fallback to lstsq or pinv if singular
-            # This is slow, maybe just iterate or use pinv on the batch
-            # For now, let's use pinv on the valid subset
-            M_valid = M_stack[valid_solve_mask]
-            b_u_valid = b_u_stack[valid_solve_mask][..., None]
-            b_v_valid = b_v_stack[valid_solve_mask][..., None]
-
-            M_inv = np.linalg.pinv(M_valid)
-            coeffs_u[valid_solve_mask] = (M_inv @ b_u_valid).squeeze(-1)
-            coeffs_v[valid_solve_mask] = (M_inv @ b_v_valid).squeeze(-1)
-
-    t5 = time.perf_counter()
-    print(f"[TIMING] Strain calc - linear solve: {t5-t4:.3f}s")
-
-    # 5. Extract Gradients
-    # a0, a1(x), a2(y), ...
-    # du/dx = a1
-    # du/dy = a2
-
-    du_dx_flat = coeffs_u[:, 1]
-    du_dy_flat = coeffs_u[:, 2]
-    dv_dx_flat = coeffs_v[:, 1]
-    dv_dy_flat = coeffs_v[:, 2]
-
-    # Reshape back to grid
-    du_dx = du_dx_flat.reshape(H_down, W_down)
-    du_dy = du_dy_flat.reshape(H_down, W_down)
-    dv_dx = dv_dx_flat.reshape(H_down, W_down)
-    dv_dy = dv_dy_flat.reshape(H_down, W_down)
-
-    # 6. Strain Calculation
+    # --- Strain computation ---
     if method == 'green_lagrange':
         exx = du_dx + 0.5 * (du_dx**2 + dv_dx**2)
         eyy = dv_dy + 0.5 * (du_dy**2 + dv_dy**2)
-        exy = 0.5 * (du_dy + dv_dx + du_dx*du_dy + dv_dx*dv_dy)
-
+        exy = 0.5 * (du_dy + dv_dx + du_dx * du_dy + dv_dx * dv_dy)
     elif method == 'engineering':
         exx = du_dx
         eyy = dv_dy
         exy = 0.5 * (du_dy + dv_dx)
-
     else:
         raise ValueError(f"Unknown strain method: {method}")
 
-    # Principal Strains
+    # Principal strains
     center = (exx + eyy) / 2.0
     radius = np.sqrt(((exx - eyy) / 2.0)**2 + exy**2)
     e1 = center + radius
     e2 = center - radius
     max_shear = radius
-    von_mises = np.sqrt(e1**2 - e1*e2 + e2**2)
+    von_mises = np.sqrt(e1**2 - e1 * e2 + e2**2)
 
-    # Rotation Angle via Polar Decomposition (Numba-optimized)
-    # F = I + grad(u) -> C = F^T*F -> U = sqrt(C) -> R = F*U^(-1) -> theta = atan2(R21, R11)
+    # Rotation via polar decomposition (Numba JIT)
     rotation = _compute_rotation_field_numba(du_dx, du_dy, dv_dx, dv_dy)
 
-    # Mask out pixels that were originally invalid (to prevent ROI expansion)
-    # Downsample mask
-    mask_down = mask[s_slice, s_slice]
+    # Apply original mask to prevent VSG "expansion" beyond valid region
+    for comp in [exx, eyy, exy, e1, e2, max_shear, von_mises, rotation]:
+        comp[~mask_down] = np.nan
 
-    # Apply mask to all components
-    for key, val in locals().items():
-        if key in ['exx', 'eyy', 'exy', 'e1', 'e2', 'max_shear', 'von_mises', 'rotation']:
-            val[~mask_down] = np.nan
+    # Boundary erosion: mask out pixels too close to NaN regions (holes/edges)
+    erosion_px = boundary_erosion
+    if erosion_px < 0:
+        # Auto: use half the VSG window (where asymmetric weighting is severe)
+        erosion_px = vsg_size // 2
+
+    if erosion_px > 0:
+        from scipy.ndimage import distance_transform_edt
+        # Distance from each valid pixel to nearest NaN pixel (in downsampled grid)
+        valid_down = mask_down & np.isfinite(exx)
+        # distance_transform_edt computes distance from 0-pixels
+        dist_to_boundary = distance_transform_edt(valid_down)
+        # Erosion radius in downsampled pixels
+        erosion_down = max(1, erosion_px // step)
+        erode_mask = dist_to_boundary < erosion_down
+        n_eroded = int(np.sum(erode_mask & valid_down))
+        for comp in [exx, eyy, exy, e1, e2, max_shear, von_mises, rotation]:
+            comp[erode_mask] = np.nan
+        print(f"[TIMING] Boundary erosion: {erosion_px}px "
+              f"(downsampled={erosion_down}px), eroded {n_eroded} pixels")
+
+    t_end = time.perf_counter()
+    print(f"[TIMING] Strain calc total: {t_end-t_start:.3f}s")
 
     return {
-        'exx': exx,
-        'eyy': eyy,
-        'exy': exy,
-        'e1': e1,
-        'e2': e2,
-        'max_shear': max_shear,
-        'von_mises': von_mises,
+        'exx': exx, 'eyy': eyy, 'exy': exy,
+        'e1': e1, 'e2': e2,
+        'max_shear': max_shear, 'von_mises': von_mises,
         'rotation': rotation,
     }
 
