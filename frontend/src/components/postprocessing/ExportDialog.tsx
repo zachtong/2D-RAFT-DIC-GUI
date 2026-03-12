@@ -4,8 +4,11 @@ import { SmallInput } from "@/components/shared/SmallInput";
 import { FileBrowser } from "@/components/shared/FileBrowser";
 import { useAppStore } from "@/stores/appStore";
 import { useToast } from "@/components/shared/Toast";
-import { exportScientific, exportImages, cancelExport } from "@/api/export";
-import { Download, FolderOpen } from "lucide-react";
+import {
+  exportScientific, exportImages, cancelExport,
+  exportAnimation, exportReport,
+} from "@/api/export";
+import { Download, FolderOpen, Film, FileText } from "lucide-react";
 import type { DisplayComponent } from "@/types/api";
 
 const DISPLACEMENT_COMPONENTS: { value: DisplayComponent; label: string }[] = [
@@ -71,8 +74,39 @@ export function ExportDialog() {
     Record<string, CompEntry>
   >({});
 
+  // --- Animation export state ---
+  const [animPath, setAnimPath] = useState("");
+  const animTouched = useRef(false);
+  const [animFormat, setAnimFormat] = useState<"gif" | "mp4">("gif");
+  const [animComponent, setAnimComponent] = useState<string>("u");
+  const [animFps, setAnimFps] = useState("10");
+  const [animResize, setAnimResize] = useState("1.0");
+  const [animColorbar, setAnimColorbar] = useState(true);
+  const [animTimestamp, setAnimTimestamp] = useState(false);
+
+  // --- Shared colorbar settings ---
+  const [cbFontSize, setCbFontSize] = useState("10");
+  const [cbNumTicks, setCbNumTicks] = useState("");  // empty = auto
+  const [cbShrink, setCbShrink] = useState("0.8");
+  const [cbHideOutline, setCbHideOutline] = useState(false);
+
+  // --- Track which export type is active (to show progress in correct section) ---
+  const [activeExportType, setActiveExportType] = useState<"images" | "animation" | null>(null);
+
+  // --- Report export state ---
+  const [reportPath, setReportPath] = useState("");
+  const reportTouched = useRef(false);
+  const [reportBusy, setReportBusy] = useState(false);
+  const ALL_REPORT_SECTIONS = [
+    "header", "experiment", "parameters", "roi",
+    "key_frames", "statistics", "probes",
+  ] as const;
+  const [reportSections, setReportSections] = useState<Record<string, boolean>>(
+    Object.fromEntries(ALL_REPORT_SECTIONS.map((s) => [s, true]))
+  );
+
   // --- FileBrowser state ---
-  const [browseTarget, setBrowseTarget] = useState<"sci" | "img" | null>(null);
+  const [browseTarget, setBrowseTarget] = useState<"sci" | "img" | "anim" | "report" | null>(null);
 
   // Default paths based on imageDir (only if user hasn't manually edited)
   useEffect(() => {
@@ -80,6 +114,8 @@ export function ExportDialog() {
       const normalized = imageDir.replace(/\\/g, "/").replace(/\/+$/, "");
       if (!sciTouched.current) setSciPath(`${normalized}/results.mat`);
       if (!imgTouched.current) setImgDir(`${normalized}/export/`);
+      if (!animTouched.current) setAnimPath(`${normalized}/animation.gif`);
+      if (!reportTouched.current) setReportPath(`${normalized}/report.html`);
     }
   }, [imageDir]);
 
@@ -87,6 +123,11 @@ export function ExportDialog() {
   useEffect(() => {
     setFrameEnd(String(Math.max(1, numFrames)));
   }, [numFrames]);
+
+  // Clear active export type when export finishes
+  useEffect(() => {
+    if (!exportActive) setActiveExportType(null);
+  }, [exportActive]);
 
   // Initialize selected components with current displayComponent
   useEffect(() => {
@@ -178,6 +219,16 @@ export function ExportDialog() {
       return;
     }
 
+    // Build colorbar settings
+    const colorbar_settings: Record<string, unknown> = {
+      font_size: parseInt(cbFontSize) || 10,
+      shrink: parseFloat(cbShrink) || 0.8,
+      hide_outline: cbHideOutline,
+    };
+    if (cbNumTicks.trim()) {
+      colorbar_settings.num_ticks = parseInt(cbNumTicks);
+    }
+
     // Build WYSIWYG settings from current visualization state
     const settings: Record<string, unknown> = {
       colormap: vis.colormap,
@@ -197,9 +248,11 @@ export function ExportDialog() {
       include_colorbar: true,
       format: "png",
       dpi: parseInt(dpi),
+      colorbar_settings,
     };
 
     try {
+      setActiveExportType("images");
       await exportImages({
         output_dir: imgDir.trim(),
         components,
@@ -221,7 +274,68 @@ export function ExportDialog() {
     }
   };
 
+  const handleAnimationExport = async () => {
+    if (!animPath.trim()) return;
+
+    // Build colorbar settings (shared with image export)
+    const colorbar_settings: Record<string, unknown> = {
+      font_size: parseInt(cbFontSize) || 10,
+      shrink: parseFloat(cbShrink) || 0.8,
+      hide_outline: cbHideOutline,
+    };
+    if (cbNumTicks.trim()) {
+      colorbar_settings.num_ticks = parseInt(cbNumTicks);
+    }
+
+    const settings: Record<string, unknown> = {
+      colormap: vis.colormap,
+      alpha: vis.alpha,
+      background: vis.background,
+      log_scale: vis.logScale,
+      physical_ratio: vis.physicalEnabled ? vis.physicalRatio : 1.0,
+      fps: vis.fps,
+      colorbar_settings,
+    };
+    try {
+      setActiveExportType("animation");
+      await exportAnimation({
+        output_path: animPath.trim(),
+        format: animFormat,
+        component: animComponent,
+        frame_range: [parseInt(frameStart) - 1, parseInt(frameEnd) - 1],
+        fps: parseInt(animFps) || 10,
+        include_colorbar: animColorbar,
+        timestamp_overlay: animTimestamp,
+        resize_factor: parseFloat(animResize) || 1.0,
+        settings,
+      });
+      toast("success", "Animation export started");
+    } catch (e: any) {
+      toast("error", e?.response?.data?.error ?? "Animation export failed");
+    }
+  };
+
+  const handleReportExport = async () => {
+    if (!reportPath.trim()) return;
+    setReportBusy(true);
+    try {
+      const sections = Object.entries(reportSections)
+        .filter(([, v]) => v)
+        .map(([k]) => k);
+      const result = await exportReport({
+        output_path: reportPath.trim(),
+        sections: sections.length < ALL_REPORT_SECTIONS.length ? sections : undefined,
+      });
+      toast("success", "Report generated: " + result.path);
+    } catch (e: any) {
+      toast("error", e?.response?.data?.error ?? "Report generation failed");
+    } finally {
+      setReportBusy(false);
+    }
+  };
+
   const allComponents = [...DISPLACEMENT_COMPONENTS, ...availableStrain];
+  const animComponents = [...DISPLACEMENT_COMPONENTS, ...availableStrain];
 
   return (
     <CollapsibleSection title="Export" defaultOpen={false}>
@@ -374,7 +488,7 @@ export function ExportDialog() {
         </p>
 
         {/* Export button / progress */}
-        {exportActive ? (
+        {exportActive && activeExportType === "images" ? (
           <div className="space-y-1">
             <div className="h-1.5 bg-[var(--input)] rounded-full overflow-hidden">
               <div
@@ -397,12 +511,218 @@ export function ExportDialog() {
         ) : (
           <button
             onClick={handleImageExport}
-            disabled={!imgDir.trim()}
+            disabled={!imgDir.trim() || exportActive}
             className={btnClass}
           >
             <Download size={12} /> Export Images
           </button>
         )}
+      </div>
+
+      {/* --- Divider --- */}
+      <div className="h-px bg-[var(--border)] my-2" />
+
+      {/* --- Colorbar Settings (shared) --- */}
+      <div className="space-y-1">
+        <span className="text-[10px] font-medium text-[var(--muted-foreground)] uppercase tracking-wide">
+          Colorbar Style
+        </span>
+        <div className="flex items-center gap-1 flex-wrap">
+          <span className="text-[9px] text-[var(--muted-foreground)]">Font:</span>
+          <input
+            type="text"
+            value={cbFontSize}
+            onChange={(e) => setCbFontSize(e.target.value)}
+            className="w-8 h-5 bg-[var(--input)] border border-[#3a3d45] rounded px-1 text-[9px] text-[var(--foreground)] text-center"
+          />
+          <span className="text-[9px] text-[var(--muted-foreground)]">Ticks:</span>
+          <input
+            type="text"
+            value={cbNumTicks}
+            onChange={(e) => setCbNumTicks(e.target.value)}
+            placeholder="auto"
+            className="w-10 h-5 bg-[var(--input)] border border-[#3a3d45] rounded px-1 text-[9px] text-[var(--foreground)] text-center"
+          />
+          <span className="text-[9px] text-[var(--muted-foreground)]">Shrink:</span>
+          <input
+            type="text"
+            value={cbShrink}
+            onChange={(e) => setCbShrink(e.target.value)}
+            className="w-10 h-5 bg-[var(--input)] border border-[#3a3d45] rounded px-1 text-[9px] text-[var(--foreground)] text-center"
+          />
+          <label className="flex items-center gap-0.5 text-[9px] text-[var(--foreground)] cursor-pointer">
+            <input
+              type="checkbox"
+              checked={cbHideOutline}
+              onChange={() => setCbHideOutline(!cbHideOutline)}
+              className="accent-[var(--primary)] w-2.5 h-2.5"
+            />
+            No outline
+          </label>
+        </div>
+        <p className="text-[8px] text-[var(--muted-foreground)] italic">
+          Applies to both Image and Animation exports
+        </p>
+      </div>
+
+      {/* --- Divider --- */}
+      <div className="h-px bg-[var(--border)] my-2" />
+
+      {/* --- Animation Export --- */}
+      <div className="space-y-1.5">
+        <span className="text-[10px] font-medium text-[var(--muted-foreground)] uppercase tracking-wide">
+          Animation
+        </span>
+
+        {/* Output path */}
+        <div className="flex gap-1">
+          <input
+            type="text"
+            value={animPath}
+            onChange={(e) => { animTouched.current = true; setAnimPath(e.target.value); }}
+            placeholder="Output file (.gif / .mp4)"
+            className={inputClass + " flex-1"}
+          />
+          <button
+            onClick={() => setBrowseTarget("anim")}
+            className="px-1.5 shrink-0 bg-[var(--secondary)] hover:bg-[var(--secondary)]/80 rounded text-[var(--muted-foreground)]"
+            title="Browse"
+          >
+            <FolderOpen size={12} />
+          </button>
+        </div>
+
+        {/* Format + Component */}
+        <div className="flex items-center gap-1">
+          <select
+            value={animFormat}
+            onChange={(e) => {
+              const fmt = e.target.value as "gif" | "mp4";
+              setAnimFormat(fmt);
+              // Update extension in path
+              setAnimPath((p) => p.replace(/\.(gif|mp4)$/i, `.${fmt}`));
+            }}
+            className="px-1 py-0.5 rounded text-[9px] bg-[var(--input)] border border-[var(--border)] text-[var(--foreground)]"
+          >
+            <option value="gif">GIF</option>
+            <option value="mp4">MP4</option>
+          </select>
+          <select
+            value={animComponent}
+            onChange={(e) => setAnimComponent(e.target.value)}
+            className="flex-1 px-1 py-0.5 rounded text-[9px] bg-[var(--input)] border border-[var(--border)] text-[var(--foreground)]"
+          >
+            {animComponents.map((c) => (
+              <option key={c.value} value={c.value}>{c.label}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* FPS + Resolution */}
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] text-[var(--muted-foreground)]">FPS:</span>
+          <SmallInput value={animFps} onChange={setAnimFps} className="w-10" />
+          <div className="w-px h-3 bg-[var(--border)] mx-0.5" />
+          <span className="text-[10px] text-[var(--muted-foreground)]">Scale:</span>
+          <select
+            value={animResize}
+            onChange={(e) => setAnimResize(e.target.value)}
+            className="px-1 py-0.5 rounded text-[9px] bg-[var(--input)] border border-[var(--border)] text-[var(--foreground)]"
+          >
+            <option value="1.0">100%</option>
+            <option value="0.5">50%</option>
+            <option value="0.25">25%</option>
+          </select>
+        </div>
+
+        {/* Options */}
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-1 text-[10px] text-[var(--foreground)] cursor-pointer">
+            <input type="checkbox" checked={animColorbar} onChange={() => setAnimColorbar(!animColorbar)}
+              className="accent-[var(--primary)] w-3 h-3" />
+            Colorbar
+          </label>
+          <label className="flex items-center gap-1 text-[10px] text-[var(--foreground)] cursor-pointer">
+            <input type="checkbox" checked={animTimestamp} onChange={() => setAnimTimestamp(!animTimestamp)}
+              className="accent-[var(--primary)] w-3 h-3" />
+            Timestamp
+          </label>
+        </div>
+
+        {/* Export button / progress */}
+        {exportActive && activeExportType === "animation" ? (
+          <div className="space-y-1">
+            <div className="h-1.5 bg-[var(--input)] rounded-full overflow-hidden">
+              <div className="h-full bg-[var(--primary)] transition-all duration-300"
+                style={{ width: `${exportProgress}%` }} />
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-[var(--muted-foreground)] flex-1">
+                Exporting... {exportProgress.toFixed(0)}%
+              </span>
+              <button onClick={handleCancel}
+                className="px-2 py-1 bg-red-900/30 hover:bg-red-900/50 rounded text-[10px] text-red-400">
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button onClick={handleAnimationExport} disabled={!animPath.trim() || exportActive} className={btnClass}>
+            <Film size={12} /> Export Animation
+          </button>
+        )}
+      </div>
+
+      {/* --- Divider --- */}
+      <div className="h-px bg-[var(--border)] my-2" />
+
+      {/* --- Report Generator --- */}
+      <div className="space-y-1.5">
+        <span className="text-[10px] font-medium text-[var(--muted-foreground)] uppercase tracking-wide">
+          Report
+        </span>
+
+        {/* Output path */}
+        <div className="flex gap-1">
+          <input
+            type="text"
+            value={reportPath}
+            onChange={(e) => { reportTouched.current = true; setReportPath(e.target.value); }}
+            placeholder="Output file (.html)"
+            className={inputClass + " flex-1"}
+          />
+          <button
+            onClick={() => setBrowseTarget("report")}
+            className="px-1.5 shrink-0 bg-[var(--secondary)] hover:bg-[var(--secondary)]/80 rounded text-[var(--muted-foreground)]"
+            title="Browse"
+          >
+            <FolderOpen size={12} />
+          </button>
+        </div>
+
+        {/* Section checkboxes */}
+        <div className="space-y-0.5">
+          <span className="text-[10px] text-[var(--muted-foreground)]">Sections:</span>
+          {ALL_REPORT_SECTIONS.map((sec) => (
+            <label key={sec} className="flex items-center gap-1 text-[10px] text-[var(--foreground)] cursor-pointer">
+              <input
+                type="checkbox"
+                checked={reportSections[sec]}
+                onChange={() => setReportSections((p) => ({ ...p, [sec]: !p[sec] }))}
+                className="accent-[var(--primary)] w-3 h-3"
+              />
+              {sec.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+            </label>
+          ))}
+        </div>
+
+        <button
+          onClick={handleReportExport}
+          disabled={!reportPath.trim() || reportBusy}
+          className={btnClass}
+        >
+          <FileText size={12} /> {reportBusy ? "Generating..." : "Generate Report"}
+        </button>
       </div>
 
       {/* FileBrowser modal */}
@@ -411,20 +731,20 @@ export function ExportDialog() {
           open
           onClose={() => setBrowseTarget(null)}
           onSelect={(path) => {
-            if (browseTarget === "sci") {
-              sciTouched.current = true;
-              setSciPath(path);
-            } else {
-              imgTouched.current = true;
-              setImgDir(path);
-            }
+            if (browseTarget === "sci") { sciTouched.current = true; setSciPath(path); }
+            else if (browseTarget === "img") { imgTouched.current = true; setImgDir(path); }
+            else if (browseTarget === "anim") { animTouched.current = true; setAnimPath(path); }
+            else if (browseTarget === "report") { reportTouched.current = true; setReportPath(path); }
             setBrowseTarget(null);
           }}
           initialPath={
-            browseTarget === "sci"
-              ? sciPath.replace(/\/[^/]*$/, "")
-              : imgDir
+            browseTarget === "sci" ? sciPath.replace(/\/[^/]*$/, "")
+            : browseTarget === "anim" ? animPath.replace(/\/[^/]*$/, "")
+            : browseTarget === "report" ? reportPath.replace(/\/[^/]*$/, "")
+            : imgDir
           }
+          {...(browseTarget === "anim" ? { mode: "file" as const, fileFilter: [".gif", ".mp4"] } : {})}
+          {...(browseTarget === "report" ? { mode: "file" as const, fileFilter: [".html"] } : {})}
         />
       )}
     </CollapsibleSection>

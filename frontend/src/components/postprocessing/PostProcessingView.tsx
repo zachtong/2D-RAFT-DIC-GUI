@@ -295,6 +295,8 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
   const handleSaveFrame = useCallback(async () => {
     try {
       const strain = STRAIN_COMPONENTS.includes(displayComponent);
+      const saveVmin = displayComponent === "v" ? vis.vminV : vis.vminU;
+      const saveVmax = displayComponent === "v" ? vis.vmaxV : vis.vmaxU;
       await downloadSingleFrame({
         idx: currentFrame,
         component: displayComponent,
@@ -304,6 +306,8 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
         log_scale: vis.logScale,
         dpi: 300,
         isStrain: strain,
+        ...(vis.fixedRange && saveVmin ? { vmin: parseFloat(saveVmin) } : {}),
+        ...(vis.fixedRange && saveVmax ? { vmax: parseFloat(saveVmax) } : {}),
       });
       toast("success", "Frame saved");
     } catch {

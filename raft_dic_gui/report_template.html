@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ header.title if header else "RAFT-DIC Report" }}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6; color: #1a1a2e; background: #fff;
+    max-width: 900px; margin: 0 auto; padding: 40px 30px;
+  }
+  h1 { font-size: 24px; color: #16213e; margin-bottom: 8px; }
+  h2 {
+    font-size: 18px; color: #0f3460; margin: 32px 0 12px;
+    padding-bottom: 6px; border-bottom: 2px solid #e0e0e0;
+  }
+  h3 { font-size: 14px; color: #333; margin: 16px 0 8px; }
+  .meta { font-size: 12px; color: #666; margin-bottom: 24px; }
+  .meta span { margin-right: 16px; }
+  table {
+    width: 100%; border-collapse: collapse; font-size: 13px; margin: 12px 0;
+  }
+  th, td {
+    padding: 8px 12px; text-align: left;
+    border-bottom: 1px solid #e8e8e8;
+  }
+  th { background: #f4f6f9; font-weight: 600; color: #333; white-space: nowrap; }
+  td { color: #444; }
+  tr:hover td { background: #fafbfc; }
+  .stat-table td:not(:first-child) { text-align: right; font-family: monospace; }
+  .stat-table th:not(:first-child) { text-align: right; }
+  .frame-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px; margin: 12px 0;
+  }
+  .frame-card {
+    border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;
+    background: #fafafa;
+  }
+  .frame-card img { width: 100%; display: block; }
+  .frame-card .label {
+    padding: 6px 10px; font-size: 11px; color: #555;
+    background: #f4f6f9; font-weight: 500;
+  }
+  .probe-card {
+    margin: 16px 0; border: 1px solid #e0e0e0; border-radius: 8px;
+    overflow: hidden;
+  }
+  .probe-card .probe-header {
+    padding: 8px 12px; background: #f4f6f9;
+    font-size: 13px; font-weight: 600; color: #333;
+  }
+  .probe-card .probe-header span { font-weight: 400; color: #888; font-size: 11px; }
+  .probe-card img { width: 100%; display: block; }
+  .roi-image { max-width: 600px; margin: 12px 0; border-radius: 8px; }
+  .no-data { color: #888; font-style: italic; font-size: 13px; padding: 12px 0; }
+  @media print {
+    body { padding: 20px; max-width: 100%; }
+    h2 { page-break-after: avoid; }
+    .frame-card, .probe-card { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+{% if "header" in sections and header %}
+<h1>{{ header.title }}</h1>
+<div class="meta">
+  <span>Date: {{ header.date }}</span>
+  <span>Software: {{ header.software }}</span>
+  <span>Model: {{ header.model }}</span>
+</div>
+{% endif %}
+
+{% if "experiment" in sections and experiment %}
+<h2>Experiment Overview</h2>
+<table>
+  <tr><th>Image Directory</th><td>{{ experiment.image_dir }}</td></tr>
+  <tr><th>Number of Images</th><td>{{ experiment.num_images }}</td></tr>
+  <tr><th>Image Size</th><td>{{ experiment.image_width }} x {{ experiment.image_height }} px</td></tr>
+  <tr><th>Processing Mode</th><td>{{ experiment.mode }}</td></tr>
+  <tr><th>Displacement Frames</th><td>{{ experiment.num_displacement_frames }}</td></tr>
+  <tr><th>Strain Frames</th><td>{{ experiment.num_strain_frames }}</td></tr>
+</table>
+{% endif %}
+
+{% if "parameters" in sections and parameters %}
+<h2>Processing Parameters</h2>
+<table>
+  {% for name, value in parameters.params %}
+  <tr><th>{{ name }}</th><td>{{ value }}</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+{% if "roi" in sections and roi %}
+<h2>Region of Interest</h2>
+{% if roi.has_roi %}
+<p style="font-size:13px; color:#444; margin-bottom:8px;">
+  ROI rectangle: ({{ roi.roi_rect[0] }}, {{ roi.roi_rect[1] }}) to ({{ roi.roi_rect[2] }}, {{ roi.roi_rect[3] }})
+</p>
+{% if roi.image %}
+<img class="roi-image" src="data:image/png;base64,{{ roi.image }}" alt="ROI visualization">
+{% endif %}
+{% else %}
+<p class="no-data">No ROI defined (full image processing)</p>
+{% endif %}
+{% endif %}
+
+{% if "key_frames" in sections and key_frames %}
+<h2>Key Frames</h2>
+{% if key_frames.frames %}
+<div class="frame-grid">
+  {% for frame in key_frames.frames %}
+  <div class="frame-card">
+    <img src="data:image/png;base64,{{ frame.image }}" alt="{{ frame.label }}">
+    <div class="label">{{ frame.label }} (Frame #{{ frame.frame_idx }})</div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="no-data">No displacement results available</p>
+{% endif %}
+{% endif %}
+
+{% if "statistics" in sections and statistics %}
+<h2>Statistics Summary</h2>
+{% if statistics.stats %}
+<table class="stat-table">
+  <tr><th>Component</th><th>Min</th><th>Max</th><th>Mean</th><th>Std</th></tr>
+  {% for s in statistics.stats %}
+  <tr>
+    <td>{{ s.component }}</td>
+    <td>{{ s.min }}</td>
+    <td>{{ s.max }}</td>
+    <td>{{ s.mean }}</td>
+    <td>{{ s.std }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="no-data">No statistics available</p>
+{% endif %}
+{% endif %}
+
+{% if "probes" in sections and probes %}
+<h2>Probe Analysis</h2>
+{% if probes.probe_charts %}
+{% for chart in probes.probe_charts %}
+<div class="probe-card">
+  <div class="probe-header">
+    {{ chart.label }}
+    <span>{{ chart.type }} at {{ chart.coords }}</span>
+  </div>
+  <img src="data:image/png;base64,{{ chart.image }}" alt="{{ chart.label }} time series">
+</div>
+{% endfor %}
+{% else %}
+<p class="no-data">No probes defined</p>
+{% endif %}
+{% endif %}
+
+<div style="margin-top:40px; padding-top:16px; border-top:1px solid #e0e0e0; font-size:11px; color:#999; text-align:center;">
+  Generated by RAFT-DIC GUI &mdash; {{ header.date if header else "" }}
+</div>
+
+</body>
+</html>

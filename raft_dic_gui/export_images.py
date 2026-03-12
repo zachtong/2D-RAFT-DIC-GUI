@@ -39,7 +39,8 @@ def render_single_frame(
     format: str,
     use_log_norm: bool = False,
     velocity_vectors: Optional[Dict] = None,
-    dpi: int = 100
+    dpi: int = 100,
+    colorbar_settings: Optional[Dict] = None,
 ) -> bool:
     """
     Render a single visualization frame and save to file.
@@ -211,12 +212,33 @@ def render_single_frame(
         
         # Add colorbar
         if include_colorbar:
-            cbar = fig.colorbar(im, ax=ax, shrink=0.8, pad=0.02)
+            cbs = colorbar_settings or {}
+            cbar = fig.colorbar(
+                im, ax=ax,
+                shrink=cbs.get("shrink", 0.8),
+                pad=cbs.get("pad", 0.02),
+                aspect=cbs.get("aspect", 20),
+            )
             if use_log_norm:
                 cbar.ax.yaxis.set_major_formatter(LogFormatterMathtext())
+
+            cb_fontsize = cbs.get("font_size", 10)
+            cbar.ax.tick_params(labelsize=cb_fontsize)
+
+            # Number of ticks
+            num_ticks = cbs.get("num_ticks")
+            if num_ticks and not use_log_norm:
+                from matplotlib.ticker import MaxNLocator
+                cbar.locator = MaxNLocator(nbins=num_ticks)
+                cbar.update_ticks()
+
+            # Outline
+            if cbs.get("hide_outline", False):
+                cbar.outline.set_visible(False)
+
             if colorbar_label:
-                cbar.set_label(colorbar_label)
-        
+                cbar.set_label(colorbar_label, fontsize=cb_fontsize)
+
         # Add title
         if include_title and title:
             ax.set_title(title)
@@ -326,6 +348,9 @@ def export_batch_images(
 
     # DPI setting
     export_dpi = settings.get('dpi', 100)
+
+    # Colorbar customization
+    colorbar_settings = settings.get('colorbar_settings')
     
     # Calculate total operations for progress
     enabled_components = [name for name, cfg in components.items() if cfg.get('enabled', True)]
@@ -509,6 +534,7 @@ def export_batch_images(
                     use_log_norm=use_log_scale,
                     velocity_vectors=velocity_vectors,
                     dpi=export_dpi,
+                    colorbar_settings=colorbar_settings,
                 )
                 
                 if success:

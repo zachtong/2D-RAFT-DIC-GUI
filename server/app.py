@@ -37,6 +37,7 @@ def create_app(test_config=None):
     from server.routes.quality import quality_bp
     from server.routes.tiling import tiling_bp
     from server.routes.principal_dirs import principal_bp
+    from server.routes.session_routes import session_bp
 
     app.register_blueprint(images_bp, url_prefix="/api/images")
     app.register_blueprint(models_bp, url_prefix="/api/models")
@@ -50,6 +51,7 @@ def create_app(test_config=None):
     app.register_blueprint(quality_bp, url_prefix="/api/quality")
     app.register_blueprint(tiling_bp, url_prefix="/api/tiling")
     app.register_blueprint(principal_bp, url_prefix="/api/principal")
+    app.register_blueprint(session_bp, url_prefix="/api/session")
 
     @app.route("/api/health")
     def health():

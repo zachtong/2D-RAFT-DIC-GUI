@@ -64,3 +64,26 @@ export async function downloadSingleFrame(params: {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+export async function exportAnimation(params: {
+  output_path: string;
+  format: "gif" | "mp4";
+  component: string;
+  frame_range: [number, number];
+  fps: number;
+  loop?: boolean;
+  timestamp_overlay?: boolean;
+  include_colorbar?: boolean;
+  resize_factor?: number;
+  settings: Record<string, unknown>;
+}): Promise<void> {
+  await client.post("/export/animation", params);
+}
+
+export async function exportReport(params: {
+  output_path: string;
+  sections?: string[];
+}): Promise<{ ok: boolean; path: string }> {
+  const { data } = await client.post("/export/report", params);
+  return data;
+}

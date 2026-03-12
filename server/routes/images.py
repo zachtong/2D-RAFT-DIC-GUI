@@ -19,6 +19,9 @@ def browse_directory():
     """List contents of a directory for the file browser."""
     data = request.get_json(force=True)
     path = data.get("path", "").strip()
+    # Optional: extra file extensions to include (e.g. [".raftproj"])
+    extra_extensions = data.get("file_extensions", [])
+    extra_ext_tuple = tuple(ext.lower() for ext in extra_extensions) if extra_extensions else ()
 
     # Default: return filesystem roots / home
     if not path:
@@ -41,6 +44,8 @@ def browse_directory():
                 entries.append({"name": name, "type": "dir"})
             elif name.lower().endswith(IMAGE_EXTENSIONS):
                 entries.append({"name": name, "type": "image"})
+            elif extra_ext_tuple and name.lower().endswith(extra_ext_tuple):
+                entries.append({"name": name, "type": "file"})
     except PermissionError:
         return jsonify({"error": "Permission denied"}), 403
 

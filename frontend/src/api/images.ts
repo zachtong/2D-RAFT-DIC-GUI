@@ -3,7 +3,7 @@ import type { ImageLoadResult } from "@/types/api";
 
 export interface BrowseEntry {
   name: string;
-  type: "dir" | "image";
+  type: "dir" | "image" | "file";
 }
 
 export interface BrowseResult {
@@ -13,8 +13,13 @@ export interface BrowseResult {
   image_count: number;
 }
 
-export async function browseDirectory(path: string): Promise<BrowseResult> {
-  const { data } = await client.post<BrowseResult>("/images/browse", { path });
+export async function browseDirectory(
+  path: string,
+  fileExtensions?: string[],
+): Promise<BrowseResult> {
+  const body: Record<string, unknown> = { path };
+  if (fileExtensions?.length) body.file_extensions = fileExtensions;
+  const { data } = await client.post<BrowseResult>("/images/browse", body);
   return data;
 }
 

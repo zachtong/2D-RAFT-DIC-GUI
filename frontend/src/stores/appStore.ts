@@ -139,6 +139,17 @@ interface AppState {
   zoomIn: () => void;
   zoomOut: () => void;
   zoomReset: () => void;
+  restoreFromSession: (summary: {
+    num_displacement_frames: number;
+    num_strain_frames: number;
+    strain_components: string[];
+    has_roi: boolean;
+    roi_confirmed: boolean;
+    image_dir: string;
+    image_dir_exists: boolean;
+    image_width: number;
+    image_height: number;
+  }) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -307,4 +318,19 @@ export const useAppStore = create<AppState>((set) => ({
   zoomIn: () => set((s) => ({ viewZoom: Math.min(s.viewZoom * 1.25, 5) })),
   zoomOut: () => set((s) => ({ viewZoom: Math.max(s.viewZoom / 1.25, 0.2) })),
   zoomReset: () => set({ viewZoom: 1, viewOffset: { x: 0, y: 0 } }),
+  restoreFromSession: (summary) =>
+    set((s) => ({
+      imageDir: summary.image_dir,
+      imageWidth: summary.image_width,
+      imageHeight: summary.image_height,
+      hasResults: summary.num_displacement_frames > 0,
+      numFrames: summary.num_displacement_frames,
+      currentFrame: 0,
+      referenceFrame: 0,
+      resultVersion: s.resultVersion + 1,
+      roiConfirmed: summary.roi_confirmed,
+      hasStrain: summary.num_strain_frames > 0,
+      strainComponents: summary.strain_components,
+      displayComponent: "u",
+    })),
 }));

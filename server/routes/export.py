@@ -7,6 +7,7 @@ from flask import Blueprint, jsonify, request
 
 from raft_dic_gui.processing import load_and_convert_image, save_scientific_results
 from raft_dic_gui.export_images import export_batch_images
+from raft_dic_gui.export_animation import export_animation
 from server.app import socketio
 from server.session import session
 
@@ -175,3 +176,128 @@ def cancel_export():
         return jsonify({"error": "No export in progress"}), 400
     session.export_cancel.set()
     return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# Animation export
+# ---------------------------------------------------------------------------
+
+@export_bp.route("/animation", methods=["POST"])
+def export_animation_endpoint():
+    """Start animation export (GIF/MP4) — async with progress."""
+    if not session.displacement_results:
+        return jsonify({"error": "No displacement results"}), 400
+
+    if session.export_active:
+        return jsonify({"error": "Export already in progress"}), 409
+
+    data = request.get_json(force=True)
+    output_path = data.get("output_path", "").strip()
+    fmt = data.get("format", "gif").lower()
+    component = data.get("component", "u")
+    frame_range = data.get("frame_range", [0, len(session.displacement_results) - 1])
+    fps = data.get("fps", 10)
+    loop = data.get("loop", True)
+    timestamp_overlay = data.get("timestamp_overlay", False)
+    include_colorbar = data.get("include_colorbar", True)
+    resize_factor = data.get("resize_factor", 1.0)
+    anim_settings = data.get("settings", {})
+
+    if not output_path:
+        return jsonify({"error": "Missing output_path"}), 400
+
+    # Validate extension
+    expected_ext = ".gif" if fmt == "gif" else ".mp4"
+    if not output_path.lower().endswith(expected_ext):
+        output_path += expected_ext
+
+    # Validate directory
+    export_dir = os.path.dirname(output_path)
+    if export_dir and not os.path.isdir(export_dir):
+        return jsonify({"error": f"Directory does not exist: {export_dir}"}), 400
+
+    def image_loader(frame_idx):
+        if frame_idx < len(session.image_files):
+            img_path = os.path.join(session.image_dir, session.image_files[frame_idx])
+            return load_and_convert_image(img_path)
+        return session.reference_image
+
+    def progress_callback(current, total, message):
+        session.export_progress = current
+        session.export_total = total
+        socketio.emit("export:progress", {
+            "current": current,
+            "total": total,
+            "percent": round(current / max(1, total) * 100, 1),
+            "message": message,
+        })
+
+    def run_anim_export():
+        try:
+            session.export_active = True
+            session.export_progress = 0
+            session.export_cancel.clear()
+
+            export_animation(
+                output_path=output_path,
+                fmt=fmt,
+                component=component,
+                frame_range=tuple(frame_range),
+                displacement_results=session.displacement_results,
+                strain_results=session.strain_results,
+                roi_rect=_active_rect(),
+                roi_mask=session.roi_mask,
+                image_loader=image_loader,
+                settings=anim_settings,
+                deformed_view_cache=session.deformed_view_cache,
+                fps=fps,
+                loop=loop,
+                timestamp_overlay=timestamp_overlay,
+                include_colorbar=include_colorbar,
+                resize_factor=resize_factor,
+                progress_callback=progress_callback,
+                cancel_event=session.export_cancel,
+            )
+
+            session.export_active = False
+            socketio.emit("export:complete", {"path": output_path})
+        except Exception as e:
+            session.export_active = False
+            socketio.emit("export:error", {"error": str(e)})
+
+    thread = threading.Thread(target=run_anim_export, daemon=True)
+    thread.start()
+
+    return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# Report generation
+# ---------------------------------------------------------------------------
+
+@export_bp.route("/report", methods=["POST"])
+def export_report():
+    """Generate analysis report (synchronous, typically <15s)."""
+    if not session.displacement_results:
+        return jsonify({"error": "No displacement results"}), 400
+
+    data = request.get_json(force=True)
+    output_path = data.get("output_path", "").strip()
+    sections = data.get("sections")  # None = all sections
+
+    if not output_path:
+        return jsonify({"error": "Missing output_path"}), 400
+
+    if not output_path.lower().endswith(".html"):
+        output_path += ".html"
+
+    export_dir = os.path.dirname(output_path)
+    if export_dir and not os.path.isdir(export_dir):
+        return jsonify({"error": f"Directory does not exist: {export_dir}"}), 400
+
+    try:
+        from raft_dic_gui.report_generator import generate_report
+        result_path = generate_report(session, output_path, sections=sections)
+        return jsonify({"ok": True, "path": result_path})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500

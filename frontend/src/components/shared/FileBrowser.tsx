@@ -1,27 +1,40 @@
 import { useState, useEffect, useCallback } from "react";
 import { browseDirectory, type BrowseEntry } from "@/api/images";
-import { Folder, Image, ArrowUp, X, Check } from "lucide-react";
+import { Folder, Image, ArrowUp, X, Check, FileText } from "lucide-react";
 
 interface FileBrowserProps {
   open: boolean;
   onClose: () => void;
   onSelect: (path: string) => void;
   initialPath?: string;
+  /** "directory" selects a folder (default), "file" selects a file */
+  mode?: "directory" | "file";
+  /** File extensions to show when mode="file" (e.g. [".raftproj"]) */
+  fileFilter?: string[];
+  /** Title override */
+  title?: string;
 }
 
-export function FileBrowser({ open, onClose, onSelect, initialPath = "" }: FileBrowserProps) {
+export function FileBrowser({
+  open, onClose, onSelect, initialPath = "",
+  mode = "directory", fileFilter, title,
+}: FileBrowserProps) {
   const [currentPath, setCurrentPath] = useState(initialPath);
   const [parentPath, setParentPath] = useState("");
   const [entries, setEntries] = useState<BrowseEntry[]>([]);
   const [imageCount, setImageCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  // For save mode: user can type a new filename
+  const [newFileName, setNewFileName] = useState("");
 
   const browse = useCallback(async (path: string) => {
     setLoading(true);
     setError("");
+    setSelectedFile(null);
     try {
-      const result = await browseDirectory(path);
+      const result = await browseDirectory(path, fileFilter);
       setCurrentPath(result.path);
       setParentPath(result.parent);
       setEntries(result.entries);
@@ -34,7 +47,10 @@ export function FileBrowser({ open, onClose, onSelect, initialPath = "" }: FileB
   }, []);
 
   useEffect(() => {
-    if (open) browse(initialPath);
+    if (open) {
+      browse(initialPath);
+      setNewFileName("");
+    }
   }, [open, initialPath, browse]);
 
   if (!open) return null;
@@ -42,12 +58,39 @@ export function FileBrowser({ open, onClose, onSelect, initialPath = "" }: FileB
   const dirs = entries.filter((e) => e.type === "dir");
   const images = entries.filter((e) => e.type === "image");
 
+  // In file mode, show entries of type "file" (returned by backend with file_extensions filter)
+  const allFiles = mode === "file"
+    ? entries.filter((e) => e.type === "file")
+    : [];
+
+  const isDirectoryMode = mode === "directory";
+  const displayTitle = title ?? (isDirectoryMode ? "Select Image Directory" : "Select File");
+
+  const handleSelect = () => {
+    if (isDirectoryMode) {
+      onSelect(currentPath);
+    } else if (selectedFile) {
+      onSelect(currentPath + "/" + selectedFile);
+    } else if (newFileName.trim()) {
+      const name = newFileName.trim();
+      // Ensure extension if fileFilter provided
+      const hasExt = fileFilter?.some((ext) => name.toLowerCase().endsWith(ext.toLowerCase()));
+      const finalName = hasExt || !fileFilter?.length ? name : name + fileFilter[0];
+      onSelect(currentPath + "/" + finalName);
+    }
+    onClose();
+  };
+
+  const canSelect = isDirectoryMode
+    ? imageCount > 0
+    : !!(selectedFile || newFileName.trim());
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="bg-[var(--card)] border border-[var(--border)] rounded-lg shadow-xl w-[500px] max-h-[70vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
-          <h3 className="text-[13px] font-semibold text-[var(--foreground)]">Select Image Directory</h3>
+          <h3 className="text-[13px] font-semibold text-[var(--foreground)]">{displayTitle}</h3>
           <button onClick={onClose} className="p-1 hover:bg-[var(--secondary)] rounded text-[var(--muted-foreground)]">
             <X size={14} />
           </button>
@@ -92,7 +135,32 @@ export function FileBrowser({ open, onClose, onSelect, initialPath = "" }: FileB
               <span className="text-[11px] text-[var(--foreground)] truncate">{entry.name}</span>
             </button>
           ))}
-          {!loading && images.length > 0 && (
+
+          {/* File mode: show matching files */}
+          {!loading && mode === "file" && allFiles.length > 0 && (
+            <div className="mt-1 pt-1 border-t border-[var(--border)]">
+              <span className="text-[9px] text-[var(--muted-foreground)] px-2 uppercase tracking-wider">
+                {allFiles.length} file{allFiles.length !== 1 ? "s" : ""}
+              </span>
+              {allFiles.map((entry) => (
+                <button
+                  key={entry.name}
+                  onClick={() => { setSelectedFile(entry.name); setNewFileName(""); }}
+                  className={`flex items-center gap-2 w-full px-2 py-1.5 rounded text-left ${
+                    selectedFile === entry.name
+                      ? "bg-[var(--primary)]/20 ring-1 ring-[var(--primary)]"
+                      : "hover:bg-[var(--secondary)]"
+                  }`}
+                >
+                  <FileText size={14} className="text-[var(--primary)] shrink-0" />
+                  <span className="text-[11px] text-[var(--foreground)] truncate">{entry.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Directory mode: show image preview */}
+          {!loading && isDirectoryMode && images.length > 0 && (
             <div className="mt-1 pt-1 border-t border-[var(--border)]">
               <span className="text-[9px] text-[var(--muted-foreground)] px-2 uppercase tracking-wider">
                 {images.length} image{images.length !== 1 ? "s" : ""} in this directory
@@ -112,12 +180,32 @@ export function FileBrowser({ open, onClose, onSelect, initialPath = "" }: FileB
           )}
         </div>
 
+        {/* File mode: new filename input */}
+        {mode === "file" && (
+          <div className="px-4 py-2 border-t border-[var(--border)] bg-[var(--background)]">
+            <input
+              type="text"
+              value={newFileName}
+              onChange={(e) => { setNewFileName(e.target.value); setSelectedFile(null); }}
+              placeholder={`New filename${fileFilter ? ` (${fileFilter.join(", ")})` : ""}`}
+              className="w-full px-2 py-1.5 rounded text-[11px] bg-[var(--card)] border border-[var(--border)] text-[var(--foreground)] placeholder-[var(--muted-foreground)] focus:border-[var(--primary)] outline-none"
+            />
+          </div>
+        )}
+
         {/* Footer */}
         <div className="flex items-center justify-between px-4 py-3 border-t border-[var(--border)]">
           <span className="text-[10px] text-[var(--muted-foreground)]">
-            {imageCount > 0
-              ? `${imageCount} image${imageCount !== 1 ? "s" : ""} found`
-              : "No images in this directory"}
+            {isDirectoryMode
+              ? imageCount > 0
+                ? `${imageCount} image${imageCount !== 1 ? "s" : ""} found`
+                : "No images in this directory"
+              : selectedFile
+                ? selectedFile
+                : newFileName.trim()
+                  ? `New: ${newFileName.trim()}`
+                  : "Select or type a filename"
+            }
           </span>
           <div className="flex items-center gap-2">
             <button
@@ -127,15 +215,12 @@ export function FileBrowser({ open, onClose, onSelect, initialPath = "" }: FileB
               Cancel
             </button>
             <button
-              onClick={() => {
-                onSelect(currentPath);
-                onClose();
-              }}
-              disabled={imageCount === 0}
+              onClick={handleSelect}
+              disabled={!canSelect}
               className="flex items-center gap-1 px-3 py-1.5 bg-[var(--primary)] hover:bg-[var(--primary)]/90 text-white rounded text-[11px] disabled:opacity-40"
             >
               <Check size={12} />
-              Select ({imageCount})
+              {isDirectoryMode ? `Select (${imageCount})` : "Select"}
             </button>
           </div>
         </div>
