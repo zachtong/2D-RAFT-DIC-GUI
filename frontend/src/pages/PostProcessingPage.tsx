@@ -36,8 +36,14 @@ export function PostProcessingPage() {
   }, [hasResults, numFrames, cache.startPreRender]);
 
   const isFrameReady = useCallback(
-    (idx: number) => !!cache.getFrame(idx),
-    [cache.getFrame]
+    (idx: number) => {
+      // If frame is in pre-render cache, use it (instant)
+      if (cache.getFrame(idx)) return true;
+      // If not all frames are cached yet, advance anyway —
+      // PostProcessingView will fall back to the live server URL
+      return cache.cachedCount < cache.totalFrames;
+    },
+    [cache.getFrame, cache.cachedCount, cache.totalFrames]
   );
 
   return (

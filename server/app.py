@@ -19,7 +19,10 @@ def create_app(test_config=None):
     if test_config:
         app.config.update(test_config)
 
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+    CORS(app, resources={r"/api/*": {
+        "origins": "*",
+        "expose_headers": ["X-Data-Min", "X-Data-Max"],
+    }})
 
     # Register blueprints
     from server.routes.images import images_bp

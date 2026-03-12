@@ -2,8 +2,8 @@
 Strain calculation utilities for RAFT-DIC.
 
 - Virtual Strain Gauge (VSG) method with weighted least-squares
-- Adaptive multi-pass VSG for robust boundary handling near holes
 - Condition number pre-filtering via eigenvalue analysis
+- Boundary erosion to mask unreliable edge strain
 - Rotation field via polar decomposition (Numba-optimized)
 """
 
@@ -128,29 +128,6 @@ def _compute_rotation_field_numba(du_dx, du_dy, dv_dx, dv_dy):
 
     return rotation
 
-
-# ---------------------------------------------------------------------------
-# Adaptive VSG helpers
-# ---------------------------------------------------------------------------
-
-def _adaptive_vsg_sizes(vsg_size, min_vsg=15):
-    """Generate decreasing odd window sizes for adaptive passes.
-
-    Example: vsg_size=31, min_vsg=15 -> [15]
-             vsg_size=31, min_vsg=7  -> [15, 7]
-    Uses min_vsg=15 by default to avoid excessive noise amplification
-    in real DIC data (typical noise ~0.01-0.02 px).
-    """
-    sizes = []
-    s = vsg_size
-    while True:
-        s = max(min_vsg, (s // 2) | 1)  # halve and ensure odd
-        if s >= (sizes[-1] if sizes else vsg_size):
-            break
-        sizes.append(s)
-        if s <= min_vsg:
-            break
-    return sizes
 
 
 def _vsg_gradients(u_filled, v_filled, mask_float, vsg_size, poly_order,
@@ -283,11 +260,10 @@ def _vsg_gradients(u_filled, v_filled, mask_float, vsg_size, poly_order,
 def calculate_strain_field(displacement_field: np.ndarray, method: str = 'green_lagrange',
                           vsg_size: int = 31, poly_order: int = 1, weighting: str = 'Gaussian',
                           step: int = 1, gaussian_sigma=None,
-                          adaptive: bool = False, cond_threshold: float = 1000.0,
-                          coverage_threshold: float = 0.7,
+                          cond_threshold: float = 1000.0,
                           boundary_erosion: int = -1):
     """
-    Calculate strain field with adaptive VSG and quality filtering.
+    Calculate strain field with VSG and quality filtering.
 
     Args:
         displacement_field: (H, W, 2) array with (u, v) displacements.
@@ -297,9 +273,7 @@ def calculate_strain_field(displacement_field: np.ndarray, method: str = 'green_
         weighting: 'Uniform' or 'Gaussian'.
         step: Calculation stride (downsampling factor).
         gaussian_sigma: Custom Gaussian sigma. If None, defaults to vsg_size / 4.
-        adaptive: Enable multi-pass adaptive VSG for boundary pixels.
         cond_threshold: Max condition number; pixels above are NaN (0 to disable).
-        coverage_threshold: Min coverage ratio (0..1) before preferring smaller window.
         boundary_erosion: Pixels to erode from NaN boundaries (masks out unreliable
             border strain). -1 = auto (vsg_size // 2), 0 = disabled.
 
@@ -316,7 +290,7 @@ def calculate_strain_field(displacement_field: np.ndarray, method: str = 'green_
     min_weight = num_params * 3.0
 
     print(f"[TIMING] Strain calc: {H}x{W}, VSG={vsg_size}, step={step}, "
-          f"adaptive={adaptive}, cond_thresh={cond_threshold}, min_weight={min_weight}")
+          f"cond_thresh={cond_threshold}, min_weight={min_weight}")
 
     # Validity mask
     mask = (~np.isnan(u)) & (~np.isnan(v))
@@ -340,47 +314,9 @@ def calculate_strain_field(displacement_field: np.ndarray, method: str = 'green_
     t2 = time.perf_counter()
     n_valid_down = int(np.sum(mask_down))
     n_got = int(np.sum(~np.isnan(du_dx) & mask_down))
-    n_low_cov = int(np.sum(mask_down & ~np.isnan(du_dx) & (coverage < coverage_threshold)))
     print(f"[TIMING] Primary pass (vsg={vsg_size}): {t2-t1:.3f}s, "
           f"solved={n_solved}, cond_filtered={n_cond_filtered}, "
-          f"output={n_got}/{n_valid_down}, low_coverage={n_low_cov}")
-
-    # --- Adaptive passes with smaller windows ---
-    # Replace pixels that are NaN OR have low coverage (biased by asymmetric window)
-    if adaptive:
-        smaller_sizes = _adaptive_vsg_sizes(vsg_size)
-        for sv in smaller_sizes:
-            needs_replace = mask_down & (
-                np.isnan(du_dx) | (coverage < coverage_threshold)
-            )
-            n_need = int(np.sum(needs_replace))
-            if n_need == 0:
-                break
-
-            # Scale gaussian_sigma proportionally for smaller window
-            gs = None
-            if gaussian_sigma is not None:
-                gs = gaussian_sigma * sv / vsg_size
-
-            ta = time.perf_counter()
-            du2, duy2, dvx2, dvy2, cov2, n_s, n_cf = _vsg_gradients(
-                u_filled, v_filled, mask_float, sv, poly_order,
-                weighting, step, gs, min_weight, cond_threshold,
-            )
-            tb = time.perf_counter()
-
-            # Replace if smaller window produced a valid result
-            replace = needs_replace & ~np.isnan(du2)
-            n_replaced = int(np.sum(replace))
-            print(f"[TIMING] Adaptive pass (vsg={sv}): {tb-ta:.3f}s, "
-                  f"replaced {n_replaced}/{n_need} boundary pixels "
-                  f"(cond_filtered={n_cf})")
-
-            du_dx[replace] = du2[replace]
-            du_dy[replace] = duy2[replace]
-            dv_dx[replace] = dvx2[replace]
-            dv_dy[replace] = dvy2[replace]
-            coverage[replace] = cov2[replace]
+          f"output={n_got}/{n_valid_down}")
 
     # --- Strain computation ---
     if method == 'green_lagrange':

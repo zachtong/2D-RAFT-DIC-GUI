@@ -1,6 +1,7 @@
 """Strain calculation and data endpoints."""
 
 import io
+import os
 import threading
 
 import numpy as np
@@ -9,7 +10,8 @@ from flask import Blueprint, jsonify, request
 from raft_dic_gui.strain import calculate_strain_field
 from server.app import socketio
 from server.render_cache import RenderCache, auto_cache_size
-from server.serializers import frame_data_to_json, png_response
+from server.render_utils import render_composited_png, render_data_texture_png, render_overlay_png
+from server.serializers import data_texture_response, frame_data_to_json, png_response
 from server.session import session
 
 strain_bp = Blueprint("strain", __name__)
@@ -19,6 +21,11 @@ STRAIN_COMPONENTS = [
     "exx", "eyy", "exy", "e1", "e2", "max_shear", "von_mises", "rotation",
     "dexx_dt", "deyy_dt", "dexy_dt",
 ]
+
+
+def _active_rect():
+    """Return envelope_rect if available, else roi_rect."""
+    return session.envelope_rect or session.roi_rect
 
 
 @strain_bp.route("/calculate", methods=["POST"])
@@ -41,9 +48,7 @@ def calculate():
     gaussian_sigma_raw = data.get("gaussian_sigma", None)
     gaussian_sigma = float(gaussian_sigma_raw) if gaussian_sigma_raw is not None else None
     spatial_sigma = float(data.get("spatial_sigma", 0))
-    adaptive = data.get("adaptive", False)
     cond_threshold = float(data.get("cond_threshold", 1000))
-    coverage_threshold = float(data.get("coverage_threshold", 0.7))
     boundary_erosion = int(data.get("boundary_erosion", -1))
 
     def compute():
@@ -77,9 +82,7 @@ def calculate():
                     weighting=weighting,
                     step=step,
                     gaussian_sigma=gaussian_sigma,
-                    adaptive=adaptive,
                     cond_threshold=cond_threshold,
-                    coverage_threshold=coverage_threshold,
                     boundary_erosion=boundary_erosion,
                 )
                 results.append(strain_dict)
@@ -187,16 +190,13 @@ def get_range(idx: int):
 
 @strain_bp.route("/render/<int:idx>", methods=["GET"])
 def render_frame(idx: int):
-    """Render a strain field overlay as PNG using PIL compositing."""
-    from PIL import Image
-    import matplotlib.cm as cm
-    import matplotlib.colors as mcolors
-    import os
-
-    if not session.strain_results:
+    """Render a strain field overlay as PNG."""
+    # Snapshot to avoid mid-request replacement by another thread
+    strain_results = session.strain_results
+    if not strain_results:
         return jsonify({"error": "No strain results"}), 404
 
-    if idx < 0 or idx >= len(session.strain_results):
+    if idx < 0 or idx >= len(strain_results):
         return jsonify({"error": "Frame index out of range"}), 400
 
     component = request.args.get("component", "exx")
@@ -218,9 +218,11 @@ def render_frame(idx: int):
     cache_key = (session.result_version, idx, tuple(sorted(cache_params.items())))
     cached = _render_cache.get(cache_key)
     if cached is not None:
+        if isinstance(cached, tuple):
+            return data_texture_response(*cached)
         return png_response(cached)
 
-    strain_dict = session.strain_results[idx]
+    strain_dict = strain_results[idx]
     if strain_dict is None or component not in strain_dict:
         return jsonify({"error": f"Component '{component}' not available"}), 400
 
@@ -234,95 +236,29 @@ def render_frame(idx: int):
         else:
             return jsonify({"error": "No image dimensions"}), 500
 
-    # Place strain data in full image coordinates
-    if background == "deformed" and session.roi_rect:
-        from server.deformed_warp import get_warped_full_data
-        x0, y0, x1, y1 = session.roi_rect
-        roi_h, roi_w = y1 - y0, x1 - x0
-        sh, sw = strain_data.shape
-
-        disp = session.displacement_results[idx]
-        U, V = disp[:, :, 0], disp[:, :, 1]
-        full_data = get_warped_full_data(
-            data=strain_data, frame_idx=idx,
-            U=U, V=V,
-            roi_rect=session.roi_rect,
-            image_shape=(h, w),
-            needs_upsample=(sh != roi_h or sw != roi_w),
-            roi_h=roi_h, roi_w=roi_w,
-            cache=session.inverse_map_cache,
-            quality=warp_quality,
-        )
-    else:
-        full_data = np.full((h, w), np.nan)
-
-        if session.roi_rect:
-            x0, y0, x1, y1 = session.roi_rect
-            roi_h, roi_w = y1 - y0, x1 - x0
-            sh, sw = strain_data.shape
-
-            if sh != roi_h or sw != roi_w:
-                import cv2
-                mask_valid = ~np.isnan(strain_data)
-                data_clean = np.nan_to_num(strain_data, nan=0.0)
-                data_resized = cv2.resize(data_clean, (roi_w, roi_h), interpolation=cv2.INTER_LINEAR)
-                mask_resized = cv2.resize(mask_valid.astype(np.uint8), (roi_w, roi_h), interpolation=cv2.INTER_NEAREST)
-                data_resized[mask_resized == 0] = np.nan
-                full_data[y0:y1, x0:x1] = data_resized
-            else:
-                full_data[y0:y1, x0:x1] = strain_data
+    full_data = _place_strain_in_full_image(strain_data, idx, h, w, background, warp_quality,
+                                            vw=vw, vh=vh)
 
     if overlay_only:
-        # --- Overlay-only mode: return RGBA overlay, no background ---
-        # Viewport downsampling (data only, skip bg)
-        if vw > 0 and vh > 0:
-            import cv2 as _cv2
-            scale = min(vw / w, vh / h, 1.0)
-            if scale < 1.0:
-                out_w, out_h = max(1, int(w * scale)), max(1, int(h * scale))
-                mask_f = np.isfinite(full_data).astype(np.float32)
-                filled = np.nan_to_num(full_data, nan=0.0).astype(np.float32)
-                full_data = _cv2.resize(filled, (out_w, out_h), interpolation=_cv2.INTER_AREA).astype(np.float64)
-                mask_s = _cv2.resize(mask_f, (out_w, out_h), interpolation=_cv2.INTER_AREA)
-                full_data[mask_s < 0.5] = np.nan
-                h, w = out_h, out_w
+        render_mode = request.args.get("render_mode", "colored")
+        if render_mode == "data":
+            png_bytes, data_min, data_max = render_data_texture_png(
+                full_data, vw=vw, vh=vh,
+            )
+            _render_cache.put(cache_key, (png_bytes, data_min, data_max))
+            return data_texture_response(png_bytes, data_min, data_max)
 
-        mask = ~np.isnan(full_data)
-        valid_vals = full_data[mask]
-        if vmin is None:
-            vmin = float(valid_vals.min()) if valid_vals.size > 0 else 0.0
-        if vmax is None:
-            vmax = float(valid_vals.max()) if valid_vals.size > 0 else 1.0
-        if vmin >= vmax:
-            vmax = vmin + 1e-10
-
-        cmap = cm.get_cmap(colormap)
-        if log_scale:
-            log_vmin = vmin if vmin > 0 else 1e-10
-            log_vmax = vmax if vmax > 0 else 1.0
-            if log_vmin >= log_vmax:
-                log_vmin = log_vmax / 1000
-            norm = mcolors.LogNorm(vmin=log_vmin, vmax=log_vmax)
-        else:
-            norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-        normalized = norm(np.nan_to_num(full_data, nan=0.0))
-        colored = cmap(normalized)
-        colored[:, :, 3] = mask.astype(np.float64)
-        overlay_rgba = (colored * 255).astype(np.uint8)
-        overlay_pil = Image.fromarray(overlay_rgba, "RGBA")
-
-        buf = io.BytesIO()
-        overlay_pil.save(buf, format="PNG")
-        buf.seek(0)
-        png_bytes = buf.read()
+        png_bytes = render_overlay_png(
+            full_data, colormap=colormap, vmin=vmin, vmax=vmax,
+            log_scale=log_scale, vw=vw, vh=vh,
+        )
         _render_cache.put(cache_key, png_bytes)
         return png_response(png_bytes)
 
     # --- Composited mode (legacy) ---
-    # Load background
     if background == "deformed" and idx + 1 < len(session.image_files):
-        bg_path = os.path.join(session.image_dir, session.image_files[idx + 1])
         from raft_dic_gui.processing import load_and_convert_image
+        bg_path = os.path.join(session.image_dir, session.image_files[idx + 1])
         bg_img = load_and_convert_image(bg_path)
     else:
         bg_img = session.reference_image
@@ -330,69 +266,69 @@ def render_frame(idx: int):
     if bg_img is None:
         return jsonify({"error": "No reference image"}), 500
 
-    h, w = bg_img.shape[:2]
-
-    # Viewport downsampling
-    from server.viewport import downsample_for_viewport
-    full_data, bg_img, h, w = downsample_for_viewport(full_data, bg_img, vw, vh)
-
-    # Build valid-data mask
-    mask = ~np.isnan(full_data)
-    valid_vals = full_data[mask]
-
-    # Auto-determine vmin/vmax from data if not specified
-    if vmin is None:
-        vmin = float(valid_vals.min()) if valid_vals.size > 0 else 0.0
-    if vmax is None:
-        vmax = float(valid_vals.max()) if valid_vals.size > 0 else 1.0
-    if vmin >= vmax:
-        vmax = vmin + 1e-10
-
-    # Convert background to RGB PIL image
-    if bg_img.ndim == 2:
-        bg_pil = Image.fromarray(bg_img).convert("RGB")
-    elif bg_img.shape[2] == 4:
-        bg_pil = Image.fromarray(bg_img[:, :, :3])
-    else:
-        bg_pil = Image.fromarray(bg_img)
-
-    # Apply colormap: normalize → colormap → RGBA
-    cmap = cm.get_cmap(colormap)
-    if log_scale:
-        log_vmin = vmin if vmin > 0 else 1e-10
-        log_vmax = vmax if vmax > 0 else 1.0
-        if log_vmin >= log_vmax:
-            log_vmin = log_vmax / 1000
-        norm = mcolors.LogNorm(vmin=log_vmin, vmax=log_vmax)
-    else:
-        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-    normalized = norm(np.nan_to_num(full_data, nan=0.0))
-    colored = cmap(normalized)  # (h, w, 4) float [0, 1]
-
-    # Set alpha: overlay_alpha * data_valid_mask
-    colored[:, :, 3] = alpha * mask.astype(np.float64)
-
-    # Convert to uint8 RGBA
-    overlay_rgba = (colored * 255).astype(np.uint8)
-    overlay_pil = Image.fromarray(overlay_rgba, "RGBA")
-
-    # Composite overlay onto background
-    result = bg_pil.copy()
-    result.paste(overlay_pil, (0, 0), overlay_pil)
-
-    buf = io.BytesIO()
-    result.save(buf, format="PNG")
-    buf.seek(0)
-    png_bytes = buf.read()
+    png_bytes = render_composited_png(
+        full_data, bg_img, colormap=colormap, alpha=alpha,
+        vmin=vmin, vmax=vmax, log_scale=log_scale, vw=vw, vh=vh,
+    )
     _render_cache.put(cache_key, png_bytes)
-
     return png_response(png_bytes)
+
+
+def _place_strain_in_full_image(
+    strain_data: np.ndarray,
+    idx: int,
+    h: int,
+    w: int,
+    background: str = "reference",
+    warp_quality: str = "balanced",
+    vw: int = 0,
+    vh: int = 0,
+) -> np.ndarray:
+    """Place strain data into full image coordinates, applying deformed warp if needed."""
+    import cv2
+
+    rect = _active_rect()
+    if background == "deformed" and rect:
+        from server.deformed_warp import get_warped_full_data
+        x0, y0, x1, y1 = rect
+        roi_h, roi_w = y1 - y0, x1 - x0
+        sh, sw = strain_data.shape
+
+        disp = session.displacement_results[idx]
+        U, V = disp[:, :, 0], disp[:, :, 1]
+        return get_warped_full_data(
+            data=strain_data, frame_idx=idx,
+            U=U, V=V,
+            roi_rect=rect,
+            image_shape=(h, w),
+            needs_upsample=(sh != roi_h or sw != roi_w),
+            roi_h=roi_h, roi_w=roi_w,
+            cache=session.inverse_map_cache,
+            quality=warp_quality,
+            vw=vw, vh=vh,
+        )
+
+    full_data = np.full((h, w), np.nan)
+    if rect:
+        x0, y0, x1, y1 = rect
+        roi_h, roi_w = y1 - y0, x1 - x0
+        sh, sw = strain_data.shape
+
+        if sh != roi_h or sw != roi_w:
+            mask_valid = ~np.isnan(strain_data)
+            data_clean = np.nan_to_num(strain_data, nan=0.0)
+            data_resized = cv2.resize(data_clean, (roi_w, roi_h), interpolation=cv2.INTER_LINEAR)
+            mask_resized = cv2.resize(mask_valid.astype(np.uint8), (roi_w, roi_h), interpolation=cv2.INTER_NEAREST)
+            data_resized[mask_resized == 0] = np.nan
+            full_data[y0:y1, x0:x1] = data_resized
+        else:
+            full_data[y0:y1, x0:x1] = strain_data
+    return full_data
 
 
 @strain_bp.route("/download/<int:idx>", methods=["GET"])
 def download_frame(idx):
     """Download a single rendered strain frame as a high-res PNG."""
-    import os
     from io import BytesIO
     import matplotlib
     matplotlib.use("Agg")
@@ -401,9 +337,10 @@ def download_frame(idx):
     from flask import send_file
     from raft_dic_gui.processing import load_and_convert_image
 
-    if not session.strain_results:
+    strain_results = session.strain_results
+    if not strain_results:
         return jsonify({"error": "No strain results"}), 404
-    if idx < 0 or idx >= len(session.strain_results):
+    if idx < 0 or idx >= len(strain_results):
         return jsonify({"error": "Frame index out of range"}), 400
 
     component = request.args.get("component", "exx")
@@ -415,7 +352,7 @@ def download_frame(idx):
     log_scale = request.args.get("log_scale", "false").lower() in ("true", "1")
     dpi = request.args.get("dpi", 150, type=int)
 
-    strain_dict = session.strain_results[idx]
+    strain_dict = strain_results[idx]
     if strain_dict is None or component not in strain_dict:
         return jsonify({"error": f"Component '{component}' not available"}), 400
 
@@ -433,23 +370,8 @@ def download_frame(idx):
 
     h, w = bg_img.shape[:2]
 
-    # Place strain data in full image (may need upsampling)
-    full_data = np.full((h, w), np.nan)
-    if session.roi_rect:
-        x0, y0, x1, y1 = session.roi_rect
-        roi_h, roi_w = y1 - y0, x1 - x0
-        sh, sw = strain_data.shape
-
-        if sh != roi_h or sw != roi_w:
-            import cv2
-            mask_valid = ~np.isnan(strain_data)
-            data_clean = np.nan_to_num(strain_data, nan=0.0)
-            data_resized = cv2.resize(data_clean, (roi_w, roi_h), interpolation=cv2.INTER_LINEAR)
-            mask_resized = cv2.resize(mask_valid.astype(np.uint8), (roi_w, roi_h), interpolation=cv2.INTER_NEAREST)
-            data_resized[mask_resized == 0] = np.nan
-            full_data[y0:y1, x0:x1] = data_resized
-        else:
-            full_data[y0:y1, x0:x1] = strain_data
+    # Place strain data in full image (applies deformed warp when needed)
+    full_data = _place_strain_in_full_image(strain_data, idx, h, w, background)
 
     # Render with matplotlib
     fig_w = w / dpi

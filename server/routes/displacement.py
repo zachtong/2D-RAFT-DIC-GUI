@@ -1,6 +1,7 @@
 """Displacement frame data and rendered visualization endpoints."""
 
 import io
+import os
 
 import numpy as np
 from flask import Blueprint, jsonify, request
@@ -12,7 +13,13 @@ from raft_dic_gui.velocity import (
     calculate_velocity_field,
 )
 from server.render_cache import RenderCache, auto_cache_size
-from server.serializers import frame_data_to_json, png_response
+from server.render_utils import (
+    get_colormap_lut,
+    render_composited_png,
+    render_data_texture_png,
+    render_overlay_png,
+)
+from server.serializers import data_texture_response, frame_data_to_json, png_response
 from server.session import session
 
 displacement_bp = Blueprint("displacement", __name__)
@@ -107,16 +114,13 @@ def get_range(idx: int):
 
 @displacement_bp.route("/render/<int:idx>", methods=["GET"])
 def render_frame(idx: int):
-    """Render a displacement overlay as PNG using PIL compositing."""
-    from PIL import Image
-    import matplotlib.cm as cm
-    import matplotlib.colors as mcolors
-    import os
-
-    if not session.displacement_results:
+    """Render a displacement overlay as PNG."""
+    # Snapshot to avoid mid-request replacement by another thread
+    disp_results = session.displacement_results
+    if not disp_results:
         return jsonify({"error": "No displacement results"}), 404
 
-    if idx < 0 or idx >= len(session.displacement_results):
+    if idx < 0 or idx >= len(disp_results):
         return jsonify({"error": "Frame index out of range"}), 400
 
     component = request.args.get("component", "u")
@@ -139,6 +143,9 @@ def render_frame(idx: int):
     cache_key = (session.result_version, idx, tuple(sorted(cache_params.items())))
     cached = _render_cache.get(cache_key)
     if cached is not None:
+        if isinstance(cached, tuple):
+            # Data texture: (png_bytes, data_min, data_max)
+            return data_texture_response(*cached)
         return png_response(cached)
 
     disp_data = _get_displacement_component(idx, component, ref_frame=ref_frame)
@@ -154,7 +161,7 @@ def render_frame(idx: int):
     rect = _active_rect()
     if background == "deformed" and rect:
         from server.deformed_warp import get_warped_full_data
-        disp = session.displacement_results[idx]
+        disp = disp_results[idx]
         U, V = disp[:, :, 0], disp[:, :, 1]
         full_data = get_warped_full_data(
             data=disp_data, frame_idx=idx,
@@ -163,6 +170,7 @@ def render_frame(idx: int):
             image_shape=(h, w),
             cache=session.inverse_map_cache,
             quality=warp_quality,
+            vw=vw, vh=vh,
         )
     else:
         full_data = np.full((h, w), np.nan)
@@ -174,53 +182,22 @@ def render_frame(idx: int):
             full_data[y0:y0 + sh, x0:x0 + sw] = disp_data[:sh, :sw]
 
     if overlay_only:
-        # --- Overlay-only mode: return RGBA overlay, no background ---
-        # Viewport downsampling (data only, skip bg)
-        if vw > 0 and vh > 0:
-            import cv2
-            scale = min(vw / w, vh / h, 1.0)
-            if scale < 1.0:
-                out_w, out_h = max(1, int(w * scale)), max(1, int(h * scale))
-                mask_f = np.isfinite(full_data).astype(np.float32)
-                filled = np.nan_to_num(full_data, nan=0.0).astype(np.float32)
-                full_data = cv2.resize(filled, (out_w, out_h), interpolation=cv2.INTER_AREA).astype(np.float64)
-                mask_s = cv2.resize(mask_f, (out_w, out_h), interpolation=cv2.INTER_AREA)
-                full_data[mask_s < 0.5] = np.nan
-                h, w = out_h, out_w
+        render_mode = request.args.get("render_mode", "colored")
+        if render_mode == "data":
+            png_bytes, data_min, data_max = render_data_texture_png(
+                full_data, vw=vw, vh=vh,
+            )
+            _render_cache.put(cache_key, (png_bytes, data_min, data_max))
+            return data_texture_response(png_bytes, data_min, data_max)
 
-        mask = ~np.isnan(full_data)
-        valid_vals = full_data[mask]
-        if vmin is None:
-            vmin = float(valid_vals.min()) if valid_vals.size > 0 else 0.0
-        if vmax is None:
-            vmax = float(valid_vals.max()) if valid_vals.size > 0 else 1.0
-        if vmin >= vmax:
-            vmax = vmin + 1e-10
-
-        cmap = cm.get_cmap(colormap)
-        if log_scale:
-            log_vmin = vmin if vmin > 0 else 1e-10
-            log_vmax = vmax if vmax > 0 else 1.0
-            if log_vmin >= log_vmax:
-                log_vmin = log_vmax / 1000
-            norm = mcolors.LogNorm(vmin=log_vmin, vmax=log_vmax)
-        else:
-            norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-        normalized = norm(np.nan_to_num(full_data, nan=0.0))
-        colored = cmap(normalized)
-        colored[:, :, 3] = mask.astype(np.float64)  # 1.0 valid, 0.0 NaN
-        overlay_rgba = (colored * 255).astype(np.uint8)
-        overlay_pil = Image.fromarray(overlay_rgba, "RGBA")
-
-        buf = io.BytesIO()
-        overlay_pil.save(buf, format="PNG")
-        buf.seek(0)
-        png_bytes = buf.read()
+        png_bytes = render_overlay_png(
+            full_data, colormap=colormap, vmin=vmin, vmax=vmax,
+            log_scale=log_scale, vw=vw, vh=vh,
+        )
         _render_cache.put(cache_key, png_bytes)
         return png_response(png_bytes)
 
     # --- Composited mode (legacy) ---
-    # Load background image
     if background == "deformed" and idx + 1 < len(session.image_files):
         bg_img = session.deformed_view_cache.get_deformed_image(idx + 1)
         if bg_img is None:
@@ -232,62 +209,11 @@ def render_frame(idx: int):
     if bg_img is None:
         return jsonify({"error": "No reference image"}), 500
 
-    h, w = bg_img.shape[:2]
-
-    # Viewport downsampling
-    from server.viewport import downsample_for_viewport
-    full_data, bg_img, h, w = downsample_for_viewport(full_data, bg_img, vw, vh)
-
-    # Build valid-data mask
-    mask = ~np.isnan(full_data)
-    valid_vals = full_data[mask]
-
-    # Auto-determine vmin/vmax from data if not specified
-    if vmin is None:
-        vmin = float(valid_vals.min()) if valid_vals.size > 0 else 0.0
-    if vmax is None:
-        vmax = float(valid_vals.max()) if valid_vals.size > 0 else 1.0
-    if vmin >= vmax:
-        vmax = vmin + 1e-10
-
-    # Convert background to RGB PIL image
-    if bg_img.ndim == 2:
-        bg_pil = Image.fromarray(bg_img).convert("RGB")
-    elif bg_img.shape[2] == 4:
-        bg_pil = Image.fromarray(bg_img[:, :, :3])
-    else:
-        bg_pil = Image.fromarray(bg_img)
-
-    # Apply colormap: normalize data → colormap → RGBA
-    cmap = cm.get_cmap(colormap)
-    if log_scale:
-        log_vmin = vmin if vmin > 0 else 1e-10
-        log_vmax = vmax if vmax > 0 else 1.0
-        if log_vmin >= log_vmax:
-            log_vmin = log_vmax / 1000
-        norm = mcolors.LogNorm(vmin=log_vmin, vmax=log_vmax)
-    else:
-        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-    normalized = norm(np.nan_to_num(full_data, nan=0.0))
-    colored = cmap(normalized)  # (h, w, 4) float [0, 1]
-
-    # Set alpha: overlay_alpha * data_valid_mask
-    colored[:, :, 3] = alpha * mask.astype(np.float64)
-
-    # Convert to uint8 RGBA
-    overlay_rgba = (colored * 255).astype(np.uint8)
-    overlay_pil = Image.fromarray(overlay_rgba, "RGBA")
-
-    # Composite overlay onto background
-    result = bg_pil.copy()
-    result.paste(overlay_pil, (0, 0), overlay_pil)
-
-    buf = io.BytesIO()
-    result.save(buf, format="PNG")
-    buf.seek(0)
-    png_bytes = buf.read()
+    png_bytes = render_composited_png(
+        full_data, bg_img, colormap=colormap, alpha=alpha,
+        vmin=vmin, vmax=vmax, log_scale=log_scale, vw=vw, vh=vh,
+    )
     _render_cache.put(cache_key, png_bytes)
-
     return png_response(png_bytes)
 
 
@@ -302,9 +228,10 @@ def download_frame(idx):
     import matplotlib.colors as mcolors
     from flask import send_file
 
-    if not session.displacement_results:
+    disp_results = session.displacement_results
+    if not disp_results:
         return jsonify({"error": "No displacement results"}), 404
-    if idx < 0 or idx >= len(session.displacement_results):
+    if idx < 0 or idx >= len(disp_results):
         return jsonify({"error": "Frame index out of range"}), 400
 
     component = request.args.get("component", "u")
@@ -331,17 +258,30 @@ def download_frame(idx):
 
     h, w = bg_img.shape[:2]
 
-    # Place data in full image coordinates
+    # Place data in full image coordinates (apply deformed warp when needed)
     rect = _active_rect()
-    full_data = np.full((h, w), np.nan)
-    if rect:
-        x0, y0, x1, y1 = rect
-        dh, dw = disp_data.shape
-        sh = min(dh, y1 - y0)
-        sw = min(dw, x1 - x0)
-        full_data[y0:y0 + sh, x0:x0 + sw] = disp_data[:sh, :sw]
+    if background == "deformed" and rect:
+        from server.deformed_warp import get_warped_full_data
+        disp = disp_results[idx]
+        U, V = disp[:, :, 0], disp[:, :, 1]
+        full_data = get_warped_full_data(
+            data=disp_data, frame_idx=idx,
+            U=U, V=V,
+            roi_rect=rect,
+            image_shape=(h, w),
+            cache=session.inverse_map_cache,
+            quality="balanced",
+        )
     else:
-        full_data[:disp_data.shape[0], :disp_data.shape[1]] = disp_data
+        full_data = np.full((h, w), np.nan)
+        if rect:
+            x0, y0, x1, y1 = rect
+            dh, dw = disp_data.shape
+            sh = min(dh, y1 - y0)
+            sw = min(dw, x1 - x0)
+            full_data[y0:y0 + sh, x0:x0 + sw] = disp_data[:sh, :sw]
+        else:
+            full_data[:disp_data.shape[0], :disp_data.shape[1]] = disp_data
 
     # Render with matplotlib
     fig_w = w / dpi
@@ -382,3 +322,25 @@ def download_frame(idx):
         as_attachment=True,
         download_name=f"{component}_frame_{idx + 1:04d}.png",
     )
+
+
+# Global colormap LUT cache (colormaps are static, cache indefinitely)
+_colormap_lut_cache: dict = {}
+
+
+@displacement_bp.route("/colormap/<name>", methods=["GET"])
+def colormap_lut(name: str):
+    """Return a 256×1 RGBA PNG encoding a matplotlib colormap LUT."""
+    if name in _colormap_lut_cache:
+        png_bytes = _colormap_lut_cache[name]
+    else:
+        try:
+            png_bytes = get_colormap_lut(name)
+        except ValueError:
+            return jsonify({"error": f"Unknown colormap: {name}"}), 400
+        _colormap_lut_cache[name] = png_bytes
+
+    from server.serializers import image_response
+    resp = image_response(png_bytes, jpeg=False)
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp

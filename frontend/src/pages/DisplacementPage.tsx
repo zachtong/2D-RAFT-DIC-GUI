@@ -33,9 +33,16 @@ export function DisplacementPage() {
     }
   }, [hasResults, numFrames, cacheU.startPreRender, cacheV.startPreRender]);
 
+  const bothCached = cacheU.cachedCount >= cacheU.totalFrames && cacheV.cachedCount >= cacheV.totalFrames;
   const isFrameReady = useCallback(
-    (idx: number) => !!cacheU.getFrame(idx) && !!cacheV.getFrame(idx),
-    [cacheU.getFrame, cacheV.getFrame]
+    (idx: number) => {
+      // If both frames are in pre-render cache, use them (instant)
+      if (cacheU.getFrame(idx) && cacheV.getFrame(idx)) return true;
+      // If not all frames are cached yet, advance anyway —
+      // DisplacementView will fall back to the live server URL
+      return !bothCached;
+    },
+    [cacheU.getFrame, cacheV.getFrame, bothCached]
   );
 
   const combinedProgress = Math.round(

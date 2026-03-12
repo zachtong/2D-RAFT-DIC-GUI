@@ -30,6 +30,9 @@ export function StrainControls() {
   const [spatialSigma, setSpatialSigma] = useState("0");
   const [temporalSigma, setTemporalSigma] = useState("0");
   const [gaussianSigma, setGaussianSigma] = useState("");
+  const [condThreshold, setCondThreshold] = useState("1000");
+  const [erosionAuto, setErosionAuto] = useState(true);
+  const [erosionPx, setErosionPx] = useState("");
   const fps = useAppStore((s) => s.visSettings.fps);
 
   const handleCalculate = async () => {
@@ -46,6 +49,8 @@ export function StrainControls() {
         temporal_sigma: parseFloat(temporalSigma) || 0,
         gaussian_sigma: gaussianSigma ? parseFloat(gaussianSigma) : undefined,
         fps: fps || 1,
+        cond_threshold: parseFloat(condThreshold) || 1000,
+        boundary_erosion: erosionAuto ? -1 : (parseInt(erosionPx) || 0),
       });
     } catch (e) {
       console.error("Failed to start strain calculation:", e);
@@ -112,6 +117,46 @@ export function StrainControls() {
       {parseFloat(temporalSigma) > 0 && (
         <div className="text-[9px] text-[var(--muted-foreground)] mt-0.5">
           Gaussian smoothing of strain across time
+        </div>
+      )}
+      <div className="h-px bg-[var(--border)] my-1.5" />
+      <div className="text-[9px] text-[var(--muted-foreground)] mb-1 uppercase tracking-wider">Quality Filtering</div>
+      <FieldRow label="Cond. #">
+        <div className="flex items-center gap-1">
+          <SmallInput
+            value={condThreshold}
+            onChange={setCondThreshold}
+            placeholder="1000"
+          />
+          <span className="text-[9px] text-[var(--muted-foreground)] shrink-0">max</span>
+        </div>
+      </FieldRow>
+      <FieldRow label="Erosion">
+        <div className="flex items-center gap-1.5">
+          <label className="flex items-center gap-1 text-[10px] text-[var(--foreground)] cursor-pointer shrink-0">
+            <input
+              type="checkbox"
+              checked={erosionAuto}
+              onChange={(e) => setErosionAuto(e.target.checked)}
+              className="w-3 h-3 accent-[var(--primary)]"
+            />
+            Auto
+          </label>
+          {!erosionAuto && (
+            <div className="flex items-center gap-1">
+              <SmallInput
+                value={erosionPx}
+                onChange={setErosionPx}
+                placeholder="0"
+              />
+              <span className="text-[9px] text-[var(--muted-foreground)] shrink-0">px</span>
+            </div>
+          )}
+        </div>
+      </FieldRow>
+      {erosionAuto && (
+        <div className="text-[9px] text-[var(--muted-foreground)] mt-0.5">
+          Auto = VSG / 2 ({Math.floor(parseInt(vsgSize) / 2) || "?"} px)
         </div>
       )}
       <button

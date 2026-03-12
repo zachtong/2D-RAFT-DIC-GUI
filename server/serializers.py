@@ -92,6 +92,18 @@ def png_response(png_bytes: bytes) -> Response:
     return image_response(png_bytes, jpeg=False)
 
 
+def data_texture_response(
+    png_bytes: bytes, data_min: float, data_max: float,
+) -> Response:
+    """Wrap data texture PNG bytes with min/max metadata headers."""
+    resp = Response(png_bytes, mimetype="image/png")
+    resp.headers["Cache-Control"] = "private, max-age=30"
+    resp.headers["X-Data-Min"] = str(data_min)
+    resp.headers["X-Data-Max"] = str(data_max)
+    resp.headers["Access-Control-Expose-Headers"] = "X-Data-Min, X-Data-Max"
+    return resp
+
+
 def ndarray_to_json(arr: np.ndarray) -> Dict[str, Any]:
     """Convert a numpy array to a JSON-serializable dict."""
     return {

@@ -11,6 +11,8 @@ export async function calculateStrain(params: {
   spatial_sigma?: number;
   gaussian_sigma?: number;
   fps?: number;
+  cond_threshold?: number;
+  boundary_erosion?: number;
 }): Promise<void> {
   await client.post("/strain/calculate", params);
 }
