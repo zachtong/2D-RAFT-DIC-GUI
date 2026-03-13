@@ -95,6 +95,9 @@ def render_single_frame(
         
         # Setup normalization
         norm = None
+        cbs = colorbar_settings or {}
+        discrete_levels = cbs.get("discrete_levels", 0)
+
         if use_log_norm:
             log_vmin = vmin if vmin is not None and vmin > 0 else 1e-10
             log_vmax = vmax if vmax is not None and vmax > 0 else 1.0
@@ -102,12 +105,20 @@ def render_single_frame(
                 log_vmin = log_vmax / 1000
             norm = LogNorm(vmin=log_vmin, vmax=log_vmax)
             vmin, vmax = None, None  # Don't pass separately with norm
-        
+        elif discrete_levels and discrete_levels > 0 and vmin is not None and vmax is not None:
+            from matplotlib.colors import BoundaryNorm
+            boundaries = np.linspace(vmin, vmax, discrete_levels + 1)
+            norm = BoundaryNorm(boundaries, discrete_levels)
+            vmin, vmax = None, None
+
         # Plot data overlay
-        cmap = plt.get_cmap(colormap)
+        if discrete_levels and discrete_levels > 0 and not use_log_norm:
+            cmap = plt.get_cmap(colormap, discrete_levels)
+        else:
+            cmap = plt.get_cmap(colormap)
         cmap.set_bad(alpha=0)  # Transparent for NaN
-        
-        im = ax.imshow(masked_data, cmap=cmap, alpha=alpha, 
+
+        im = ax.imshow(masked_data, cmap=cmap, alpha=alpha,
                        vmin=vmin, vmax=vmax, extent=extent, norm=norm)
         
         # Plot velocity arrows if provided
@@ -236,8 +247,11 @@ def render_single_frame(
             if cbs.get("hide_outline", False):
                 cbar.outline.set_visible(False)
 
-            if colorbar_label:
-                cbar.set_label(colorbar_label, fontsize=cb_fontsize)
+            # label_text override from colorbar settings
+            display_label = cbs.get("label_text") or colorbar_label
+            if display_label:
+                label_fontsize = cbs.get("label_font_size", cb_fontsize)
+                cbar.set_label(display_label, fontsize=label_fontsize)
 
         # Add title
         if include_title and title:

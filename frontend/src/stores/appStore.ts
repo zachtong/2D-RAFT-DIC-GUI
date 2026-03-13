@@ -29,6 +29,16 @@ interface VisSettings {
   vmaxV: string;
 }
 
+interface ColorbarSettings {
+  labelText: string;        // "" = auto from component name
+  labelFontSize: number;    // default 12
+  tickCount: number;        // 0 = auto
+  tickFontSize: number;     // default 10
+  shrink: number;           // 0.3-1.0, default 0.8 (export only)
+  hideOutline: boolean;     // default false
+  discreteLevels: number;   // 0 = continuous, >0 = discrete color bins
+}
+
 interface AppState {
   // Image state
   imageDir: string;
@@ -98,6 +108,9 @@ interface AppState {
   viewZoom: number;
   viewOffset: { x: number; y: number };
 
+  // Colorbar
+  colorbarSettings: ColorbarSettings;
+
   // Export
   exportActive: boolean;
   exportProgress: number;
@@ -134,6 +147,7 @@ interface AppState {
   setMaskValidation: (result: { matched_count: number; total_frames: number; matched_frames: number[]; has_frame_1: boolean } | null) => void;
   setTilingPreview: (preview: TilingPreview | null) => void;
   setShowTileGrid: (show: boolean) => void;
+  updateColorbarSettings: (partial: Partial<ColorbarSettings>) => void;
   setExport: (active: boolean, progress?: number) => void;
   setViewOffset: (offset: { x: number; y: number }) => void;
   zoomIn: () => void;
@@ -151,6 +165,8 @@ interface AppState {
     image_height: number;
   }) => void;
 }
+
+export type { ColorbarSettings };
 
 export const useAppStore = create<AppState>((set) => ({
   imageDir: "",
@@ -217,6 +233,15 @@ export const useAppStore = create<AppState>((set) => ({
   maskValidation: null,
   tilingPreview: null,
   showTileGrid: false,
+  colorbarSettings: {
+    labelText: "",
+    labelFontSize: 12,
+    tickCount: 0,
+    tickFontSize: 10,
+    shrink: 0.8,
+    hideOutline: false,
+    discreteLevels: 0,
+  },
   viewZoom: 1,
   viewOffset: { x: 0, y: 0 },
   exportActive: false,
@@ -312,6 +337,8 @@ export const useAppStore = create<AppState>((set) => ({
   setMaskValidation: (result) => set({ maskValidation: result }),
   setTilingPreview: (preview) => set({ tilingPreview: preview }),
   setShowTileGrid: (show) => set({ showTileGrid: show }),
+  updateColorbarSettings: (partial) =>
+    set((s) => ({ colorbarSettings: { ...s.colorbarSettings, ...partial } })),
   setExport: (active, progress = 0) =>
     set({ exportActive: active, exportProgress: progress }),
   setViewOffset: (offset) => set({ viewOffset: offset }),

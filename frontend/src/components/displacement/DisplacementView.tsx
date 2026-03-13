@@ -19,6 +19,7 @@ function DisplacementPanel({
   const currentFrame = useAppStore((s) => s.currentFrame);
   const hasResults = useAppStore((s) => s.hasResults);
   const vis = useAppStore((s) => s.visSettings);
+  const colorbarSettings = useAppStore((s) => s.colorbarSettings);
   const viewZoom = useAppStore((s) => s.viewZoom);
   const viewOffset = useAppStore((s) => s.viewOffset);
   const referenceFrame = useAppStore((s) => s.referenceFrame);
@@ -140,6 +141,8 @@ function DisplacementPanel({
             : "[px]"
         }
         scaleFactor={vis.physicalEnabled ? vis.physicalRatio : 1}
+        component={component}
+        colorbarSettings={colorbarSettings}
       />
     </div>
   );

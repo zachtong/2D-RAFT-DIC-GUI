@@ -84,11 +84,8 @@ export function ExportDialog() {
   const [animColorbar, setAnimColorbar] = useState(true);
   const [animTimestamp, setAnimTimestamp] = useState(false);
 
-  // --- Shared colorbar settings ---
-  const [cbFontSize, setCbFontSize] = useState("10");
-  const [cbNumTicks, setCbNumTicks] = useState("");  // empty = auto
-  const [cbShrink, setCbShrink] = useState("0.8");
-  const [cbHideOutline, setCbHideOutline] = useState(false);
+  // --- Colorbar settings from store (shared with live display) ---
+  const cbs = useAppStore((s) => s.colorbarSettings);
 
   // --- Track which export type is active (to show progress in correct section) ---
   const [activeExportType, setActiveExportType] = useState<"images" | "animation" | null>(null);
@@ -219,15 +216,16 @@ export function ExportDialog() {
       return;
     }
 
-    // Build colorbar settings
+    // Build colorbar settings from store
     const colorbar_settings: Record<string, unknown> = {
-      font_size: parseInt(cbFontSize) || 10,
-      shrink: parseFloat(cbShrink) || 0.8,
-      hide_outline: cbHideOutline,
+      font_size: cbs.tickFontSize,
+      label_font_size: cbs.labelFontSize,
+      num_ticks: cbs.tickCount || undefined,
+      shrink: cbs.shrink,
+      hide_outline: cbs.hideOutline,
+      discrete_levels: cbs.discreteLevels || undefined,
+      label_text: cbs.labelText || undefined,
     };
-    if (cbNumTicks.trim()) {
-      colorbar_settings.num_ticks = parseInt(cbNumTicks);
-    }
 
     // Build WYSIWYG settings from current visualization state
     const settings: Record<string, unknown> = {
@@ -277,15 +275,16 @@ export function ExportDialog() {
   const handleAnimationExport = async () => {
     if (!animPath.trim()) return;
 
-    // Build colorbar settings (shared with image export)
+    // Build colorbar settings from store
     const colorbar_settings: Record<string, unknown> = {
-      font_size: parseInt(cbFontSize) || 10,
-      shrink: parseFloat(cbShrink) || 0.8,
-      hide_outline: cbHideOutline,
+      font_size: cbs.tickFontSize,
+      label_font_size: cbs.labelFontSize,
+      num_ticks: cbs.tickCount || undefined,
+      shrink: cbs.shrink,
+      hide_outline: cbs.hideOutline,
+      discrete_levels: cbs.discreteLevels || undefined,
+      label_text: cbs.labelText || undefined,
     };
-    if (cbNumTicks.trim()) {
-      colorbar_settings.num_ticks = parseInt(cbNumTicks);
-    }
 
     const settings: Record<string, unknown> = {
       colormap: vis.colormap,
@@ -296,6 +295,15 @@ export function ExportDialog() {
       fps: vis.fps,
       colorbar_settings,
     };
+
+    // Respect user's Fixed Range — pass vmin/vmax if set
+    if (vis.fixedRange) {
+      const vmin = parseFloat(vis.vminU);
+      const vmax = parseFloat(vis.vmaxU);
+      if (!isNaN(vmin)) settings.vmin = vmin;
+      if (!isNaN(vmax)) settings.vmax = vmax;
+    }
+
     try {
       setActiveExportType("animation");
       await exportAnimation({
@@ -517,52 +525,6 @@ export function ExportDialog() {
             <Download size={12} /> Export Images
           </button>
         )}
-      </div>
-
-      {/* --- Divider --- */}
-      <div className="h-px bg-[var(--border)] my-2" />
-
-      {/* --- Colorbar Settings (shared) --- */}
-      <div className="space-y-1">
-        <span className="text-[10px] font-medium text-[var(--muted-foreground)] uppercase tracking-wide">
-          Colorbar Style
-        </span>
-        <div className="flex items-center gap-1 flex-wrap">
-          <span className="text-[9px] text-[var(--muted-foreground)]">Font:</span>
-          <input
-            type="text"
-            value={cbFontSize}
-            onChange={(e) => setCbFontSize(e.target.value)}
-            className="w-8 h-5 bg-[var(--input)] border border-[#3a3d45] rounded px-1 text-[9px] text-[var(--foreground)] text-center"
-          />
-          <span className="text-[9px] text-[var(--muted-foreground)]">Ticks:</span>
-          <input
-            type="text"
-            value={cbNumTicks}
-            onChange={(e) => setCbNumTicks(e.target.value)}
-            placeholder="auto"
-            className="w-10 h-5 bg-[var(--input)] border border-[#3a3d45] rounded px-1 text-[9px] text-[var(--foreground)] text-center"
-          />
-          <span className="text-[9px] text-[var(--muted-foreground)]">Shrink:</span>
-          <input
-            type="text"
-            value={cbShrink}
-            onChange={(e) => setCbShrink(e.target.value)}
-            className="w-10 h-5 bg-[var(--input)] border border-[#3a3d45] rounded px-1 text-[9px] text-[var(--foreground)] text-center"
-          />
-          <label className="flex items-center gap-0.5 text-[9px] text-[var(--foreground)] cursor-pointer">
-            <input
-              type="checkbox"
-              checked={cbHideOutline}
-              onChange={() => setCbHideOutline(!cbHideOutline)}
-              className="accent-[var(--primary)] w-2.5 h-2.5"
-            />
-            No outline
-          </label>
-        </div>
-        <p className="text-[8px] text-[var(--muted-foreground)] italic">
-          Applies to both Image and Animation exports
-        </p>
       </div>
 
       {/* --- Divider --- */}

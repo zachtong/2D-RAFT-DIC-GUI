@@ -1,5 +1,7 @@
 import { useEffect, useCallback, useState } from "react";
+import { Settings } from "lucide-react";
 import { CollapsibleSection } from "@/components/shared/CollapsibleSection";
+import { ColorbarSettingsPanel } from "@/components/shared/ColorbarSettingsPanel";
 import { FieldRow } from "@/components/shared/FieldRow";
 import { Toggle } from "@/components/shared/Toggle";
 import { SmallInput } from "@/components/shared/SmallInput";
@@ -68,6 +70,7 @@ export function VisualizationSettings() {
   const hasResults = useAppStore((s) => s.hasResults);
   const currentFrame = useAppStore((s) => s.currentFrame);
 
+  const [showCbPanel, setShowCbPanel] = useState(false);
   const physicalEnabled = vis.physicalEnabled;
 
   // Auto-populate from current frame data when Fixed Range is toggled on
@@ -161,6 +164,23 @@ export function VisualizationSettings() {
           />
         </FieldRow>
         <ColormapBar colormap={vis.colormap} />
+
+        {/* Colorbar settings gear button */}
+        <div className="relative">
+          <button
+            onClick={() => setShowCbPanel((v) => !v)}
+            className="flex items-center gap-1 px-2 py-1 rounded text-[10px]
+              bg-[var(--secondary)] hover:bg-[var(--secondary)]/80
+              text-[var(--muted-foreground)] hover:text-[var(--foreground)]
+              transition-colors w-full"
+          >
+            <Settings size={11} />
+            Colorbar Settings
+          </button>
+          {showCbPanel && (
+            <ColorbarSettingsPanel onClose={() => setShowCbPanel(false)} />
+          )}
+        </div>
 
         <FieldRow label="Opacity">
           <SliderField

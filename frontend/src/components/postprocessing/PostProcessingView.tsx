@@ -30,6 +30,7 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
   const numFrames = useAppStore((s) => s.numFrames);
   const displayComponent = useAppStore((s) => s.displayComponent);
   const vis = useAppStore((s) => s.visSettings);
+  const colorbarSettings = useAppStore((s) => s.colorbarSettings);
   const arrows = useAppStore((s) => s.arrowSettings);
   const probes = useAppStore((s) => s.probes);
   const viewZoom = useAppStore((s) => s.viewZoom);
@@ -611,6 +612,8 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
           unit={colorbarUnit}
           scaleFactor={colorbarScale}
           logScale={vis.logScale}
+          component={displayComponent}
+          colorbarSettings={colorbarSettings}
         />
       </div>
     </div>

@@ -225,6 +225,9 @@ def _render_frame_to_array(
     # Normalization
     norm = None
     plot_vmin, plot_vmax = vmin, vmax
+    cbs = colorbar_settings or {}
+    discrete_levels = cbs.get("discrete_levels", 0)
+
     if use_log_norm:
         log_vmin = max(vmin, 1e-10) if vmin > 0 else 1e-10
         log_vmax = max(vmax, 1.0) if vmax > 0 else 1.0
@@ -232,14 +235,23 @@ def _render_frame_to_array(
             log_vmin = log_vmax / 1000
         norm = LogNorm(vmin=log_vmin, vmax=log_vmax)
         plot_vmin, plot_vmax = None, None
+    elif discrete_levels and discrete_levels > 0 and vmin is not None and vmax is not None:
+        from matplotlib.colors import BoundaryNorm
+        boundaries = np.linspace(vmin, vmax, discrete_levels + 1)
+        norm = BoundaryNorm(boundaries, discrete_levels)
+        plot_vmin, plot_vmax = None, None
 
-    cmap = plt.get_cmap(colormap)
+    if discrete_levels and discrete_levels > 0 and not use_log_norm:
+        cmap = plt.get_cmap(colormap, discrete_levels)
+    else:
+        cmap = plt.get_cmap(colormap)
     cmap.set_bad(alpha=0)
     im = ax.imshow(display_data, cmap=cmap, alpha=alpha,
                    vmin=plot_vmin, vmax=plot_vmax, extent=extent, norm=norm)
 
     if include_colorbar:
-        cbs = colorbar_settings or {}
+        # label_text override from colorbar settings
+        display_label = cbs.get("label_text") or colorbar_label
         cbar = fig.colorbar(
             im, ax=ax,
             shrink=cbs.get("shrink", 0.8),
@@ -258,8 +270,9 @@ def _render_frame_to_array(
         if cbs.get("hide_outline", False):
             cbar.outline.set_visible(False)
 
-        if colorbar_label:
-            cbar.set_label(colorbar_label, fontsize=cb_fontsize)
+        if display_label:
+            label_fontsize = cbs.get("label_font_size", cb_fontsize)
+            cbar.set_label(display_label, fontsize=label_fontsize)
 
     if timestamp_overlay:
         label = f"Frame {frame_idx + 1}"
