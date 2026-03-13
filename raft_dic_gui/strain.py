@@ -353,14 +353,20 @@ def calculate_strain_field(displacement_field: np.ndarray, method: str = 'green_
 
     if erosion_px > 0:
         from scipy.ndimage import distance_transform_edt
-        # Distance from each valid pixel to nearest NaN pixel (in downsampled grid)
-        valid_down = mask_down & np.isfinite(exx)
-        # distance_transform_edt computes distance from 0-pixels
-        dist_to_boundary = distance_transform_edt(valid_down)
+        # Use the displacement validity mask (not VSG-valid mask) so that
+        # erosion follows the ROI shape faithfully.  VSG edge failures already
+        # produce NaN and don't need extra erosion.
+        # Pad with a 1-pixel False border so distance_transform_edt always has
+        # background pixels — without padding, an all-True array (rectangular
+        # ROI cropped to its bounding box) triggers degenerate EDT behaviour
+        # that only erodes a quarter-circle at one corner.
+        padded = np.pad(mask_down, pad_width=1, mode='constant',
+                        constant_values=False)
+        dist_to_boundary = distance_transform_edt(padded)[1:-1, 1:-1]
         # Erosion radius in downsampled pixels
         erosion_down = max(1, erosion_px // step)
         erode_mask = dist_to_boundary < erosion_down
-        n_eroded = int(np.sum(erode_mask & valid_down))
+        n_eroded = int(np.sum(erode_mask & mask_down))
         for comp in [exx, eyy, exy, e1, e2, max_shear, von_mises, rotation]:
             comp[erode_mask] = np.nan
         print(f"[TIMING] Boundary erosion: {erosion_px}px "

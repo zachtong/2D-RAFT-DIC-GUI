@@ -37,11 +37,18 @@ export function StrainControls() {
 
   const handleCalculate = async () => {
     if (strainComputing) return;
+
+    // Sanitize VSG size: must be odd integer >= 9
+    let vsg = parseInt(vsgSize);
+    if (isNaN(vsg) || vsg < 9) vsg = 9;
+    if (vsg % 2 === 0) vsg = vsg + 1;
+    setVsgSize(String(vsg));
+
     setStrainComputing(true);
     try {
       await calculateStrain({
         method,
-        vsg_size: parseInt(vsgSize),
+        vsg_size: vsg,
         step: parseInt(step),
         poly_order: parseInt(polyOrder),
         weighting,
@@ -68,7 +75,17 @@ export function StrainControls() {
         />
       </FieldRow>
       <FieldRow label="VSG Size">
-        <SmallInput value={vsgSize} onChange={setVsgSize} placeholder="odd, e.g. 31" />
+        <SmallInput
+          value={vsgSize}
+          onChange={setVsgSize}
+          onBlur={() => {
+            let n = parseInt(vsgSize);
+            if (isNaN(n) || n < 9) n = 9;
+            if (n % 2 === 0) n = n + 1;               // even → next odd
+            setVsgSize(String(n));
+          }}
+          placeholder="odd ≥ 9"
+        />
       </FieldRow>
       <FieldRow label="Step">
         <SmallInput value={step} onChange={setStep} placeholder="e.g. 15" />

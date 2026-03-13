@@ -62,6 +62,10 @@ export function VisualizationControls() {
   const cbBtnRef = useRef<HTMLButtonElement>(null);
   const physicalEnabled = vis.physicalEnabled;
 
+  // Local string state for numeric fields that need decimal input
+  const [ratioText, setRatioText] = useState(String(vis.physicalRatio));
+  const [fpsText, setFpsText] = useState(String(vis.fps));
+
   const allComponents = [
     ...DISPLACEMENT_COMPONENTS,
     ...(hasStrain ? STRAIN_COMPONENTS : []),
@@ -185,10 +189,15 @@ export function VisualizationControls() {
           <div className="space-y-1.5">
             <div className="flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]">
               <SmallInput
-                value={String(vis.physicalRatio)}
+                value={ratioText}
                 onChange={(v) => {
+                  setRatioText(v);
                   const n = parseFloat(v);
                   if (!isNaN(n) && n > 0) update({ physicalRatio: n });
+                }}
+                onBlur={() => {
+                  const n = parseFloat(ratioText);
+                  setRatioText((!isNaN(n) && n > 0) ? String(n) : String(vis.physicalRatio));
                 }}
                 className="w-12"
               />
@@ -201,10 +210,15 @@ export function VisualizationControls() {
             </div>
             <FieldRow label="FPS">
               <SmallInput
-                value={String(vis.fps)}
+                value={fpsText}
                 onChange={(v) => {
+                  setFpsText(v);
                   const n = parseFloat(v);
                   if (!isNaN(n) && n > 0) update({ fps: n });
+                }}
+                onBlur={() => {
+                  const n = parseFloat(fpsText);
+                  setFpsText((!isNaN(n) && n > 0) ? String(n) : String(vis.fps));
                 }}
               />
             </FieldRow>

@@ -39,7 +39,9 @@ def calculate():
 
     data = request.get_json(force=True)
     method = data.get("method", "green_lagrange")
-    vsg_size = int(data.get("vsg_size", 31))
+    vsg_size = max(9, int(data.get("vsg_size", 31)))
+    if vsg_size % 2 == 0:
+        vsg_size += 1  # must be odd
     poly_order = int(data.get("poly_order", 1))
     weighting = data.get("weighting", "Gaussian")
     step = int(data.get("step", 1))
