@@ -224,11 +224,13 @@ def render_single_frame(
         # Add colorbar
         if include_colorbar:
             cbs = colorbar_settings or {}
+            # bar_thickness controls width: 1.0=default, >1=fatter, <1=thinner
+            bt = cbs.get("bar_thickness", 1.0)
             cbar = fig.colorbar(
                 im, ax=ax,
-                shrink=cbs.get("shrink", 0.8),
+                shrink=0.8,
                 pad=cbs.get("pad", 0.02),
-                aspect=cbs.get("aspect", 20),
+                aspect=max(5, 20 / bt),
             )
             if use_log_norm:
                 cbar.ax.yaxis.set_major_formatter(LogFormatterMathtext())

@@ -252,11 +252,13 @@ def _render_frame_to_array(
     if include_colorbar:
         # label_text override from colorbar settings
         display_label = cbs.get("label_text") or colorbar_label
+        # bar_thickness controls width: 1.0=default, >1=fatter, <1=thinner
+        bt = cbs.get("bar_thickness", 1.0)
         cbar = fig.colorbar(
             im, ax=ax,
-            shrink=cbs.get("shrink", 0.8),
+            shrink=0.8,
             pad=cbs.get("pad", 0.02),
-            aspect=cbs.get("aspect", 20),
+            aspect=max(5, 20 / bt),
         )
         cb_fontsize = cbs.get("font_size", 10)
         cbar.ax.tick_params(labelsize=cb_fontsize)

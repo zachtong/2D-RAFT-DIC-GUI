@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from "react";
+import { useEffect, useCallback, useState, useRef } from "react";
 import { Settings } from "lucide-react";
 import { CollapsibleSection } from "@/components/shared/CollapsibleSection";
 import { ColorbarSettingsPanel } from "@/components/shared/ColorbarSettingsPanel";
@@ -71,6 +71,7 @@ export function VisualizationSettings() {
   const currentFrame = useAppStore((s) => s.currentFrame);
 
   const [showCbPanel, setShowCbPanel] = useState(false);
+  const cbBtnRef = useRef<HTMLButtonElement>(null);
   const physicalEnabled = vis.physicalEnabled;
 
   // Auto-populate from current frame data when Fixed Range is toggled on
@@ -166,8 +167,9 @@ export function VisualizationSettings() {
         <ColormapBar colormap={vis.colormap} />
 
         {/* Colorbar settings gear button */}
-        <div className="relative">
+        <div>
           <button
+            ref={cbBtnRef}
             onClick={() => setShowCbPanel((v) => !v)}
             className="flex items-center gap-1 px-2 py-1 rounded text-[10px]
               bg-[var(--secondary)] hover:bg-[var(--secondary)]/80
@@ -178,7 +180,10 @@ export function VisualizationSettings() {
             Colorbar Settings
           </button>
           {showCbPanel && (
-            <ColorbarSettingsPanel onClose={() => setShowCbPanel(false)} />
+            <ColorbarSettingsPanel
+              onClose={() => setShowCbPanel(false)}
+              anchorRef={cbBtnRef}
+            />
           )}
         </div>
 

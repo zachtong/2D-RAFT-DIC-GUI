@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useAppStore } from "@/stores/appStore";
 import type { ColorbarSettings } from "@/stores/appStore";
 
@@ -16,7 +17,7 @@ const DEFAULT_SETTINGS: ColorbarSettings = {
   labelFontSize: 12,
   tickCount: 0,
   tickFontSize: 10,
-  shrink: 0.8,
+  barThickness: 1.0,
   hideOutline: false,
   discreteLevels: 0,
 };
@@ -26,23 +27,49 @@ const inputClass =
 
 interface Props {
   onClose: () => void;
+  /** The button element that toggled this panel — clicks on it won't trigger close */
+  anchorRef?: React.RefObject<HTMLElement | null>;
 }
 
-export function ColorbarSettingsPanel({ onClose }: Props) {
+export function ColorbarSettingsPanel({ onClose, anchorRef }: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
   const cbs = useAppStore((s) => s.colorbarSettings);
   const update = useAppStore((s) => s.updateColorbarSettings);
 
-  // Close on click outside
+  // Compute fixed position from anchor button
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const reposition = useCallback(() => {
+    if (!anchorRef?.current) return;
+    const rect = anchorRef.current.getBoundingClientRect();
+    // Place to the right of the sidebar (anchor right edge), vertically aligned with button
+    setPos({
+      top: Math.max(8, rect.top),
+      left: rect.right + 8,
+    });
+  }, [anchorRef]);
+
+  useEffect(() => {
+    reposition();
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+    return () => {
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
+    };
+  }, [reposition]);
+
+  // Close on click outside (ignore clicks on anchor button)
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (panelRef.current && !panelRef.current.contains(target)) {
+        if (anchorRef?.current && anchorRef.current.contains(target)) return;
         onClose();
       }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [onClose]);
+  }, [onClose, anchorRef]);
 
   // Close on Escape
   useEffect(() => {
@@ -60,12 +87,13 @@ export function ColorbarSettingsPanel({ onClose }: Props) {
     update({ [key]: isNaN(v) ? fallback : v } as Partial<ColorbarSettings>);
   };
 
-  return (
+  const panel = (
     <div
       ref={panelRef}
-      className="absolute left-full top-0 ml-2 z-50 w-[260px]
+      className="fixed z-[9999] w-[260px]
         bg-[var(--card)] border border-[var(--border)] rounded-lg shadow-xl
         p-3 space-y-3"
+      style={{ top: pos.top, left: pos.left }}
     >
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -147,14 +175,14 @@ export function ColorbarSettingsPanel({ onClose }: Props) {
         </span>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1">
-            <span className="text-[9px] text-[var(--muted-foreground)]">Shrink:</span>
+            <span className="text-[9px] text-[var(--muted-foreground)]">Bar Width:</span>
             <input
               type="number"
-              value={cbs.shrink}
-              onChange={(e) => setNum("shrink", e.target.value, 0.8)}
-              step={0.05}
-              min={0.3}
-              max={1.0}
+              value={cbs.barThickness}
+              onChange={(e) => setNum("barThickness", e.target.value, 1.0)}
+              step={0.1}
+              min={0.5}
+              max={3.0}
               className={inputClass}
             />
           </div>
@@ -182,9 +210,6 @@ export function ColorbarSettingsPanel({ onClose }: Props) {
             ))}
           </select>
         </div>
-        <p className="text-[8px] text-[var(--muted-foreground)] italic">
-          Shrink only affects exported images/animations
-        </p>
       </div>
 
       {/* Reset */}
@@ -198,4 +223,7 @@ export function ColorbarSettingsPanel({ onClose }: Props) {
       </button>
     </div>
   );
+
+  // Render via portal to escape sidebar overflow clipping
+  return createPortal(panel, document.body);
 }

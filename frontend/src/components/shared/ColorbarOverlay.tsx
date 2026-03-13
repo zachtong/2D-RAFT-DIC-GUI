@@ -186,6 +186,7 @@ export function ColorbarOverlay({
   const labelFontSize = colorbarSettings?.labelFontSize ?? 12;
   const tickCount = colorbarSettings?.tickCount || 5; // 0 → default 5
   const tickFontSize = colorbarSettings?.tickFontSize ?? 10;
+  const barThickness = colorbarSettings?.barThickness ?? 1.0;
   const hideOutline = colorbarSettings?.hideOutline ?? false;
   const discreteLevels = colorbarSettings?.discreteLevels ?? 0;
 
@@ -220,10 +221,10 @@ export function ColorbarOverlay({
       )}
       {/* Gradient bar + tick labels */}
       <div className="flex-1 flex gap-1 min-h-0">
-        {/* Gradient bar with tick marks */}
+        {/* Gradient bar with tick marks — width controlled by barThickness */}
         <div
-          className={`relative w-4 rounded-sm shrink-0 ${hideOutline ? "" : "border border-white/25"}`}
-          style={{ background: gradient }}
+          className={`relative rounded-sm shrink-0 ${hideOutline ? "" : "border border-white/25"}`}
+          style={{ background: gradient, width: `${Math.round(16 * barThickness)}px` }}
         >
           {hasRange &&
             ticks.map((val, i) => {

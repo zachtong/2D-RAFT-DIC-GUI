@@ -34,7 +34,7 @@ interface ColorbarSettings {
   labelFontSize: number;    // default 12
   tickCount: number;        // 0 = auto
   tickFontSize: number;     // default 10
-  shrink: number;           // 0.3-1.0, default 0.8 (export only)
+  barThickness: number;     // 0.5-3.0, default 1.0 — controls bar width (fatness)
   hideOutline: boolean;     // default false
   discreteLevels: number;   // 0 = continuous, >0 = discrete color bins
 }
@@ -238,7 +238,7 @@ export const useAppStore = create<AppState>((set) => ({
     labelFontSize: 12,
     tickCount: 0,
     tickFontSize: 10,
-    shrink: 0.8,
+    barThickness: 1.0,
     hideOutline: false,
     discreteLevels: 0,
   },
