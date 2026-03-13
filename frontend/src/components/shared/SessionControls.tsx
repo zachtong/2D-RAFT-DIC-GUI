@@ -72,6 +72,10 @@ export function SessionControls() {
 
   const busy = saving || loading;
 
+  // Default filename: RAFTcorr_YYYY-MM-DD
+  const today = new Date().toISOString().slice(0, 10);
+  const defaultSaveFileName = `RAFTcorr_${today}.raftproj`;
+
   return (
     <>
       <div className="flex items-center gap-1 px-3 py-2 border-b border-[var(--border)]">
@@ -112,6 +116,7 @@ export function SessionControls() {
           mode="file"
           fileFilter={[".raftproj"]}
           title={browseTarget === "save" ? "Save Session" : "Load Session"}
+          defaultFileName={browseTarget === "save" ? defaultSaveFileName : ""}
         />
       )}
     </>

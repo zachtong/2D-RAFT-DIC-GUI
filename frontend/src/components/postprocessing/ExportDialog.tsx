@@ -105,14 +105,17 @@ export function ExportDialog() {
   // --- FileBrowser state ---
   const [browseTarget, setBrowseTarget] = useState<"sci" | "img" | "anim" | "report" | null>(null);
 
+  // Date stamp for default filenames
+  const today = new Date().toISOString().slice(0, 10);
+
   // Default paths based on imageDir (only if user hasn't manually edited)
   useEffect(() => {
     if (imageDir) {
       const normalized = imageDir.replace(/\\/g, "/").replace(/\/+$/, "");
       if (!sciTouched.current) setSciPath(`${normalized}/results.mat`);
       if (!imgTouched.current) setImgDir(`${normalized}/export/`);
-      if (!animTouched.current) setAnimPath(`${normalized}/animation.gif`);
-      if (!reportTouched.current) setReportPath(`${normalized}/report.html`);
+      if (!animTouched.current) setAnimPath(`${normalized}/animation_${animComponent}_${animFps}fps_${today}.${animFormat}`);
+      if (!reportTouched.current) setReportPath(`${normalized}/report_${today}.html`);
     }
   }, [imageDir]);
 
@@ -120,6 +123,14 @@ export function ExportDialog() {
   useEffect(() => {
     setFrameEnd(String(Math.max(1, numFrames)));
   }, [numFrames]);
+
+  // Update animation filename when component/format/fps changes (if not manually edited)
+  useEffect(() => {
+    if (!animTouched.current && imageDir) {
+      const normalized = imageDir.replace(/\\/g, "/").replace(/\/+$/, "");
+      setAnimPath(`${normalized}/animation_${animComponent}_${animFps}fps_${today}.${animFormat}`);
+    }
+  }, [animComponent, animFormat, animFps, imageDir, today]);
 
   // Clear active export type when export finishes
   useEffect(() => {
@@ -705,8 +716,16 @@ export function ExportDialog() {
             : browseTarget === "report" ? reportPath.replace(/\/[^/]*$/, "")
             : imgDir
           }
-          {...(browseTarget === "anim" ? { mode: "file" as const, fileFilter: [".gif", ".mp4"] } : {})}
-          {...(browseTarget === "report" ? { mode: "file" as const, fileFilter: [".html"] } : {})}
+          {...(browseTarget === "anim" ? {
+            mode: "file" as const,
+            fileFilter: [".gif", ".mp4"],
+            defaultFileName: `animation_${animComponent}_${animFps}fps_${today}.${animFormat}`,
+          } : {})}
+          {...(browseTarget === "report" ? {
+            mode: "file" as const,
+            fileFilter: [".html"],
+            defaultFileName: `report_${today}.html`,
+          } : {})}
         />
       )}
     </CollapsibleSection>

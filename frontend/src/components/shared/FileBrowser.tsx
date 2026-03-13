@@ -13,11 +13,13 @@ interface FileBrowserProps {
   fileFilter?: string[];
   /** Title override */
   title?: string;
+  /** Pre-populated filename for save dialogs (mode="file") */
+  defaultFileName?: string;
 }
 
 export function FileBrowser({
   open, onClose, onSelect, initialPath = "",
-  mode = "directory", fileFilter, title,
+  mode = "directory", fileFilter, title, defaultFileName = "",
 }: FileBrowserProps) {
   const [currentPath, setCurrentPath] = useState(initialPath);
   const [parentPath, setParentPath] = useState("");
@@ -28,6 +30,9 @@ export function FileBrowser({
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   // For save mode: user can type a new filename
   const [newFileName, setNewFileName] = useState("");
+  // Editable path bar — user can type/paste a path and press Enter
+  const [pathInput, setPathInput] = useState(initialPath);
+  const [editingPath, setEditingPath] = useState(false);
 
   const browse = useCallback(async (path: string) => {
     setLoading(true);
@@ -39,6 +44,7 @@ export function FileBrowser({
       setParentPath(result.parent);
       setEntries(result.entries);
       setImageCount(result.image_count);
+      setPathInput(result.path);
     } catch (e: any) {
       setError(e.response?.data?.error ?? "Failed to browse directory");
     } finally {
@@ -49,9 +55,11 @@ export function FileBrowser({
   useEffect(() => {
     if (open) {
       browse(initialPath);
-      setNewFileName("");
+      setNewFileName(defaultFileName);
+      setPathInput(initialPath);
+      setEditingPath(false);
     }
-  }, [open, initialPath, browse]);
+  }, [open, initialPath, browse, defaultFileName]);
 
   if (!open) return null;
 
@@ -96,7 +104,7 @@ export function FileBrowser({
           </button>
         </div>
 
-        {/* Path bar */}
+        {/* Path bar — click to edit, Enter to navigate */}
         <div className="flex items-center gap-2 px-4 py-2 border-b border-[var(--border)] bg-[var(--background)]">
           <button
             onClick={() => browse(parentPath)}
@@ -105,9 +113,40 @@ export function FileBrowser({
           >
             <ArrowUp size={14} />
           </button>
-          <span className="text-[11px] text-[var(--foreground)] truncate flex-1 font-mono">
-            {currentPath}
-          </span>
+          {editingPath ? (
+            <input
+              autoFocus
+              type="text"
+              value={pathInput}
+              onChange={(e) => setPathInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  setEditingPath(false);
+                  browse(pathInput.trim());
+                } else if (e.key === "Escape") {
+                  setEditingPath(false);
+                  setPathInput(currentPath);
+                }
+              }}
+              onBlur={() => {
+                setEditingPath(false);
+                if (pathInput.trim() && pathInput.trim() !== currentPath) {
+                  browse(pathInput.trim());
+                } else {
+                  setPathInput(currentPath);
+                }
+              }}
+              className="flex-1 text-[11px] text-[var(--foreground)] font-mono bg-[var(--input)] border border-[var(--primary)] rounded px-1.5 py-0.5 outline-none"
+            />
+          ) : (
+            <button
+              onClick={() => setEditingPath(true)}
+              className="flex-1 text-left text-[11px] text-[var(--foreground)] truncate font-mono hover:bg-[var(--input)] rounded px-1.5 py-0.5 transition-colors"
+              title="Click to edit path"
+            >
+              {currentPath}
+            </button>
+          )}
         </div>
 
         {/* Content */}
