@@ -284,20 +284,54 @@ def export_report():
     data = request.get_json(force=True)
     output_path = data.get("output_path", "").strip()
     sections = data.get("sections")  # None = all sections
+    format_ = data.get("format", "html")  # "html", "pdf", "both"
+    theme = data.get("theme", "light")
+    custom_title = data.get("custom_title", "")
+    author = data.get("author", "")
+    notes = data.get("notes", "")
+    key_frame_components = data.get("key_frame_components")  # None = ["magnitude"]
 
     if not output_path:
         return jsonify({"error": "Missing output_path"}), 400
 
-    if not output_path.lower().endswith(".html"):
-        output_path += ".html"
+    # Auto-append appropriate extension
+    if format_ == "pdf":
+        if not output_path.lower().endswith(".pdf"):
+            output_path += ".pdf"
+        # For PDF-only, we still generate HTML first internally;
+        # convert output_path to .html for the generator (it derives .pdf from it)
+        html_path = os.path.splitext(output_path)[0] + ".html"
+    else:
+        if not output_path.lower().endswith(".html"):
+            output_path += ".html"
+        html_path = output_path
 
-    export_dir = os.path.dirname(output_path)
+    export_dir = os.path.dirname(html_path)
     if export_dir and not os.path.isdir(export_dir):
         return jsonify({"error": f"Directory does not exist: {export_dir}"}), 400
 
     try:
         from raft_dic_gui.report_generator import generate_report
-        result_path = generate_report(session, output_path, sections=sections)
-        return jsonify({"ok": True, "path": result_path})
+        result = generate_report(
+            session,
+            html_path,
+            sections=sections,
+            format=format_,
+            theme=theme,
+            custom_title=custom_title,
+            author=author,
+            notes=notes,
+            key_frame_components=key_frame_components,
+            vis_settings=session.vis_settings,
+        )
+
+        response = {"ok": True}
+        if result.get("html_path"):
+            response["html_path"] = result["html_path"]
+        if result.get("pdf_path"):
+            response["pdf_path"] = result["pdf_path"]
+        # Provide a single "path" key for backward compatibility
+        response["path"] = result.get("pdf_path") or result.get("html_path")
+        return jsonify(response)
     except Exception as e:
         return jsonify({"error": str(e)}), 500

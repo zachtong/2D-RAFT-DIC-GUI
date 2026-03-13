@@ -83,7 +83,13 @@ export async function exportAnimation(params: {
 export async function exportReport(params: {
   output_path: string;
   sections?: string[];
-}): Promise<{ ok: boolean; path: string }> {
+  format?: "html" | "pdf" | "both";
+  theme?: "light" | "dark" | "academic" | "minimal";
+  custom_title?: string;
+  author?: string;
+  notes?: string;
+  key_frame_components?: string[];
+}): Promise<{ ok: boolean; path: string; pdf_path?: string }> {
   const { data } = await client.post("/export/report", params);
   return data;
 }

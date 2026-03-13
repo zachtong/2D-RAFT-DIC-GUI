@@ -97,10 +97,33 @@ export function ExportDialog() {
   const ALL_REPORT_SECTIONS = [
     "header", "experiment", "parameters", "roi",
     "key_frames", "statistics", "probes",
+    "line_probes", "area_probes",
   ] as const;
+  const SECTION_LABELS: Record<string, string> = {
+    header: "Header",
+    experiment: "Experiment",
+    parameters: "Parameters",
+    roi: "ROI",
+    key_frames: "Key Frames",
+    statistics: "Statistics",
+    probes: "Point Probes",
+    line_probes: "Line Probes",
+    area_probes: "Area Probes",
+  };
   const [reportSections, setReportSections] = useState<Record<string, boolean>>(
     Object.fromEntries(ALL_REPORT_SECTIONS.map((s) => [s, true]))
   );
+  // Custom info
+  const [reportTitle, setReportTitle] = useState("RAFT-DIC Analysis Report");
+  const [reportAuthor, setReportAuthor] = useState("");
+  const [reportNotes, setReportNotes] = useState("");
+  // Theme and format
+  const [reportTheme, setReportTheme] = useState<"light" | "dark" | "academic" | "minimal">("light");
+  const [reportFormat, setReportFormat] = useState<"html" | "pdf" | "both">("html");
+  // Key frame components (default to magnitude only)
+  const [keyFrameComponents, setKeyFrameComponents] = useState<Record<string, boolean>>({
+    magnitude: true,
+  });
 
   // --- FileBrowser state ---
   const [browseTarget, setBrowseTarget] = useState<"sci" | "img" | "anim" | "report" | null>(null);
@@ -123,9 +146,24 @@ export function ExportDialog() {
       if (!sciTouched.current) setSciPath(`${normalized}/results.mat`);
       if (!imgTouched.current) setImgDir(`${normalized}/export/`);
       if (!animTouched.current) setAnimPath(`${normalized}/animation_${animComponent}_${animFps}fps_${timestamp}.${animFormat}`);
-      if (!reportTouched.current) setReportPath(`${normalized}/report_${date}.html`);
+      const reportExt = reportFormat === "pdf" ? "pdf" : "html";
+      if (!reportTouched.current) setReportPath(`${normalized}/report_${date}.${reportExt}`);
     }
   }, [imageDir]);
+
+  // Update report path extension when format changes (if not manually edited)
+  useEffect(() => {
+    if (!reportTouched.current && imageDir) {
+      const normalized = imageDir.replace(/\\/g, "/").replace(/\/+$/, "");
+      const { date } = makeTimestamp();
+      const reportExt = reportFormat === "pdf" ? "pdf" : "html";
+      setReportPath(`${normalized}/report_${date}.${reportExt}`);
+    } else if (reportTouched.current) {
+      // Update extension in existing path
+      const newExt = reportFormat === "pdf" ? "pdf" : "html";
+      setReportPath((p) => p.replace(/\.(html|pdf)$/i, `.${newExt}`));
+    }
+  }, [reportFormat]);
 
   // Update frameEnd when numFrames changes
   useEffect(() => {
@@ -350,11 +388,27 @@ export function ExportDialog() {
       const sections = Object.entries(reportSections)
         .filter(([, v]) => v)
         .map(([k]) => k);
+
+      // Build key frame components list
+      const kfComps = Object.entries(keyFrameComponents)
+        .filter(([, v]) => v)
+        .map(([k]) => k);
+
       const result = await exportReport({
         output_path: reportPath.trim(),
         sections: sections.length < ALL_REPORT_SECTIONS.length ? sections : undefined,
+        format: reportFormat,
+        theme: reportTheme,
+        custom_title: reportTitle || undefined,
+        author: reportAuthor || undefined,
+        notes: reportNotes || undefined,
+        key_frame_components: kfComps.length > 0 ? kfComps : undefined,
       });
-      toast("success", "Report generated: " + result.path);
+
+      const msg = reportFormat === "both"
+        ? `Report generated: ${result.path} + PDF`
+        : `Report generated: ${result.path}`;
+      toast("success", msg);
     } catch (e: any) {
       toast("error", e?.response?.data?.error ?? "Report generation failed");
     } finally {
@@ -664,13 +718,107 @@ export function ExportDialog() {
           Report
         </span>
 
+        {/* Custom info */}
+        <div className="space-y-1">
+          <input
+            type="text"
+            value={reportTitle}
+            onChange={(e) => setReportTitle(e.target.value)}
+            placeholder="RAFT-DIC Analysis Report"
+            className={inputClass}
+          />
+          <input
+            type="text"
+            value={reportAuthor}
+            onChange={(e) => setReportAuthor(e.target.value)}
+            placeholder="Author / Institution"
+            className={inputClass}
+          />
+          <textarea
+            value={reportNotes}
+            onChange={(e) => setReportNotes(e.target.value)}
+            placeholder="Analysis notes..."
+            rows={3}
+            className={inputClass + " h-auto py-1 resize-none"}
+          />
+        </div>
+
+        {/* Section checkboxes */}
+        <div className="space-y-0.5">
+          <span className="text-[10px] text-[var(--muted-foreground)]">Sections:</span>
+          <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
+            {ALL_REPORT_SECTIONS.map((sec) => (
+              <label key={sec} className="flex items-center gap-1 text-[10px] text-[var(--foreground)] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={reportSections[sec]}
+                  onChange={() => setReportSections((p) => ({ ...p, [sec]: !p[sec] }))}
+                  className="accent-[var(--primary)] w-3 h-3"
+                />
+                {SECTION_LABELS[sec] ?? sec}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Key frame component checkboxes (shown only when key_frames is checked) */}
+        {reportSections.key_frames && (
+          <div className="space-y-0.5">
+            <span className="text-[10px] text-[var(--muted-foreground)]">Key Frame Components:</span>
+            <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
+              {[...DISPLACEMENT_COMPONENTS, ...availableStrain].map((c) => (
+                <label key={c.value} className="flex items-center gap-1 text-[10px] text-[var(--foreground)] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={!!keyFrameComponents[c.value]}
+                    onChange={() =>
+                      setKeyFrameComponents((p) => ({
+                        ...p,
+                        [c.value]: !p[c.value],
+                      }))
+                    }
+                    className="accent-[var(--primary)] w-3 h-3"
+                  />
+                  {c.label}
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Output settings: theme + format */}
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] text-[var(--muted-foreground)]">Theme:</span>
+          <select
+            value={reportTheme}
+            onChange={(e) => setReportTheme(e.target.value as typeof reportTheme)}
+            className="flex-1 px-1 py-0.5 rounded text-[9px] bg-[var(--input)] border border-[var(--border)] text-[var(--foreground)]"
+          >
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+            <option value="academic">Academic</option>
+            <option value="minimal">Minimal</option>
+          </select>
+          <div className="w-px h-3 bg-[var(--border)] mx-0.5" />
+          <span className="text-[10px] text-[var(--muted-foreground)]">Format:</span>
+          <select
+            value={reportFormat}
+            onChange={(e) => setReportFormat(e.target.value as typeof reportFormat)}
+            className="flex-1 px-1 py-0.5 rounded text-[9px] bg-[var(--input)] border border-[var(--border)] text-[var(--foreground)]"
+          >
+            <option value="html">HTML</option>
+            <option value="pdf">PDF</option>
+            <option value="both">Both</option>
+          </select>
+        </div>
+
         {/* Output path */}
         <div className="flex gap-1">
           <input
             type="text"
             value={reportPath}
             onChange={(e) => { reportTouched.current = true; setReportPath(e.target.value); }}
-            placeholder="Output file (.html)"
+            placeholder={`Output file (.${reportFormat === "pdf" ? "pdf" : "html"})`}
             className={inputClass + " flex-1"}
           />
           <button
@@ -680,22 +828,6 @@ export function ExportDialog() {
           >
             <FolderOpen size={12} />
           </button>
-        </div>
-
-        {/* Section checkboxes */}
-        <div className="space-y-0.5">
-          <span className="text-[10px] text-[var(--muted-foreground)]">Sections:</span>
-          {ALL_REPORT_SECTIONS.map((sec) => (
-            <label key={sec} className="flex items-center gap-1 text-[10px] text-[var(--foreground)] cursor-pointer">
-              <input
-                type="checkbox"
-                checked={reportSections[sec]}
-                onChange={() => setReportSections((p) => ({ ...p, [sec]: !p[sec] }))}
-                className="accent-[var(--primary)] w-3 h-3"
-              />
-              {sec.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
-            </label>
-          ))}
         </div>
 
         <button
@@ -732,8 +864,8 @@ export function ExportDialog() {
           } : {})}
           {...(browseTarget === "report" ? {
             mode: "file" as const,
-            fileFilter: [".html"],
-            defaultFileName: `report_${makeTimestamp().date}.html`,
+            fileFilter: reportFormat === "pdf" ? [".pdf"] : [".html"],
+            defaultFileName: `report_${makeTimestamp().date}.${reportFormat === "pdf" ? "pdf" : "html"}`,
           } : {})}
         />
       )}

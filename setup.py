@@ -196,6 +196,8 @@ INSTALL_REQUIRES = [
     "flask>=2.0.0",
     "flask-cors>=3.0.0",
     "flask-socketio>=5.0.0",
+    "jinja2>=3.0.0",
+    "weasyprint>=60.0",
 ]
 
 setup(
