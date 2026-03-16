@@ -184,6 +184,7 @@ def run_processing():
                 session.config,
                 session.roi_mask,
                 session.roi_rect,
+                image_files=session.image_files,
             )
 
             with session._lock:

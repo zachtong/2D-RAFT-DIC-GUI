@@ -39,12 +39,16 @@ class DICProcessor:
     # Public API
     # ------------------------------------------------------------------
 
-    def run(self, config: DICConfig, roi_mask: np.ndarray, roi_rect: tuple):
+    def run(self, config: DICConfig, roi_mask: np.ndarray, roi_rect: tuple,
+            image_files: list = None):
         """
         Execute the processing pipeline.
         :param config: DICConfig object with all parameters.
         :param roi_mask: Boolean mask of the ROI (full image size).
         :param roi_rect: Tuple (xmin, ymin, xmax, ymax) of the ROI bounding box.
+        :param image_files: Pre-sorted list of image filenames.  When provided,
+            the processor uses this order directly instead of re-scanning the
+            directory (which would lose natural sort order).
         :return: List of displacement fields (or paths to them).
         """
         img_dir = config.img_dir
@@ -57,11 +61,20 @@ class DICProcessor:
         except Exception as e:
             raise RuntimeError(f"Failed to load model from {config.model_path}: {e}")
 
-        # Get image file list
-        image_files = sorted([
-            f for f in os.listdir(img_dir)
-            if f.lower().endswith(('.tif', '.tiff', '.png', '.jpg', '.jpeg', '.bmp'))
-        ])
+        # Use caller-provided file list (preserves natural sort) or fall back
+        # to scanning the directory (for standalone / legacy usage).
+        if image_files is None:
+            import re as _re
+
+            def _natural_sort_key(s: str):
+                return [int(p) if p.isdigit() else p.lower()
+                        for p in _re.split(r"(\d+)", s)]
+
+            image_files = sorted(
+                [f for f in os.listdir(img_dir)
+                 if f.lower().endswith(('.tif', '.tiff', '.png', '.jpg', '.jpeg', '.bmp'))],
+                key=_natural_sort_key,
+            )
 
         if len(image_files) < 2:
             raise Exception("At least 2 images are needed")
