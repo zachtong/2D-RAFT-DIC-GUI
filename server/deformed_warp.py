@@ -188,37 +188,66 @@ def compute_inverse_map(
     def_y = ref_rows + y0 + V_coarse[valid_coarse]
     def_x = ref_cols + x0 + U_coarse[valid_coarse]
 
-    # --- Step 2: Deformed bounding box ---
-    # Use coarse scatter points (tight bounds prevent NaN border amplification
-    # during upsampling — extra margin pixels outside the Delaunay convex hull
-    # would become K-wide NaN strips after cv2.resize).
-    out_x0 = max(0, int(np.floor(def_x.min())))
-    out_y0 = max(0, int(np.floor(def_y.min())))
-    out_x1 = min(img_w, int(np.ceil(def_x.max())) + 1)
-    out_y1 = min(img_h, int(np.ceil(def_y.max())) + 1)
+    # --- Step 2: Forward-mapped contour for precise deformed boundary ---
+    # Extract contour of the valid displacement region at full pixel
+    # resolution, then forward-map it using the displacement field.
+    # This gives pixel-accurate deformed boundaries instead of the coarse
+    # Delaunay convex hull which caused staircase artifacts on curved shapes.
+    valid_mask_u8 = valid_mask.astype(np.uint8)
+    contours, _ = cv2.findContours(
+        valid_mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE
+    )
+
+    deformed_contours = []
+    all_def_x = [def_x]  # include coarse points for bbox fallback
+    all_def_y = [def_y]
+    for contour in contours:
+        pts = contour.reshape(-1, 2)  # (N, 2) as (col, row)
+        c_cols, c_rows = pts[:, 0], pts[:, 1]
+        u_vals = U[c_rows, c_cols]
+        v_vals = V[c_rows, c_cols]
+        ok = np.isfinite(u_vals) & np.isfinite(v_vals)
+        if ok.sum() < 3:
+            continue
+        dx = (c_cols[ok] + x0 + u_vals[ok]).astype(np.float64)
+        dy = (c_rows[ok] + y0 + v_vals[ok]).astype(np.float64)
+        all_def_x.append(dx)
+        all_def_y.append(dy)
+        deformed_contours.append(
+            np.column_stack([dx, dy]).astype(np.int32)
+        )
+
+    # --- Step 2b: Deformed bounding box (from full-res contour) ---
+    all_dx = np.concatenate(all_def_x)
+    all_dy = np.concatenate(all_def_y)
+    out_x0 = max(0, int(np.floor(all_dx.min())))
+    out_y0 = max(0, int(np.floor(all_dy.min())))
+    out_x1 = min(img_w, int(np.ceil(all_dx.max())) + 1)
+    out_y1 = min(img_h, int(np.ceil(all_dy.max())) + 1)
     out_h = out_y1 - out_y0
     out_w = out_x1 - out_x0
 
-    # --- Step 3: Build Delaunay on coarse scatter points ---
-    # Share the triangulation between both interpolators to avoid building twice.
+    # --- Step 3: Build interpolators ---
+    # LinearND for accurate interior interpolation + NearestND to
+    # extrapolate coordinates beyond the Delaunay convex hull (boundary
+    # pixels that are inside the true deformed contour but outside the
+    # coarse-grid convex hull).
+    from scipy.interpolate import NearestNDInterpolator
+
     points = np.column_stack([def_y, def_x])
+    use_linear = True
     try:
         from scipy.spatial import Delaunay
         tri = Delaunay(points)
-        interp_row = LinearNDInterpolator(tri, ref_rows, fill_value=np.nan)
-        interp_col = LinearNDInterpolator(tri, ref_cols, fill_value=np.nan)
+        interp_row_lin = LinearNDInterpolator(tri, ref_rows, fill_value=np.nan)
+        interp_col_lin = LinearNDInterpolator(tri, ref_cols, fill_value=np.nan)
     except Exception:
-        # Degenerate triangulation (collinear points, too few, etc.)
-        # Fall back to nearest-neighbor which handles any point configuration.
-        from scipy.interpolate import NearestNDInterpolator
-        interp_row = NearestNDInterpolator(points, ref_rows)
-        interp_col = NearestNDInterpolator(points, ref_cols)
+        use_linear = False
+
+    interp_row_nn = NearestNDInterpolator(points, ref_rows)
+    interp_col_nn = NearestNDInterpolator(points, ref_cols)
 
     # --- Step 4: Query on coarse output grid, then upsample ---
-    # Cap query grid to ~50 points per dimension. The Delaunay-interpolated
-    # inverse map is smooth, so cv2 bilinear upsampling from ~50×50 introduces
-    # negligible error (<0.1 px for typical DIC deformations) while reducing
-    # the expensive LinearNDInterpolator query from O(N²) to O(2500).
     MAX_QUERY_PER_DIM = 50
     query_step_h = max(K, out_h // MAX_QUERY_PER_DIM) if out_h > MAX_QUERY_PER_DIM else K
     query_step_w = max(K, out_w // MAX_QUERY_PER_DIM) if out_w > MAX_QUERY_PER_DIM else K
@@ -229,46 +258,53 @@ def compute_inverse_map(
     cg_y, cg_x = np.meshgrid(coarse_y, coarse_x, indexing='ij')
     query = np.column_stack([cg_y.ravel(), cg_x.ravel()])
 
-    ref_row_coarse = interp_row(query).reshape(coarse_h, coarse_w)
-    ref_col_coarse = interp_col(query).reshape(coarse_h, coarse_w)
+    if use_linear:
+        ref_row_coarse = interp_row_lin(query).reshape(coarse_h, coarse_w)
+        ref_col_coarse = interp_col_lin(query).reshape(coarse_h, coarse_w)
+        # Fill Delaunay-hull-exterior NaN with nearest-neighbor extrapolation
+        nan_mask = np.isnan(ref_row_coarse)
+        if nan_mask.any():
+            nan_q = query[nan_mask.ravel()]
+            ref_row_coarse[nan_mask] = interp_row_nn(nan_q)
+            ref_col_coarse[nan_mask] = interp_col_nn(nan_q)
+    else:
+        ref_row_coarse = interp_row_nn(query).reshape(coarse_h, coarse_w)
+        ref_col_coarse = interp_col_nn(query).reshape(coarse_h, coarse_w)
 
-    # Upsample to full output resolution
+    # Upsample to full output resolution (all coarse cells now have values)
     if coarse_h < out_h or coarse_w < out_w:
-        # NaN-safe weighted upsampling: interpolate (value * weight) and weight
-        # separately, then divide to remove bias from NaN-filled zeros.
-        # Without normalization, boundary pixels adjacent to NaN regions get
-        # pulled toward 0.0 (the fill value), causing ~K/2 px coordinate error.
-        valid_coarse_map = np.isfinite(ref_row_coarse) & np.isfinite(ref_col_coarse)
-        rc_clean = np.nan_to_num(ref_row_coarse, nan=0.0)
-        cc_clean = np.nan_to_num(ref_col_coarse, nan=0.0)
-        vc_float = valid_coarse_map.astype(np.float64)
-
-        ref_row_interp = cv2.resize(rc_clean, (out_w, out_h), interpolation=cv2.INTER_LINEAR)
-        ref_col_interp = cv2.resize(cc_clean, (out_w, out_h), interpolation=cv2.INTER_LINEAR)
-        valid_up = cv2.resize(vc_float, (out_w, out_h), interpolation=cv2.INTER_LINEAR)
-
-        up_valid = valid_up > 0.5
-        # Normalize by interpolated weight to correct boundary bias
-        ref_row_interp[up_valid] /= valid_up[up_valid]
-        ref_col_interp[up_valid] /= valid_up[up_valid]
-        ref_row_interp[~up_valid] = np.nan
-        ref_col_interp[~up_valid] = np.nan
+        ref_row_interp = cv2.resize(
+            ref_row_coarse.astype(np.float64), (out_w, out_h),
+            interpolation=cv2.INTER_LINEAR,
+        )
+        ref_col_interp = cv2.resize(
+            ref_col_coarse.astype(np.float64), (out_w, out_h),
+            interpolation=cv2.INTER_LINEAR,
+        )
     else:
         ref_row_interp = ref_row_coarse
         ref_col_interp = ref_col_coarse
 
-    # --- Step 5: Validity mask ---
-    in_bounds = (
-        np.isfinite(ref_row_interp) & np.isfinite(ref_col_interp) &
-        (ref_row_interp >= 0) & (ref_row_interp <= roi_h - 1) &
-        (ref_col_interp >= 0) & (ref_col_interp <= roi_w - 1)
-    )
+    # --- Step 5: Forward-mapped contour validity mask ---
+    # Use the pixel-accurate deformed contour instead of the coarse
+    # Delaunay hull for the validity boundary.
+    if deformed_contours:
+        contour_mask = np.zeros((out_h, out_w), dtype=np.uint8)
+        shifted = [dc - np.array([[out_x0, out_y0]]) for dc in deformed_contours]
+        cv2.fillPoly(contour_mask, shifted, 1)
+        validity = contour_mask.astype(bool)
+    else:
+        # Fallback: coordinate bounds check
+        validity = (
+            (ref_row_interp >= 0) & (ref_row_interp <= roi_h - 1) &
+            (ref_col_interp >= 0) & (ref_col_interp <= roi_w - 1)
+        )
 
     return InverseMapResult(
         frame_idx=-1,  # caller sets this
-        ref_row_coords=np.nan_to_num(ref_row_interp, nan=0.0),
-        ref_col_coords=np.nan_to_num(ref_col_interp, nan=0.0),
-        validity_mask=in_bounds,
+        ref_row_coords=ref_row_interp,
+        ref_col_coords=ref_col_interp,
+        validity_mask=validity,
         out_x0=out_x0, out_y0=out_y0,
         out_x1=out_x1, out_y1=out_y1,
     )
