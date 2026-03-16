@@ -186,6 +186,25 @@ def invert_mask():
     return jsonify({"rect": session.roi_rect, "area_px": area})
 
 
+@roi_bp.route("/mask/binary", methods=["GET"])
+def export_mask_binary():
+    """Export the current ROI mask as a binary (white-on-black) PNG for saving."""
+    from PIL import Image
+    import io
+
+    if session.roi_mask is None:
+        return jsonify({"error": "No ROI mask exists"}), 404
+
+    mask_uint8 = session.roi_mask.astype(np.uint8) * 255
+    pil_img = Image.fromarray(mask_uint8, "L")
+    buf = io.BytesIO()
+    pil_img.save(buf, format="PNG")
+    buf.seek(0)
+    resp = png_response(buf.read())
+    resp.headers["Content-Disposition"] = 'attachment; filename="roi_mask.png"'
+    return resp
+
+
 @roi_bp.route("/mask", methods=["GET"])
 def get_mask():
     """Return the current ROI mask as a colored RGBA PNG overlay.

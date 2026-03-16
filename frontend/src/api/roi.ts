@@ -60,3 +60,15 @@ export async function confirmRoi(): Promise<RoiResult> {
 export async function clearRoi(): Promise<void> {
   await client.delete("/roi");
 }
+
+export async function exportMask(): Promise<void> {
+  const resp = await client.get("/roi/mask/binary", { responseType: "blob" });
+  const url = URL.createObjectURL(resp.data);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "roi_mask.png";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}

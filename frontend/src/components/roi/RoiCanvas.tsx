@@ -16,11 +16,18 @@ export function RoiCanvas() {
   const tilingPreview = useAppStore((s) => s.tilingPreview);
 
   const drawingMode = useRoiStore((s) => s.drawingMode);
+  const cutMode = useRoiStore((s) => s.cutMode);
   const currentPoints = useRoiStore((s) => s.currentPoints);
   const addPoint = useRoiStore((s) => s.addPoint);
   const clearPoints = useRoiStore((s) => s.clearPoints);
   const maskUrl = useRoiStore((s) => s.maskUrl);
   const setMaskUrl = useRoiStore((s) => s.setMaskUrl);
+
+  // Drawing colors based on add/cut mode
+  const strokeColor = cutMode ? "#ef4444" : "#3b82f6";
+  const fillColor = cutMode
+    ? "rgba(239,68,68,0.15)"
+    : "rgba(59,130,246,0.15)";
 
   // Pan and zoom
   const [scale, setScale] = useState(1);
@@ -122,20 +129,20 @@ export function RoiCanvas() {
     async (e: React.MouseEvent) => {
       if (e.button !== 0 || !drawingMode || imageFiles.length === 0) return;
       const [ix, iy] = screenToImage(e.clientX, e.clientY);
+      const mode = cutMode ? "cut" : "add";
 
-      if (drawingMode === "polygon" || drawingMode === "cut") {
+      if (drawingMode === "polygon") {
         addPoint(ix, iy);
       } else if (drawingMode === "rectangle") {
         if (currentPoints.length === 0) {
           addPoint(ix, iy);
         } else {
-          // Complete rectangle
           const [x0, y0] = currentPoints[0];
           try {
             await addRectangle(
               Math.min(x0, ix), Math.min(y0, iy),
               Math.max(x0, ix), Math.max(y0, iy),
-              "add"
+              mode
             );
             setMaskUrl(`/api/roi/mask?t=${Date.now()}`);
             await confirmRoi();
@@ -153,7 +160,7 @@ export function RoiCanvas() {
           const [cx, cy] = currentPoints[0];
           const r = Math.sqrt((ix - cx) ** 2 + (iy - cy) ** 2);
           try {
-            await addCircle(cx, cy, r);
+            await addCircle(cx, cy, r, mode);
             setMaskUrl(`/api/roi/mask?t=${Date.now()}`);
             await confirmRoi();
             setRoiConfirmed(true);
@@ -165,16 +172,13 @@ export function RoiCanvas() {
         }
       }
     },
-    [drawingMode, imageFiles.length, currentPoints, screenToImage, addPoint, clearPoints, setMaskUrl, setRoiConfirmed]
+    [drawingMode, cutMode, imageFiles.length, currentPoints, screenToImage, addPoint, clearPoints, setMaskUrl, setRoiConfirmed]
   );
 
   const handleDoubleClick = useCallback(async () => {
-    if (
-      (drawingMode === "polygon" || drawingMode === "cut") &&
-      currentPoints.length >= 3
-    ) {
+    if (drawingMode === "polygon" && currentPoints.length >= 3) {
       try {
-        const mode = drawingMode === "cut" ? "cut" : "add";
+        const mode = cutMode ? "cut" : "add";
         await addPolygon(currentPoints, mode);
         setMaskUrl(`/api/roi/mask?t=${Date.now()}`);
         await confirmRoi();
@@ -185,7 +189,7 @@ export function RoiCanvas() {
       clearPoints();
       setMousePos(null);
     }
-  }, [drawingMode, currentPoints, clearPoints, setMaskUrl, setRoiConfirmed]);
+  }, [drawingMode, cutMode, currentPoints, clearPoints, setMaskUrl, setRoiConfirmed]);
 
   // Convert image coords to screen for SVG
   const imgToScreen = (ix: number, iy: number) => ({
@@ -240,8 +244,8 @@ export function RoiCanvas() {
 
           {/* SVG overlay for active drawing */}
           <svg className="absolute inset-0 w-full h-full pointer-events-none">
-            {/* In-progress polygon/cut lines */}
-            {(drawingMode === "polygon" || drawingMode === "cut") &&
+            {/* In-progress polygon lines */}
+            {drawingMode === "polygon" &&
               currentPoints.length > 0 && (
                 <>
                   <polyline
@@ -260,7 +264,7 @@ export function RoiCanvas() {
                         : []),
                     ].join(" ")}
                     fill="none"
-                    stroke={drawingMode === "cut" ? "#ef4444" : "#3b82f6"}
+                    stroke={strokeColor}
                     strokeWidth="1.5"
                     strokeDasharray="4 2"
                   />
@@ -272,7 +276,7 @@ export function RoiCanvas() {
                         cx={s.x}
                         cy={s.y}
                         r={3}
-                        fill={drawingMode === "cut" ? "#ef4444" : "#3b82f6"}
+                        fill={strokeColor}
                       />
                     );
                   })}
@@ -291,8 +295,8 @@ export function RoiCanvas() {
                     y={Math.min(s0.y, s1.y)}
                     width={Math.abs(s1.x - s0.x)}
                     height={Math.abs(s1.y - s0.y)}
-                    fill="rgba(59,130,246,0.15)"
-                    stroke="#3b82f6"
+                    fill={fillColor}
+                    stroke={strokeColor}
                     strokeWidth="1.5"
                     strokeDasharray="4 2"
                   />
@@ -313,8 +317,8 @@ export function RoiCanvas() {
                     cx={center.x}
                     cy={center.y}
                     r={r}
-                    fill="rgba(59,130,246,0.15)"
-                    stroke="#3b82f6"
+                    fill={fillColor}
+                    stroke={strokeColor}
                     strokeWidth="1.5"
                     strokeDasharray="4 2"
                   />
