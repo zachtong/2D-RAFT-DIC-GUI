@@ -207,7 +207,6 @@ def render_frame(idx: int):
     vmin = request.args.get("vmin", type=float)
     vmax = request.args.get("vmax", type=float)
     background = request.args.get("background", "reference")
-    warp_quality = request.args.get("warp_quality", "balanced")
     log_scale = request.args.get("log_scale", "false").lower() in ("true", "1", "yes")
     vw = request.args.get("vw", 0, type=int)
     vh = request.args.get("vh", 0, type=int)
@@ -238,7 +237,7 @@ def render_frame(idx: int):
         else:
             return jsonify({"error": "No image dimensions"}), 500
 
-    full_data = _place_strain_in_full_image(strain_data, idx, h, w, background, warp_quality,
+    full_data = _place_strain_in_full_image(strain_data, idx, h, w, background,
                                             vw=vw, vh=vh)
 
     if overlay_only:
@@ -282,7 +281,6 @@ def _place_strain_in_full_image(
     h: int,
     w: int,
     background: str = "reference",
-    warp_quality: str = "balanced",
     vw: int = 0,
     vh: int = 0,
 ) -> np.ndarray:
@@ -306,7 +304,6 @@ def _place_strain_in_full_image(
             needs_upsample=(sh != roi_h or sw != roi_w),
             roi_h=roi_h, roi_w=roi_w,
             cache=session.inverse_map_cache,
-            quality=warp_quality,
             vw=vw, vh=vh,
         )
 

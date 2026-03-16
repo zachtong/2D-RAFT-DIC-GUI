@@ -1,4 +1,8 @@
-"""Velocity arrow (quiver + streamline) overlay rendering as transparent PNG."""
+"""Vector field (quiver + streamline) overlay rendering as transparent PNG.
+
+Supports both displacement and velocity vector fields via the ``vector_source``
+query parameter.
+"""
 
 import io
 
@@ -22,7 +26,7 @@ def _parse_bool(val: str) -> bool:
 
 @arrows_bp.route("/render/<int:idx>", methods=["GET"])
 def render_arrows(idx: int):
-    """Render velocity arrows / streamlines as a transparent PNG overlay."""
+    """Render vector field arrows / streamlines as a transparent PNG overlay."""
     if not session.displacement_results:
         return jsonify({"error": "No displacement results"}), 404
     if idx < 0 or idx >= len(session.displacement_results):
@@ -36,6 +40,7 @@ def render_arrows(idx: int):
     color = request.args.get("color", "white")
     line_width = request.args.get("line_width", 1.5, type=float)
     background = request.args.get("background", "reference")
+    vector_source = request.args.get("vector_source", "velocity")  # "displacement" or "velocity"
     stream_ds = request.args.get("stream_ds", 4, type=int)  # downsample factor for streamlines
     vw = request.args.get("vw", 0, type=int)
     vh = request.args.get("vh", 0, type=int)
@@ -50,16 +55,21 @@ def render_arrows(idx: int):
     if cached is not None:
         return png_response(cached)
 
-    # Compute velocity field (du, dv) = difference between consecutive frames
+    # Compute vector field (du, dv)
     disp = session.displacement_results[idx]
-    if idx == 0:
-        # Frame 0: velocity = disp[0] (displacement from zero reference)
+    if vector_source == "displacement":
+        # Raw cumulative displacement field
         du = disp[:, :, 0].copy()
         dv = disp[:, :, 1].copy()
     else:
-        prev = session.displacement_results[idx - 1]
-        du = disp[:, :, 0] - prev[:, :, 0]
-        dv = disp[:, :, 1] - prev[:, :, 1]
+        # Velocity: difference between consecutive frames
+        if idx == 0:
+            du = disp[:, :, 0].copy()
+            dv = disp[:, :, 1].copy()
+        else:
+            prev = session.displacement_results[idx - 1]
+            du = disp[:, :, 0] - prev[:, :, 0]
+            dv = disp[:, :, 1] - prev[:, :, 1]
     h, w = du.shape
 
     # ROI offset for coordinate grids

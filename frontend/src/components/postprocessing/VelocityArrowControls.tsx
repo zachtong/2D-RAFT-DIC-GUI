@@ -26,15 +26,16 @@ export function VelocityArrowControls() {
   const arrows = useAppStore((s) => s.arrowSettings);
   const update = useAppStore((s) => s.updateArrowSettings);
 
-  const showVelocity = displayComponent === "velocity";
+  const isVectorComponent = ["u", "v", "magnitude", "velocity"].includes(displayComponent);
+  const sectionTitle = displayComponent === "velocity" ? "Velocity Arrows" : "Displacement Arrows";
 
-  // Nothing to show if neither velocity arrows nor principal dirs are relevant
-  if (!showVelocity && !hasStrain) return null;
+  // Nothing to show if neither vector arrows nor principal dirs are relevant
+  if (!isVectorComponent && !hasStrain) return null;
 
   return (
     <>
-      {showVelocity && (
-        <CollapsibleSection title="Velocity Arrows" defaultOpen={true}>
+      {isVectorComponent && (
+        <CollapsibleSection title={sectionTitle} defaultOpen={true}>
           <FieldRow label="Show Quiver">
             <Toggle
               checked={arrows.showQuiver}

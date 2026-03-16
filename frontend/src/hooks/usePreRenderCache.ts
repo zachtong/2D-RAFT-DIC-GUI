@@ -92,7 +92,6 @@ export function usePreRenderCache(
   const vh = viewportSize?.vh ?? 0;
   const dataParams: Record<string, string | number> = {
     background: vis.background,
-    ...(vis.background === "deformed" ? { warp_quality: vis.deformedQuality ?? "balanced" } : {}),
     ...(vw > 0 ? { vw } : {}),
     ...(vh > 0 ? { vh } : {}),
     ...(referenceFrame > 0 ? { ref_frame: referenceFrame } : {}),
@@ -331,7 +330,6 @@ export function usePreRenderCache(
   }, [
     displayComponent,
     vis.background,
-    vis.deformedQuality,
     referenceFrame,
     resultVersion,
     vw,

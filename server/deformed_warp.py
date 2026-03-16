@@ -52,10 +52,7 @@ def auto_inverse_cache_size() -> int:
 
 
 class InverseMapCache:
-    """Thread-safe LRU cache for InverseMapResult (keyed by frame index).
-
-    Automatically invalidates when the quality preset changes.
-    """
+    """Thread-safe LRU cache for InverseMapResult (keyed by frame index)."""
 
     def __init__(self, max_size: int = None):
         if max_size is None:
@@ -63,14 +60,9 @@ class InverseMapCache:
         self._max_size = max_size
         self._cache: OrderedDict[int, InverseMapResult] = OrderedDict()
         self._lock = threading.Lock()
-        self._quality: str = "balanced"
 
-    def get(self, frame_idx: int, quality: str = "balanced") -> Optional[InverseMapResult]:
+    def get(self, frame_idx: int) -> Optional[InverseMapResult]:
         with self._lock:
-            if quality != self._quality:
-                self._cache.clear()
-                self._quality = quality
-                return None
             if frame_idx in self._cache:
                 self._cache.move_to_end(frame_idx)
                 return self._cache[frame_idx]
@@ -94,14 +86,17 @@ class InverseMapCache:
 # Core algorithms
 # ---------------------------------------------------------------------------
 
-# Quality presets: name -> K (query grid subsample factor)
-# Higher K = fewer Delaunay points + coarser query grid = faster but less detail
-WARP_QUALITY_PRESETS = {
-    "fine": 3,       # every 3rd pixel — ROI < 500px
-    "balanced": 6,   # every 6th pixel — ROI 500–1500px
-    "fast": 12,      # every 12th pixel — ROI 1500–3000px
-    "draft": 20,     # every 20th pixel — ROI > 3000px
-}
+def _auto_K(roi_h: int, roi_w: int) -> int:
+    """Compute adaptive coarse-grid spacing K for Delaunay interpolation.
+
+    Targets ~3000 scatter points — enough for sub-pixel accuracy on smooth
+    DIC displacement fields while keeping Delaunay build + query fast.
+    """
+    target_points = 3000
+    K = max(1, int(np.ceil(np.sqrt(roi_h * roi_w / target_points))))
+    # Ensure at least 30 points per dimension (avoid excessive coarseness)
+    K = min(K, max(1, roi_h // 30), max(1, roi_w // 30))
+    return K
 
 
 def compute_inverse_map(
@@ -109,7 +104,6 @@ def compute_inverse_map(
     V: np.ndarray,
     roi_rect: Tuple[int, int, int, int],
     image_shape: Tuple[int, int],
-    quality: str = "balanced",
 ) -> InverseMapResult:
     """Compute the inverse mapping from deformed to reference coordinates.
 
@@ -117,17 +111,14 @@ def compute_inverse_map(
     (ref_pixel -> deformed_pixel), then interpolates the inverse via Delaunay
     triangulation on a coarse grid and upsamples to full resolution.
 
-    The ``quality`` parameter controls the coarse grid spacing (K):
-      - "fine"     (K=4):  highest accuracy, ~1s for 500×500
-      - "balanced" (K=8):  good balance,     ~0.2s for 500×500
-      - "fast"     (K=16): fastest,          ~0.05s for 500×500
+    The coarse grid spacing K is computed automatically from the ROI size,
+    targeting ~3000 Delaunay points for a good speed/accuracy balance.
 
     Parameters
     ----------
     U, V : (roi_h, roi_w) displacement fields (may contain NaN)
     roi_rect : (x0, y0, x1, y1) ROI bounding box in full-image coords
     image_shape : (H, W) of the full image
-    quality : "fine", "balanced", or "fast"
 
     Returns
     -------
@@ -135,23 +126,10 @@ def compute_inverse_map(
     """
     from scipy.interpolate import LinearNDInterpolator
 
-    K = WARP_QUALITY_PRESETS.get(quality, 8)
-
     x0, y0, x1, y1 = roi_rect
     roi_h, roi_w = y1 - y0, x1 - x0
     img_h, img_w = image_shape
-
-    # Auto-cap K so the coarse grid has at least ~30 points per dimension,
-    # preventing excessive coarseness on small ROIs.
-    K = min(K, max(1, roi_h // 30), max(1, roi_w // 30))
-
-    # Auto-raise K to cap total Delaunay points on large images.
-    # 10K scatter points gives ~0.2 px interpolation error at 1% strain
-    # while keeping the Delaunay build + query under 0.5s.
-    max_coarse_points = 10000
-    total_coarse_est = (roi_h / K) * (roi_w / K)
-    if total_coarse_est > max_coarse_points:
-        K = max(K, int(np.ceil(np.sqrt(roi_h * roi_w / max_coarse_points))))
+    K = _auto_K(roi_h, roi_w)
 
     # --- Step 1: Forward map — subsample reference grid by K ---
     valid_mask = ~(np.isnan(U) | np.isnan(V))
@@ -419,7 +397,6 @@ def _warp_at_viewport_scale(
     needs_upsample: bool = False,
     roi_h: int = 0,
     roi_w: int = 0,
-    quality: str = "balanced",
 ) -> np.ndarray:
     """Fast path: downsample everything to viewport resolution before warping.
 
@@ -480,19 +457,10 @@ def _warp_at_viewport_scale(
         U_ds = np.where(valid, U_r * inv_w * scale, np.nan).astype(np.float64)
         V_ds = np.where(valid, V_r * inv_w * scale, np.nan).astype(np.float64)
 
-    # Auto-select coarser quality for viewport rendering — the output is
-    # already low-resolution so fine Delaunay detail is wasted.
-    ds_max_dim = max(ds_roi_h, ds_roi_w)
-    if ds_max_dim < 500:
-        vp_quality = "draft"     # K=20 → ~625 Delaunay points
-    elif ds_max_dim < 1500:
-        vp_quality = "fast"      # K=12 → ~5K Delaunay points
-    else:
-        vp_quality = quality
-
-    # Compute inverse map at viewport resolution (no caching — it's fast)
+    # Compute inverse map at viewport resolution (no caching — it's fast;
+    # _auto_K adapts to the downsampled ROI size automatically)
     ds_roi_rect = (ds_x0, ds_y0, ds_x1, ds_y1)
-    inv_map = compute_inverse_map(U_ds, V_ds, ds_roi_rect, (ds_h, ds_w), vp_quality)
+    inv_map = compute_inverse_map(U_ds, V_ds, ds_roi_rect, (ds_h, ds_w))
 
     return warp_data_inverse(data_ds, inv_map, (ds_h, ds_w))
 
@@ -508,7 +476,6 @@ def get_warped_full_data(
     needs_upsample: bool = False,
     roi_h: int = 0,
     roi_w: int = 0,
-    quality: str = "balanced",
     vw: int = 0,
     vh: int = 0,
 ) -> np.ndarray:
@@ -544,16 +511,16 @@ def get_warped_full_data(
     if scale < 1.0:
         return _warp_at_viewport_scale(
             data, U, V, roi_rect, image_shape, scale,
-            needs_upsample, roi_h, roi_w, quality,
+            needs_upsample, roi_h, roi_w,
         )
 
     # Full-resolution path (for downloads and when viewport >= image)
     if needs_upsample and roi_h > 0 and roi_w > 0:
         data = upsample_strain_to_roi(data, roi_h, roi_w)
 
-    inv_map = cache.get(frame_idx, quality=quality)
+    inv_map = cache.get(frame_idx)
     if inv_map is None:
-        inv_map = compute_inverse_map(U, V, roi_rect, image_shape, quality=quality)
+        inv_map = compute_inverse_map(U, V, roi_rect, image_shape)
         inv_map.frame_idx = frame_idx
         cache.put(frame_idx, inv_map)
 

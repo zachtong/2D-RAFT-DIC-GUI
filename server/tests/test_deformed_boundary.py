@@ -29,7 +29,7 @@ class TestBoundarySmoothnessUniform:
         U, V, roi_rect, image_shape = uniform_translation_setup
         roi_h, roi_w = 400, 200
 
-        inv_map = compute_inverse_map(U, V, roi_rect, image_shape, quality="balanced")
+        inv_map = compute_inverse_map(U, V, roi_rect, image_shape)
         data = np.ones((roi_h, roi_w))  # uniform value 1.0
         warped = warp_data_inverse(data, inv_map, image_shape)
 
@@ -50,7 +50,7 @@ class TestBoundarySmoothnessUniform:
         U, V, roi_rect, image_shape = uniform_translation_setup
         roi_h, roi_w = 400, 200
 
-        inv_map = compute_inverse_map(U, V, roi_rect, image_shape, quality="balanced")
+        inv_map = compute_inverse_map(U, V, roi_rect, image_shape)
         data = np.ones((roi_h, roi_w))
         warped = warp_data_inverse(data, inv_map, image_shape)
 
@@ -79,7 +79,7 @@ class TestBoundarySmoothnessUniform:
         U, V, roi_rect, image_shape = uniform_translation_setup
         roi_h, roi_w = 400, 200
 
-        inv_map = compute_inverse_map(U, V, roi_rect, image_shape, quality="balanced")
+        inv_map = compute_inverse_map(U, V, roi_rect, image_shape)
         data = np.ones((roi_h, roi_w))
         warped = warp_data_inverse(data, inv_map, image_shape)
 
@@ -122,10 +122,7 @@ class TestBoundarySmoothnessCircularROI:
         roi_rect = (50, 50, 350, 350)
         image_shape = (500, 500)
 
-        # Test at "fine" quality for best boundary fidelity.
-        # "balanced" gives max_jump~6 (Delaunay hull coarseness), which is
-        # acceptable for interactive use but not a tight test target.
-        inv_map = compute_inverse_map(U, V, roi_rect, image_shape, quality="fine")
+        inv_map = compute_inverse_map(U, V, roi_rect, image_shape)
 
         # Source data: 1.0 inside circle, NaN outside
         data = np.full((roi_h, roi_w), np.nan)
@@ -150,9 +147,9 @@ class TestBoundarySmoothnessCircularROI:
         if len(right_edges) < 20:
             pytest.skip("Not enough rows")
 
-        # At "fine" quality, boundary jumps should be <= 5px in the
-        # equatorial band. Before the threshold fix, the coarse grid
-        # (0.5 threshold) produced ~20px staircase blocks.
+        # Boundary jumps should be <= 5px in the equatorial band.
+        # Before the forward-contour fix, the coarse Delaunay hull
+        # produced ~20px staircase blocks.
         diffs = np.abs(np.diff(right_edges))
         max_jump = diffs.max()
         assert max_jump <= 5, (

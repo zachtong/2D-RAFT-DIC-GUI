@@ -180,7 +180,7 @@ class TestRotationInverseMap:
         cx, cy = roi_w / 2.0, roi_h / 2.0
         data[mask] = np.sqrt((x[mask] - cx) ** 2 + (y[mask] - cy) ** 2)
 
-        inv = compute_inverse_map(U, V, roi_rect, image_shape, quality="fine")
+        inv = compute_inverse_map(U, V, roi_rect, image_shape)
         warped = warp_data_inverse(data, inv, image_shape)
 
         coverage = np.isfinite(warped).sum() / mask.sum() * 100
@@ -201,7 +201,7 @@ class TestRotationInverseMap:
         data = np.full((roi_h, roi_w), np.nan)
         data[mask] = np.sqrt((x[mask] - cx) ** 2 + (y[mask] - cy) ** 2)
 
-        inv = compute_inverse_map(U, V, roi_rect, image_shape, quality="fine")
+        inv = compute_inverse_map(U, V, roi_rect, image_shape)
         warped = warp_data_inverse(data, inv, image_shape)
 
         valid = np.isfinite(warped)

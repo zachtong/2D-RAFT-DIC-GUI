@@ -75,8 +75,9 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
     return () => ro.disconnect();
   }, []);
 
+  const isVectorComponent = ["u", "v", "magnitude", "velocity"].includes(displayComponent);
   const showArrows =
-    displayComponent === "velocity" &&
+    isVectorComponent &&
     (arrows.showQuiver || arrows.showStreamlines);
 
   const autoRange = useColorRange(currentFrame, displayComponent, hasResults);
@@ -323,7 +324,6 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
     component: displayComponent,
     colormap: vis.colormap,
     background: vis.background,
-    ...(vis.background === "deformed" ? { warp_quality: vis.deformedQuality } : {}),
     overlay_only: "true",
     ...(containerSize.w > 0 ? { vw: containerSize.w } : {}),
     ...(containerSize.h > 0 ? { vh: containerSize.h } : {}),
@@ -435,6 +435,7 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
                 src={arrowRenderUrl(currentFrame, {
                   show_quiver: arrows.showQuiver,
                   show_streamlines: arrows.showStreamlines,
+                  vector_source: displayComponent === "velocity" ? "velocity" : "displacement",
                   spacing: arrows.spacing,
                   scale: arrows.scale,
                   color: arrows.color,
@@ -444,7 +445,7 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
                   ...(containerSize.w > 0 ? { vw: containerSize.w } : {}),
                   ...(containerSize.h > 0 ? { vh: containerSize.h } : {}),
                 })}
-                alt="velocity arrows"
+                alt="vector field arrows"
                 className="absolute inset-0 w-full h-full pointer-events-none"
                 draggable={false}
               />

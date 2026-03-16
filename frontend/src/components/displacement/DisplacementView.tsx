@@ -64,7 +64,6 @@ function DisplacementPanel({
       component,
       colormap: vis.colormap,
       background: vis.background,
-      ...(vis.background === "deformed" ? { warp_quality: vis.deformedQuality } : {}),
       overlay_only: "true",
       ...(containerSize.w > 0 ? { vw: containerSize.w } : {}),
       ...(containerSize.h > 0 ? { vh: containerSize.h } : {}),

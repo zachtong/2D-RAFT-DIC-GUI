@@ -297,6 +297,7 @@ export function ExportDialog() {
       use_log_scale: vis.logScale,
       show_quiver: arrows.showQuiver,
       show_streamlines: arrows.showStreamlines,
+      vector_source: displayComponent === "velocity" ? "velocity" : "displacement",
       arrow_spacing: arrows.spacing,
       arrow_scale: arrows.scale,
       arrow_color: arrows.color,

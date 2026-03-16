@@ -129,7 +129,6 @@ def render_frame(idx: int):
     vmin = request.args.get("vmin", type=float)
     vmax = request.args.get("vmax", type=float)
     background = request.args.get("background", "reference")
-    warp_quality = request.args.get("warp_quality", "balanced")
     log_scale = request.args.get("log_scale", "false").lower() in ("true", "1", "yes")
     ref_frame = request.args.get("ref_frame", 0, type=int)
     vw = request.args.get("vw", 0, type=int)
@@ -169,7 +168,6 @@ def render_frame(idx: int):
             roi_rect=rect,
             image_shape=(h, w),
             cache=session.inverse_map_cache,
-            quality=warp_quality,
             vw=vw, vh=vh,
         )
     else:
@@ -270,7 +268,6 @@ def download_frame(idx):
             roi_rect=rect,
             image_shape=(h, w),
             cache=session.inverse_map_cache,
-            quality="balanced",
         )
     else:
         full_data = np.full((h, w), np.nan)
