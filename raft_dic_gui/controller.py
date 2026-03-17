@@ -505,10 +505,14 @@ class DICProcessor:
         2. Auto-warped ROI mask (if enabled and accumulated displacement available)
         3. Original ROI mask
         """
-        # Priority 1: user-provided per-frame mask (0-indexed)
-        if list_idx in user_masks:
-            print(f"[INFO] Frame {frame_num}: using user-provided mask")
-            return user_masks[list_idx]
+        # Priority 1: user-provided per-frame mask (keyed by reference frame,
+        # 0-indexed).  Mask M_k is the ROI on image I_k and is used for the
+        # pair I_k -> I_{k+1}.
+        ref_idx = ref_num - 1
+        if ref_idx in user_masks:
+            print(f"[INFO] Frame {frame_num}: using user-provided mask "
+                  f"(ref frame {ref_num})")
+            return user_masks[ref_idx]
 
         # Priority 2: auto-warp using accumulated displacement
         if auto_warp and ref_num != 1 and ref_num in kf_accumulated:
