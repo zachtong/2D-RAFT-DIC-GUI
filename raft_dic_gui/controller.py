@@ -265,6 +265,15 @@ class DICProcessor:
             delta_disp_full = disp_full
 
             # ----------------------------------------------------------
+            # Apply current frame's mask: remove pixels whose deformed
+            # position falls outside the specimen boundary (e.g. cracks)
+            # ----------------------------------------------------------
+            if list_idx in user_masks:
+                self._apply_current_frame_mask(
+                    delta_disp_full, user_masks[list_idx], frame_num,
+                )
+
+            # ----------------------------------------------------------
             # Compute total displacement relative to Frame 1
             # ----------------------------------------------------------
             kf_acc = kf_accumulated[ref_num]
@@ -529,6 +538,43 @@ class DICProcessor:
 
         # Priority 3: original ROI mask
         return roi_mask
+
+    @staticmethod
+    def _apply_current_frame_mask(disp_full, cur_mask, frame_num):
+        """Mask out pixels whose deformed position falls outside cur_mask.
+
+        For each valid pixel (x, y) with displacement (U, V), check whether
+        cur_mask at the deformed position (round(y+V), round(x+U)) is True.
+        Pixels that land outside the specimen (e.g. in a crack) are set to NaN.
+        """
+        H, W = disp_full.shape[:2]
+        valid = ~np.isnan(disp_full[..., 0])
+        yy, xx = np.where(valid)
+
+        if len(yy) == 0:
+            return
+
+        U = disp_full[yy, xx, 0]
+        V = disp_full[yy, xx, 1]
+
+        # Deformed coordinates (where these reference pixels land)
+        def_x = np.round(xx + U).astype(np.intp)
+        def_y = np.round(yy + V).astype(np.intp)
+
+        # Bounds check
+        in_bounds = (def_x >= 0) & (def_x < W) & (def_y >= 0) & (def_y < H)
+
+        # Check mask at deformed positions
+        in_specimen = np.zeros(len(yy), dtype=bool)
+        bm = in_bounds
+        in_specimen[bm] = cur_mask[def_y[bm], def_x[bm]]
+
+        # Mask out pixels outside specimen
+        outside = ~in_specimen
+        if outside.any():
+            disp_full[yy[outside], xx[outside], :] = np.nan
+            print(f"[INFO] Frame {frame_num}: current-frame mask removed "
+                  f"{outside.sum()} pixels outside specimen boundary")
 
     def _update_progress_throttled(self, pair_idx, total_pairs, last_update_time):
         """Update progress callback, rate-limited to ~10Hz. Returns new last_update_time."""

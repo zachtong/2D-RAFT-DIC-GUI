@@ -81,7 +81,7 @@ def validate_masks():
     return jsonify({
         "matched_count": len(masks),
         "total_frames": total,
-        "masks_needed": max(total - 1, 0),  # last frame is never a reference
+        "masks_needed": total,  # one mask per image (ref ROI + current-frame boundary)
         "matched_frames": matched_frames,
         "has_frame_1": has_frame_1,
     })
