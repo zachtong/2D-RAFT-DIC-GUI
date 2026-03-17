@@ -305,12 +305,58 @@ def calculate_strain_field(displacement_field: np.ndarray, method: str = 'green_
     s_slice = slice(None, None, step)
     mask_down = mask[s_slice, s_slice]
 
-    # --- Primary VSG pass ---
+    # --- Primary VSG pass (connectivity-aware) ---
     t1 = time.perf_counter()
-    du_dx, du_dy, dv_dx, dv_dy, coverage, n_solved, n_cond_filtered = _vsg_gradients(
-        u_filled, v_filled, mask_float, vsg_size, poly_order,
-        weighting, step, gaussian_sigma, min_weight, cond_threshold,
-    )
+
+    from scipy.ndimage import label as ndimage_label
+    labels, n_components = ndimage_label(mask)
+
+    if n_components <= 1:
+        # Single connected region (or empty) — fast path
+        du_dx, du_dy, dv_dx, dv_dy, coverage, n_solved, n_cond_filtered = (
+            _vsg_gradients(
+                u_filled, v_filled, mask_float, vsg_size, poly_order,
+                weighting, step, gaussian_sigma, min_weight, cond_threshold,
+            )
+        )
+    else:
+        # Multiple components (e.g. crack splits specimen).  Run VSG per
+        # component so that no window mixes data from across the crack.
+        labels_down = labels[s_slice, s_slice]
+        H_down, W_down = labels_down.shape
+
+        du_dx = np.full((H_down, W_down), np.nan)
+        du_dy = np.full((H_down, W_down), np.nan)
+        dv_dx = np.full((H_down, W_down), np.nan)
+        dv_dy = np.full((H_down, W_down), np.nan)
+        coverage = np.zeros((H_down, W_down))
+        n_solved = 0
+        n_cond_filtered = 0
+
+        print(f"[STRAIN] {n_components} connected components detected — "
+              f"running per-component VSG")
+
+        for comp_id in range(1, n_components + 1):
+            comp_mask_float = (labels == comp_id).astype(np.float64)
+            if comp_mask_float.sum() < min_weight:
+                continue
+
+            (c_dudx, c_dudy, c_dvdx, c_dvdy,
+             c_cov, c_solved, c_filt) = _vsg_gradients(
+                u_filled, v_filled, comp_mask_float, vsg_size, poly_order,
+                weighting, step, gaussian_sigma, min_weight, cond_threshold,
+            )
+
+            # Keep results only for pixels belonging to this component
+            sel = labels_down == comp_id
+            du_dx[sel] = c_dudx[sel]
+            du_dy[sel] = c_dudy[sel]
+            dv_dx[sel] = c_dvdx[sel]
+            dv_dy[sel] = c_dvdy[sel]
+            coverage[sel] = c_cov[sel]
+            n_solved += c_solved
+            n_cond_filtered += c_filt
+
     t2 = time.perf_counter()
     n_valid_down = int(np.sum(mask_down))
     n_got = int(np.sum(~np.isnan(du_dx) & mask_down))
