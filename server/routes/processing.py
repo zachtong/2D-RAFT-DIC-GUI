@@ -76,10 +76,12 @@ def validate_masks():
 
     matched_frames = sorted([idx + 1 for idx in masks.keys()])  # 1-indexed for UI
     has_frame_1 = 0 in masks  # 0-based index: frame 1 is index 0
+    total = len(session.image_files)
 
     return jsonify({
         "matched_count": len(masks),
-        "total_frames": len(session.image_files),
+        "total_frames": total,
+        "masks_needed": max(total - 1, 0),  # last frame is never a reference
         "matched_frames": matched_frames,
         "has_frame_1": has_frame_1,
     })

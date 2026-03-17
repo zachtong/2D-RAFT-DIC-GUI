@@ -36,6 +36,7 @@ export async function getProcessingStatus(): Promise<{
 export async function validateMasks(maskDir: string): Promise<{
   matched_count: number;
   total_frames: number;
+  masks_needed: number;
   matched_frames: number[];
   has_frame_1: boolean;
 }> {

@@ -9,12 +9,10 @@ from typing import Dict, List, Tuple
 MASK_EXTENSIONS = {".png", ".tif", ".tiff", ".bmp", ".jpg", ".jpeg"}
 
 
-def _extract_last_integer(name: str) -> int | None:
-    """Extract the last integer from a filename string."""
-    matches = re.findall(r"\d+", name)
-    if matches:
-        return int(matches[-1])
-    return None
+def _natural_sort_key(s: str):
+    """Sort key that treats numeric substrings as integers."""
+    return [int(tok) if tok.isdigit() else tok.lower()
+            for tok in re.split(r"(\d+)", s)]
 
 
 def _load_mask(path: Path, image_shape: Tuple[int, int]) -> np.ndarray | None:
@@ -55,16 +53,16 @@ def discover_masks(
 ) -> Dict[int, np.ndarray]:
     """Discover and load per-frame masks from a directory.
 
-    Matching strategy (priority order):
-    1. Filename match: mask stem == image stem (ignoring extension)
-    2. Number extraction: last integer in mask filename as 1-indexed frame number
+    Matching strategy: natural-sort mask files, then pair with image files
+    by positional index (0-th mask → 0-th image, 1st mask → 1st image, …).
+    Extra masks beyond the image count are ignored.
 
     Parameters
     ----------
     mask_dir : str
         Path to folder containing mask images.
     image_files : list of str
-        Ordered list of image filenames (basenames) for matching.
+        Ordered list of image filenames (basenames).
     image_shape : (int, int)
         Expected (H, W) dimensions for masks.
 
@@ -78,59 +76,35 @@ def discover_masks(
         print(f"Mask directory not found: {mask_dir}")
         return {}
 
-    # Build stem-to-index lookup from image files
-    stem_to_index: Dict[str, int] = {}
-    for idx, fname in enumerate(image_files):
-        stem = Path(fname).stem
-        stem_to_index[stem] = idx
-
     num_images = len(image_files)
     result: Dict[int, np.ndarray] = {}
 
-    # Collect mask files
+    # Collect mask files, natural-sorted
     mask_files = sorted(
-        f for f in mask_path.iterdir()
-        if f.is_file() and f.suffix.lower() in MASK_EXTENSIONS
+        (f for f in mask_path.iterdir()
+         if f.is_file() and f.suffix.lower() in MASK_EXTENSIONS),
+        key=lambda f: _natural_sort_key(f.name),
     )
 
-    for mask_file in mask_files:
-        mask_stem = mask_file.stem
-        frame_idx: int | None = None
+    for idx, mask_file in enumerate(mask_files):
+        if idx >= num_images:
+            print(f"{mask_file.name}: index {idx} exceeds image count "
+                  f"({num_images}), skipped")
+            break
 
-        # Strategy 1: filename match
-        if mask_stem in stem_to_index:
-            frame_idx = stem_to_index[mask_stem]
-        else:
-            # Strategy 2: number extraction (1-indexed)
-            frame_num = _extract_last_integer(mask_stem)
-            if frame_num is not None:
-                candidate = frame_num - 1  # convert to 0-based
-                if 0 <= candidate < num_images:
-                    frame_idx = candidate
-                else:
-                    print(
-                        f"{mask_file.name}: frame number {frame_num} out of "
-                        f"range (1-{num_images}), skipped"
-                    )
-                    continue
-
-        if frame_idx is None:
-            print(f"{mask_file.name}: no matching frame found, skipped")
-            continue
-
-        # Load and validate mask
         mask = _load_mask(mask_file, image_shape)
         if mask is None:
             continue
 
-        result[frame_idx] = mask
+        result[idx] = mask
+        print(f"  mask[{idx}] = {mask_file.name} -> {image_files[idx]}")
 
     # Summary
     if not result:
         print("No valid masks found, using auto warp for all frames")
     else:
         print(
-            f"Found masks for {len(result)} of {num_images} frames. "
+            f"Loaded {len(result)} masks for {num_images} images. "
             f"Remaining frames will use auto warp."
         )
 

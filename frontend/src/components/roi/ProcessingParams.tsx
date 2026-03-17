@@ -229,7 +229,7 @@ export function ProcessingParams() {
       // Sync to backend if valid
       configureProcessing({ mask_dir: maskDir }).catch(() => {});
     } catch {
-      setMaskValidation({ matched_count: 0, total_frames: totalFrames, matched_frames: [], has_frame_1: false });
+      setMaskValidation({ matched_count: 0, total_frames: totalFrames, masks_needed: Math.max(totalFrames - 1, 0), matched_frames: [], has_frame_1: false });
     }
   };
 

@@ -11,6 +11,7 @@ interface MaskSourceSelectorProps {
   validationResult?: {
     matched_count: number;
     total_frames: number;
+    masks_needed: number;
     matched_frames: number[];
     has_frame_1: boolean;
   } | null;
@@ -68,15 +69,14 @@ export function MaskSourceSelector({
         <>
           <span
             className={`text-[10px] ${
-              validationResult.matched_count === validationResult.total_frames
+              validationResult.matched_count >= validationResult.masks_needed
                 ? "text-green-400"
                 : validationResult.matched_count > 0
                 ? "text-yellow-400"
                 : "text-red-400"
             }`}
           >
-            Matched {validationResult.matched_count} of{" "}
-            {validationResult.total_frames} frames
+            Loaded {validationResult.matched_count} masks ({validationResult.masks_needed} needed for {validationResult.total_frames} images)
           </span>
 
           {/* Frame 1 status */}

@@ -97,7 +97,7 @@ interface AppState {
   useMedianFilter: boolean;
   maskSource: "auto" | "folder";
   maskDir: string;
-  maskValidation: { matched_count: number; total_frames: number; matched_frames: number[]; has_frame_1: boolean } | null;
+  maskValidation: { matched_count: number; total_frames: number; masks_needed: number; matched_frames: number[]; has_frame_1: boolean } | null;
 
   // Tiling state
   tilingPreview: TilingPreview | null;
@@ -143,7 +143,7 @@ interface AppState {
   setUseMedianFilter: (v: boolean) => void;
   setMaskSource: (source: "auto" | "folder") => void;
   setMaskDir: (dir: string) => void;
-  setMaskValidation: (result: { matched_count: number; total_frames: number; matched_frames: number[]; has_frame_1: boolean } | null) => void;
+  setMaskValidation: (result: { matched_count: number; total_frames: number; masks_needed: number; matched_frames: number[]; has_frame_1: boolean } | null) => void;
   setTilingPreview: (preview: TilingPreview | null) => void;
   setShowTileGrid: (show: boolean) => void;
   updateColorbarSettings: (partial: Partial<ColorbarSettings>) => void;
