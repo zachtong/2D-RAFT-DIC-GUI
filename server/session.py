@@ -1,5 +1,7 @@
 """Server-side session state — replaces RAFTDICGUI class for state management."""
 
+import os
+import shutil
 import threading
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -12,6 +14,18 @@ from raft_dic_gui.controller import DICProcessor
 from raft_dic_gui.probe_manager import ProbeManager
 from raft_dic_gui.deformed_view_cache import DeformedViewCache
 from server.deformed_warp import InverseMapCache
+
+# ---------------------------------------------------------------------------
+# Session cache limits
+# ---------------------------------------------------------------------------
+
+# Maximum frames held in the LRU image cache.  Each frame is a
+# full-resolution numpy array, so this caps resident memory for raw images.
+IMAGE_CACHE_MAX_FRAMES: int = 50
+
+# Maximum total bytes for the image cache (500 MB default).
+# Prevents OOM when caching large (e.g. 4096×4096) images.
+IMAGE_CACHE_MAX_BYTES: int = 500 * 1024 * 1024
 
 
 def _make_set_event() -> threading.Event:
@@ -87,9 +101,14 @@ class AppSession:
     export_total: int = 0
     export_cancel: threading.Event = field(default_factory=threading.Event)
 
-    # Image frame cache (LRU, up to 50 frames)
+    # Image frame cache (LRU, dual-limited by count and bytes)
     _image_cache: OrderedDict = field(default_factory=OrderedDict, repr=False)
-    _image_cache_max: int = 50
+    _image_cache_max: int = IMAGE_CACHE_MAX_FRAMES
+    _image_cache_max_bytes: int = IMAGE_CACHE_MAX_BYTES
+    _image_cache_bytes: int = 0
+
+    # Temporary output directory (set by processing, cleaned on reset)
+    _temp_output_dir: Optional[str] = None
 
     # Lock for thread-safe access
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -102,11 +121,29 @@ class AppSession:
         return None
 
     def cache_image(self, idx: int, img):
-        """Cache an image array."""
+        """Cache an image array with byte-budget enforcement."""
+        # If replacing an existing entry, subtract its size first
+        if idx in self._image_cache:
+            old = self._image_cache[idx]
+            self._image_cache_bytes -= getattr(old, "nbytes", 0)
+
         self._image_cache[idx] = img
         self._image_cache.move_to_end(idx)
-        while len(self._image_cache) > self._image_cache_max:
-            self._image_cache.popitem(last=False)
+        self._image_cache_bytes += getattr(img, "nbytes", 0)
+
+        # Evict oldest entries until under both limits
+        while (
+            len(self._image_cache) > self._image_cache_max
+            or self._image_cache_bytes > self._image_cache_max_bytes
+        ):
+            if not self._image_cache:
+                break
+            _, evicted = self._image_cache.popitem(last=False)
+            self._image_cache_bytes -= getattr(evicted, "nbytes", 0)
+
+        # Guard against negative drift from non-array values
+        if self._image_cache_bytes < 0:
+            self._image_cache_bytes = 0
 
     def reset(self):
         """Reset all state to defaults."""
@@ -131,11 +168,19 @@ class AppSession:
         self.deformed_view_cache = DeformedViewCache()
         self.inverse_map_cache.clear()
         self._image_cache.clear()
+        self._image_cache_bytes = 0
         self.result_version += 1
         self.export_active = False
         self.export_progress = 0
         self.export_total = 0
         self.export_cancel.clear()
+        self._cleanup_temp_files()
+
+    def _cleanup_temp_files(self):
+        """Remove temporary output directory from previous processing."""
+        if self._temp_output_dir and os.path.isdir(self._temp_output_dir):
+            shutil.rmtree(self._temp_output_dir, ignore_errors=True)
+            self._temp_output_dir = None
 
 
 # Module-level singleton

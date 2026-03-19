@@ -13,6 +13,7 @@ from server.render_cache import RenderCache, auto_cache_size
 from server.render_utils import render_composited_png, render_data_texture_png, render_overlay_png
 from server.serializers import data_texture_response, frame_data_to_json, png_response
 from server.session import session
+from server.validation import validate_choice, validate_non_negative, validate_odd_positive_int, validate_positive, validate_positive_int
 
 strain_bp = Blueprint("strain", __name__)
 _render_cache = RenderCache(auto_cache_size())
@@ -38,20 +39,30 @@ def calculate():
         return jsonify({"error": "Strain calculation already in progress"}), 409
 
     data = request.get_json(force=True)
-    method = data.get("method", "green_lagrange")
-    vsg_size = max(9, int(data.get("vsg_size", 31)))
-    if vsg_size % 2 == 0:
-        vsg_size += 1  # must be odd
-    poly_order = int(data.get("poly_order", 1))
-    weighting = data.get("weighting", "Gaussian")
-    step = int(data.get("step", 1))
-    temporal_sigma = float(data.get("temporal_sigma", 0))
-    strain_fps = float(data.get("fps", 1.0))
-    gaussian_sigma_raw = data.get("gaussian_sigma", None)
-    gaussian_sigma = float(gaussian_sigma_raw) if gaussian_sigma_raw is not None else None
-    spatial_sigma = float(data.get("spatial_sigma", 0))
-    cond_threshold = float(data.get("cond_threshold", 1000))
-    boundary_erosion = int(data.get("boundary_erosion", -1))
+
+    try:
+        method = validate_choice(
+            data.get("method", "green_lagrange"),
+            "method",
+            ("green_lagrange", "engineering"),
+        )
+        vsg_size = validate_odd_positive_int(
+            data.get("vsg_size", 31), "vsg_size", minimum=9
+        )
+        poly_order = validate_positive_int(data.get("poly_order", 1), "poly_order")
+        weighting = validate_choice(
+            data.get("weighting", "Gaussian"), "weighting", ("Gaussian", "gaussian", "uniform", "Uniform")
+        )
+        step = validate_positive_int(data.get("step", 1), "step")
+        temporal_sigma = validate_non_negative(data.get("temporal_sigma", 0), "temporal_sigma")
+        strain_fps = validate_positive(data.get("fps", 1.0), "fps")
+        gaussian_sigma_raw = data.get("gaussian_sigma", None)
+        gaussian_sigma = float(gaussian_sigma_raw) if gaussian_sigma_raw is not None else None
+        spatial_sigma = validate_non_negative(data.get("spatial_sigma", 0), "spatial_sigma")
+        cond_threshold = validate_positive(data.get("cond_threshold", 1000), "cond_threshold")
+        boundary_erosion = int(data.get("boundary_erosion", -1))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
     def compute():
         try:
@@ -349,7 +360,10 @@ def download_frame(idx):
     vmax = request.args.get("vmax", type=float)
     background = request.args.get("background", "reference")
     log_scale = request.args.get("log_scale", "false").lower() in ("true", "1")
-    dpi = request.args.get("dpi", 150, type=int)
+    try:
+        dpi = int(validate_range(request.args.get("dpi", 150), "dpi", 50, 600))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
     strain_dict = strain_results[idx]
     if strain_dict is None or component not in strain_dict:

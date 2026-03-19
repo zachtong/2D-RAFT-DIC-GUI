@@ -9,6 +9,7 @@ from raft_dic_gui.config import DICConfig
 from raft_dic_gui.controller import DICProcessor
 from server.app import socketio
 from server.session import session
+from server.validation import validate_positive, validate_non_negative, validate_positive_int, validate_choice
 
 processing_bp = Blueprint("processing", __name__)
 
@@ -18,38 +19,51 @@ def configure():
     """Update DIC processing configuration."""
     data = request.get_json(force=True)
 
-    with session._lock:
-        cfg = session.config
-        # Apply provided fields
-        if "mode" in data:
-            cfg.mode = data["mode"]
-        if "context_padding" in data:
-            cfg.context_padding = int(data["context_padding"])
-        if "tile_overlap" in data:
-            cfg.tile_overlap = int(data["tile_overlap"])
-        if "use_smooth" in data:
-            cfg.use_smooth = bool(data["use_smooth"])
-        if "sigma" in data:
-            cfg.sigma = float(data["sigma"])
-        if "p_max_pixels" in data:
-            cfg.p_max_pixels = int(data["p_max_pixels"])
-        if "device" in data:
-            cfg.device = data["device"]
-        if "project_root" in data:
-            cfg.project_root = data["project_root"]
+    try:
+        with session._lock:
+            cfg = session.config
+            # Apply provided fields with validation
+            if "mode" in data:
+                cfg.mode = validate_choice(
+                    data["mode"], "mode", ("accumulative", "incremental")
+                )
+            if "context_padding" in data:
+                cfg.context_padding = validate_positive_int(
+                    data["context_padding"], "context_padding"
+                )
+            if "tile_overlap" in data:
+                cfg.tile_overlap = validate_positive_int(
+                    data["tile_overlap"], "tile_overlap"
+                )
+            if "use_smooth" in data:
+                cfg.use_smooth = bool(data["use_smooth"])
+            if "sigma" in data:
+                cfg.sigma = validate_non_negative(data["sigma"], "sigma")
+            if "p_max_pixels" in data:
+                cfg.p_max_pixels = validate_positive_int(
+                    data["p_max_pixels"], "p_max_pixels"
+                )
+            if "device" in data:
+                cfg.device = validate_choice(
+                    data["device"], "device", ("cuda", "cpu")
+                )
+            if "project_root" in data:
+                cfg.project_root = data["project_root"]
 
-        # Incremental mode settings
-        if "key_frames" in data:
-            val = data["key_frames"]
-            cfg.key_frames = list(val) if val else None
-        if "key_frame_interval" in data:
-            val = data["key_frame_interval"]
-            cfg.key_frame_interval = int(val) if val else None
-        if "mask_dir" in data:
-            val = data["mask_dir"]
-            cfg.mask_dir = val if val else None
-        if "use_median_filter" in data:
-            cfg.use_median_filter = bool(data["use_median_filter"])
+            # Incremental mode settings
+            if "key_frames" in data:
+                val = data["key_frames"]
+                cfg.key_frames = list(val) if val else None
+            if "key_frame_interval" in data:
+                val = data["key_frame_interval"]
+                cfg.key_frame_interval = int(val) if val else None
+            if "mask_dir" in data:
+                val = data["mask_dir"]
+                cfg.mask_dir = val if val else None
+            if "use_median_filter" in data:
+                cfg.use_median_filter = bool(data["use_median_filter"])
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
     return jsonify({"ok": True})
 
@@ -139,6 +153,9 @@ def run_processing():
         cfg.project_root = os.path.join(
             tempfile.gettempdir(), "raft_dic_output"
         )
+
+    # Track temp output dir for cleanup on session reset
+    session._temp_output_dir = cfg.project_root
 
     def progress_callback(percent, current, total, **extra):
         payload = {

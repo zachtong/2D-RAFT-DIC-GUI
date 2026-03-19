@@ -17,6 +17,13 @@ models/
 examples/
 test_data/
 
+# Coverage reports
+htmlcov/
+.coverage
+
+# Install log
+install.log
+
 # Frontend build artifacts
 frontend/dist/
 frontend/node_modules/

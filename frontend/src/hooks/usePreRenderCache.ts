@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useAppStore } from "@/stores/appStore.ts";
 import type { DataTexture } from "@/lib/applyColormap";
-import { decodeDataTexture, colorizeDataTexture } from "@/lib/applyColormap";
+import { decodeDataTexture } from "@/lib/applyColormap";
 import { getColormapLUT, prefetchColormapLUT } from "@/lib/colormapLUT";
+import { colorizeInWorker, terminatePool } from "@/workers/colorizePool";
 
 export interface PreRenderState {
   /** Blob URL for a given frame, or undefined if not yet cached */
@@ -136,7 +137,9 @@ export function usePreRenderCache(
 
   /**
    * Colorize a single data texture with current color settings.
-   * Returns the blob URL or null on failure.
+   *
+   * Delegates pixel-level work to a Web Worker pool so the main
+   * thread stays responsive during batch pre-rendering.
    */
   const colorizeFrame = useCallback(
     async (dt: DataTexture): Promise<string | null> => {
@@ -146,7 +149,7 @@ export function usePreRenderCache(
           vis.fixedRange && vmin ? parseFloat(vmin) : dt.dataMin;
         const effectiveVmax =
           vis.fixedRange && vmax ? parseFloat(vmax) : dt.dataMax;
-        return await colorizeDataTexture(
+        return await colorizeInWorker(
           dt,
           lut,
           effectiveVmin,
@@ -349,6 +352,7 @@ export function usePreRenderCache(
     return () => {
       cancelPreRender();
       revokeRendered();
+      terminatePool();
     };
   }, [cancelPreRender, revokeRendered]);
 

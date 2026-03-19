@@ -2,6 +2,16 @@
 
 from collections import OrderedDict
 
+# ---------------------------------------------------------------------------
+# Render-cache defaults
+# ---------------------------------------------------------------------------
+
+# Default maximum number of cached rendered PNG blobs.
+_DEFAULT_MAX_ENTRIES: int = 512
+
+# Default byte budget for the render cache (300 MB).
+_DEFAULT_MAX_BYTES: int = 300 * 1024 * 1024
+
 
 def auto_cache_size(target_mb: int = 500, avg_item_kb: int = 200) -> int:
     """Compute max entry count. Used as fallback; byte limit is primary."""
@@ -11,7 +21,7 @@ def auto_cache_size(target_mb: int = 500, avg_item_kb: int = 200) -> int:
         budget_mb = min(target_mb, available_mb * 0.1)
         return max(64, int(budget_mb * 1024 / avg_item_kb))
     except (ImportError, Exception):
-        return 512
+        return _DEFAULT_MAX_ENTRIES
 
 
 def auto_max_bytes(target_mb: int = 300) -> int:
@@ -31,7 +41,7 @@ class RenderCache:
     Evicts when either entry count OR total byte size is exceeded.
     """
 
-    def __init__(self, max_entries: int = 512, max_bytes: int = 0):
+    def __init__(self, max_entries: int = _DEFAULT_MAX_ENTRIES, max_bytes: int = 0):
         self._cache: OrderedDict[tuple, bytes] = OrderedDict()
         self._max = max_entries
         self._max_bytes = max_bytes if max_bytes > 0 else auto_max_bytes()

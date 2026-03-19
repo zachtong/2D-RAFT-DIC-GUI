@@ -2,6 +2,29 @@ import dataclasses
 from dataclasses import dataclass, field
 from typing import Tuple, Optional, Any
 
+# ---------------------------------------------------------------------------
+# Named constants — extracted from hardcoded values across the codebase.
+# Each constant documents its purpose so the "why" is never lost.
+# ---------------------------------------------------------------------------
+
+# ROI context: extra pixels beyond the ROI fed to RAFT so the network
+# has spatial context at the boundary.  Too small -> edge artifacts.
+DEFAULT_CONTEXT_PADDING: int = 64
+
+# Overlap between adjacent tiles prevents visible seam artifacts where
+# tiles meet.  Must be >= the RAFT correlation radius (typically 4 px at
+# each pyramid level).
+DEFAULT_TILE_OVERLAP: int = 64
+
+# Maximum number of pixels per tile (~1100 x 1100).  Chosen to fit
+# RAFT-Large + context within 8 GB VRAM with ~55 % safety margin.
+MAX_TILE_PIXELS: int = 1_210_000
+
+# Default RAFT iterations.  12 is a good speed / accuracy trade-off;
+# diminishing returns beyond ~20.
+DEFAULT_ITERATIONS: int = 12
+
+
 @dataclass
 class DICConfig:
     """
@@ -22,9 +45,9 @@ class DICConfig:
     sigma: float = 2.0
 
     # Tiling / ROI Settings
-    context_padding: int = 64    # Context padding (px)
-    tile_overlap: int = 64       # Tile overlap (px)
-    p_max_pixels: int = 1100 * 1100
+    context_padding: int = DEFAULT_CONTEXT_PADDING
+    tile_overlap: int = DEFAULT_TILE_OVERLAP
+    p_max_pixels: int = MAX_TILE_PIXELS
 
     # Runtime / Hardware
     device: str = "cuda"

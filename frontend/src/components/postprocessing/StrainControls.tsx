@@ -3,6 +3,7 @@ import { CollapsibleSection } from "@/components/shared/CollapsibleSection";
 import { FieldRow } from "@/components/shared/FieldRow";
 import { SmallInput } from "@/components/shared/SmallInput";
 import { SelectField } from "@/components/shared/SelectField";
+import { ParamTooltip } from "@/components/shared/ParamTooltip";
 import { useAppStore } from "@/stores/appStore";
 import { calculateStrain } from "@/api/strain";
 
@@ -67,14 +68,14 @@ export function StrainControls() {
 
   return (
     <CollapsibleSection title="Strain Calculation">
-      <FieldRow label="Method">
+      <FieldRow label={<span className="flex items-center gap-1">Method <ParamTooltip paramKey="strainMethod" /></span>}>
         <SelectField
           value={method}
           options={METHOD_OPTIONS}
           onChange={setMethod}
         />
       </FieldRow>
-      <FieldRow label="VSG Size">
+      <FieldRow label={<span className="flex items-center gap-1">VSG Size <ParamTooltip paramKey="vsgSize" /></span>}>
         <SmallInput
           value={vsgSize}
           onChange={setVsgSize}
@@ -87,10 +88,10 @@ export function StrainControls() {
           placeholder="odd ≥ 9"
         />
       </FieldRow>
-      <FieldRow label="Step">
+      <FieldRow label={<span className="flex items-center gap-1">Step <ParamTooltip paramKey="step" /></span>}>
         <SmallInput value={step} onChange={setStep} placeholder="e.g. 15" />
       </FieldRow>
-      <FieldRow label="Poly Order">
+      <FieldRow label={<span className="flex items-center gap-1">Poly Order <ParamTooltip paramKey="polyOrder" /></span>}>
         <SmallInput
           value={polyOrder}
           onChange={(v) => {
@@ -100,7 +101,7 @@ export function StrainControls() {
           placeholder="1 or 2"
         />
       </FieldRow>
-      <FieldRow label="Weighting">
+      <FieldRow label={<span className="flex items-center gap-1">Weighting <ParamTooltip paramKey="weighting" /></span>}>
         <SelectField
           value={weighting}
           options={WEIGHTING_OPTIONS}
@@ -114,7 +115,7 @@ export function StrainControls() {
       )}
       <div className="h-px bg-[var(--border)] my-1.5" />
       <div className="text-[9px] text-[var(--muted-foreground)] mb-1 uppercase tracking-wider">Smoothing</div>
-      <FieldRow label="Spatial">
+      <FieldRow label={<span className="flex items-center gap-1">Spatial <ParamTooltip paramKey="spatialSigma" /></span>}>
         <div className="flex items-center gap-1">
           <SmallInput value={spatialSigma} onChange={setSpatialSigma} placeholder="0 = off" />
           <span className="text-[9px] text-[var(--muted-foreground)] shrink-0">px</span>
@@ -125,7 +126,7 @@ export function StrainControls() {
           Gaussian blur on displacement before strain calc
         </div>
       )}
-      <FieldRow label="Temporal">
+      <FieldRow label={<span className="flex items-center gap-1">Temporal <ParamTooltip paramKey="temporalSigma" /></span>}>
         <div className="flex items-center gap-1">
           <SmallInput value={temporalSigma} onChange={setTemporalSigma} placeholder="0 = off" />
           <span className="text-[9px] text-[var(--muted-foreground)] shrink-0">frames</span>
@@ -138,7 +139,7 @@ export function StrainControls() {
       )}
       <div className="h-px bg-[var(--border)] my-1.5" />
       <div className="text-[9px] text-[var(--muted-foreground)] mb-1 uppercase tracking-wider">Quality Filtering</div>
-      <FieldRow label="Cond. #">
+      <FieldRow label={<span className="flex items-center gap-1">Cond. # <ParamTooltip paramKey="condThreshold" /></span>}>
         <div className="flex items-center gap-1">
           <SmallInput
             value={condThreshold}
@@ -148,7 +149,7 @@ export function StrainControls() {
           <span className="text-[9px] text-[var(--muted-foreground)] shrink-0">max</span>
         </div>
       </FieldRow>
-      <FieldRow label="Erosion">
+      <FieldRow label={<span className="flex items-center gap-1">Erosion <ParamTooltip paramKey="erosion" /></span>}>
         <div className="flex items-center gap-1.5">
           <label className="flex items-center gap-1 text-[10px] text-[var(--foreground)] cursor-pointer shrink-0">
             <input

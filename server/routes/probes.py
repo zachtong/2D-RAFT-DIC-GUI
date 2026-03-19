@@ -8,6 +8,7 @@ from flask import Blueprint, Response, jsonify, request
 
 from raft_dic_gui.velocity import calculate_displacement_magnitude, calculate_velocity_field
 from server.session import session
+from server.validation import validate_choice
 
 probes_bp = Blueprint("probes", __name__)
 
@@ -122,7 +123,10 @@ def add_line():
 def add_area():
     """Add an area probe."""
     data = request.get_json(force=True)
-    shape_type = data.get("shape", "rect")
+    try:
+        shape_type = validate_choice(data.get("shape", "rect"), "shape", ("rect", "circle", "polygon"))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     coords = data.get("data", [])
 
     probe = session.probe_manager.add_area(shape_type, coords)

@@ -21,6 +21,7 @@ from server.render_utils import (
 )
 from server.serializers import data_texture_response, frame_data_to_json, png_response
 from server.session import session
+from server.validation import validate_range
 
 displacement_bp = Blueprint("displacement", __name__)
 _render_cache = RenderCache(auto_cache_size())
@@ -239,8 +240,11 @@ def download_frame(idx):
     vmax = request.args.get("vmax", type=float)
     background = request.args.get("background", "reference")
     log_scale = request.args.get("log_scale", "false").lower() in ("true", "1")
-    dpi = request.args.get("dpi", 150, type=int)
     ref_frame = request.args.get("ref_frame", 0, type=int)
+    try:
+        dpi = int(validate_range(request.args.get("dpi", 150), "dpi", 50, 600))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
     disp_data = _get_displacement_component(idx, component, ref_frame=ref_frame)
 

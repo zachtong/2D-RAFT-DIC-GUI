@@ -22,6 +22,20 @@ from scipy.ndimage import map_coordinates
 
 
 # ---------------------------------------------------------------------------
+# Deformed-warp constants
+# ---------------------------------------------------------------------------
+
+# Target number of Delaunay triangulation source points.  More points
+# improve interpolation fidelity but increase scipy.spatial overhead.
+_DELAUNAY_TARGET_POINTS: int = 3000
+
+# Maximum grid dimension for coarse inverse-map query.  The coarse grid
+# is later upsampled with cv2.resize, trading slight smoothing for a
+# large speed-up on high-res images.
+_MAX_QUERY_PER_DIM: int = 50
+
+
+# ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
 
@@ -92,7 +106,7 @@ def _auto_K(roi_h: int, roi_w: int) -> int:
     Targets ~3000 scatter points — enough for sub-pixel accuracy on smooth
     DIC displacement fields while keeping Delaunay build + query fast.
     """
-    target_points = 3000
+    target_points = _DELAUNAY_TARGET_POINTS
     K = max(1, int(np.ceil(np.sqrt(roi_h * roi_w / target_points))))
     # Ensure at least 30 points per dimension (avoid excessive coarseness)
     K = min(K, max(1, roi_h // 30), max(1, roi_w // 30))
@@ -226,9 +240,8 @@ def compute_inverse_map(
     interp_col_nn = NearestNDInterpolator(points, ref_cols)
 
     # --- Step 4: Query on coarse output grid, then upsample ---
-    MAX_QUERY_PER_DIM = 50
-    query_step_h = max(K, out_h // MAX_QUERY_PER_DIM) if out_h > MAX_QUERY_PER_DIM else K
-    query_step_w = max(K, out_w // MAX_QUERY_PER_DIM) if out_w > MAX_QUERY_PER_DIM else K
+    query_step_h = max(K, out_h // _MAX_QUERY_PER_DIM) if out_h > _MAX_QUERY_PER_DIM else K
+    query_step_w = max(K, out_w // _MAX_QUERY_PER_DIM) if out_w > _MAX_QUERY_PER_DIM else K
     coarse_h = max(1, (out_h + query_step_h - 1) // query_step_h)
     coarse_w = max(1, (out_w + query_step_w - 1) // query_step_w)
     coarse_y = np.linspace(out_y0, out_y1 - 1, coarse_h)

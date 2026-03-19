@@ -10,6 +10,7 @@ import { configureProcessing, validateMasks, fetchTilingPreview } from "@/api/pr
 import { KeyFrameTimeline } from "./KeyFrameTimeline";
 import { MaskSourceSelector } from "./MaskSourceSelector";
 import type { TilingPreview } from "@/types/api";
+import { ParamTooltip } from "@/components/shared/ParamTooltip";
 import {
   memoryBudgetToPixels,
   pixelsToMemoryBudget,
@@ -29,12 +30,8 @@ const maskSourceOptions = [
   { value: "folder", label: "Custom (load folder)" },
 ];
 
-// Tooltip content for computed parameters
-const TOOLTIPS: Record<string, string> = {
-  tileOverlap: "Overlapping pixels between adjacent tiles. Larger = smoother blending, more computation.",
-  roiMargin: "Extra pixels beyond ROI boundary for model context. Improves accuracy at ROI edges.",
-  smoothingRadius: "Gaussian smoothing radius. Larger = smoother displacement, less detail. 0 = disabled.",
-};
+// Tooltip content for computed parameters (uses PARAM_DESCRIPTIONS via ParamTooltip)
+import { PARAM_DESCRIPTIONS } from "@/lib/paramDescriptions";
 
 export function ProcessingParams() {
   // Existing store selectors
@@ -268,11 +265,8 @@ export function ProcessingParams() {
           >
             {label}
           </span>
-          <span
-            className="text-[10px] text-[var(--muted-foreground)] opacity-0 group-hover:opacity-60 cursor-help"
-            title={TOOLTIPS[key]}
-          >
-            &#9432;
+          <span className="opacity-0 group-hover:opacity-100">
+            <ParamTooltip paramKey={key} />
           </span>
         </div>
         <div className="flex items-center gap-1">
@@ -329,7 +323,7 @@ export function ProcessingParams() {
             {/* Memory Budget Slider */}
             <div className="mt-3 space-y-1">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] text-[var(--muted-foreground)]">Memory Budget</span>
+                <span className="text-[11px] text-[var(--muted-foreground)] flex items-center gap-1">Memory Budget <ParamTooltip paramKey="memoryBudget" /></span>
                 <span className="text-[11px] text-[var(--muted-foreground)]">
                   {formatTileSize(pMaxPixels)}
                 </span>
@@ -362,7 +356,7 @@ export function ProcessingParams() {
             {/* Blend Quality Slider */}
             <div className="mt-2 space-y-1">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] text-[var(--muted-foreground)]">Blend Quality</span>
+                <span className="text-[11px] text-[var(--muted-foreground)] flex items-center gap-1">Blend Quality <ParamTooltip paramKey="blendQuality" /></span>
                 <span className="text-[11px] text-[var(--muted-foreground)]">
                   {blendQuality < 0.25 ? "Fast" : blendQuality < 0.75 ? "Balanced" : "High"}
                 </span>
@@ -409,7 +403,7 @@ export function ProcessingParams() {
 
       {mode === "incremental" && (
         <CollapsibleSection title="Incremental Settings" defaultOpen>
-          <FieldRow label="Ref. Update">
+          <FieldRow label={<span className="flex items-center gap-1">Ref. Update <ParamTooltip paramKey="keyFrameMode" /></span>}>
             <SelectField
               value={keyFrameMode}
               options={keyFrameModeOptions}
@@ -464,7 +458,7 @@ export function ProcessingParams() {
             />
           )}
 
-          <FieldRow label="Median Filter">
+          <FieldRow label={<span className="flex items-center gap-1">Median Filter <ParamTooltip paramKey="useMedianFilter" /></span>}>
             <Toggle
               checked={useMedianFilter}
               onChange={handleMedianFilterChange}

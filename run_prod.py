@@ -1,5 +1,6 @@
 """Production launcher: Flask serves built React frontend + API."""
 
+import atexit
 import sys
 import os
 import argparse
@@ -100,6 +101,10 @@ def main():
             time.sleep(1.5)
             webbrowser.open(url)
         threading.Thread(target=open_browser, daemon=True).start()
+
+    # Clean up temp files on exit
+    from server.session import session
+    atexit.register(session._cleanup_temp_files)
 
     print(f"Starting RAFTcorr production server at {url}")
     socketio.run(app, host=host, port=port, debug=False, use_reloader=False,

@@ -10,6 +10,7 @@ from raft_dic_gui.export_images import export_batch_images
 from raft_dic_gui.export_animation import export_animation
 from server.app import socketio
 from server.session import session
+from server.validation import validate_choice, validate_positive, validate_range
 
 export_bp = Blueprint("export", __name__)
 
@@ -193,14 +194,19 @@ def export_animation_endpoint():
 
     data = request.get_json(force=True)
     output_path = data.get("output_path", "").strip()
-    fmt = data.get("format", "gif").lower()
+
+    try:
+        fmt = validate_choice(data.get("format", "gif"), "format", ("gif", "mp4")).lower()
+        fps = validate_positive(data.get("fps", 10), "fps")
+        resize_factor = validate_range(data.get("resize_factor", 1.0), "resize_factor", 0.1, 4.0)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
     component = data.get("component", "u")
     frame_range = data.get("frame_range", [0, len(session.displacement_results) - 1])
-    fps = data.get("fps", 10)
     loop = data.get("loop", True)
     timestamp_overlay = data.get("timestamp_overlay", False)
     include_colorbar = data.get("include_colorbar", True)
-    resize_factor = data.get("resize_factor", 1.0)
     anim_settings = data.get("settings", {})
 
     if not output_path:
@@ -284,8 +290,12 @@ def export_report():
     data = request.get_json(force=True)
     output_path = data.get("output_path", "").strip()
     sections = data.get("sections")  # None = all sections
-    format_ = data.get("format", "html")  # "html", "pdf", "both"
-    theme = data.get("theme", "light")
+
+    try:
+        format_ = validate_choice(data.get("format", "html"), "format", ("html", "pdf", "both"))
+        theme = validate_choice(data.get("theme", "light"), "theme", ("light", "dark"))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     custom_title = data.get("custom_title", "")
     author = data.get("author", "")
     notes = data.get("notes", "")

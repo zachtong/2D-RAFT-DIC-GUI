@@ -28,11 +28,26 @@ _models_path = os.path.join(_repo_root, 'models')
 
 from core.raft import RAFT
 from core.utils.utils import InputPadder
+from raft_dic_gui.config import DEFAULT_ITERATIONS
 
 
 VARIANT_PYRAMID = "pyramid"
 VARIANT_FULL_RES = "full_res"
 _KNOWN_VARIANTS = {VARIANT_PYRAMID, VARIANT_FULL_RES}
+
+# ---------------------------------------------------------------------------
+# Memory estimation coefficients for estimate_safe_pmax()
+# ---------------------------------------------------------------------------
+
+# RAFT-Fine (full resolution): ~5 bytes/pixel of VRAM per pixel squared
+_VRAM_ALPHA_FULL_RES: float = 5.0
+
+# RAFT-Large (1/8 resolution): ~0.0013 bytes/pixel — much cheaper because
+# the correlation volume is built at 1/8 scale
+_VRAM_ALPHA_EIGHTH_RES: float = 0.0013
+
+# 2 GB reserved for model weights + PyTorch runtime overhead
+_VRAM_BASELINE_BYTES: int = 2 * 1024**3
 
 
 @dataclass(frozen=True)
@@ -527,7 +542,7 @@ def load_model(weights_path: str,
 
 
 def inference(model, frame1, frame2, device: str, pad_mode: str = 'sintel',
-              iters: int = 12, flow_init=None, upsample: bool = True, test_mode: bool = True):
+              iters: int = DEFAULT_ITERATIONS, flow_init=None, upsample: bool = True, test_mode: bool = True):
     """Run RAFT inference for a pair and crop to original size.
 
     .. warning:: SIGN FLIP for full_resolution (RAFT-Fine) models
@@ -581,7 +596,18 @@ def inference(model, frame1, frame2, device: str, pad_mode: str = 'sintel',
                 else:
                     flow_low = flow_low[:, :, :original_size[0]//8, :original_size[1]//8]
 
-                # HACK: Negate flow for full_res models — see docstring warning.
+                # ---------------------------------------------------------------
+                # RAFT-Fine sign convention correction
+                # ---------------------------------------------------------------
+                # Both RAFT-Fine checkpoints (RAFTcorr_fine_parameter_more.pth,
+                # RAFTcorr_fine_parameter_fewer.pth) were trained with displacement
+                # labels whose sign is opposite to the standard RAFT convention
+                # (flow = coords1 - coords0).  Until these models are retrained
+                # with corrected labels, we negate the output here.
+                #
+                # TODO(retrain): Remove this negation after retraining fine models
+                # with the standard sign convention.
+                # ---------------------------------------------------------------
                 if is_full_res:
                     flow_low = -flow_low
                     flow_up = -flow_up
@@ -593,7 +619,7 @@ def inference(model, frame1, frame2, device: str, pad_mode: str = 'sintel',
                                    upsample=upsample,
                                    test_mode=test_mode)
 
-                # HACK: Negate flow for full_res models — see docstring warning.
+                # RAFT-Fine sign convention correction — see block above.
                 if is_full_res:
                     flow_iters = [-f for f in flow_iters]
 
@@ -619,19 +645,18 @@ def estimate_safe_pmax(metadata: ModelMetadata, device: str = "cuda", safety_fac
         # Get free memory in bytes
         free_mem, total_mem = torch.cuda.mem_get_info(0)
         
-        # Reserve some baseline memory for weights and context (e.g., 2GB to be safe)
-        reserved_baseline = 2 * 1024 * 1024 * 1024
-        available_for_corr = max(0, free_mem - reserved_baseline)
-        
+        # Reserve baseline memory for model weights + PyTorch runtime overhead
+        available_for_corr = max(0, free_mem - _VRAM_BASELINE_BYTES)
+
         if metadata.full_resolution:
             # RAFT-Fine is extremely memory hungry
             # Reduce safety factor further for Fine models
             safe_mem = available_for_corr * (safety_factor * 0.5)
-            alpha = 5.0
+            alpha = _VRAM_ALPHA_FULL_RES
         else:
             # RAFT-Large
             safe_mem = available_for_corr * safety_factor
-            alpha = 0.0013
+            alpha = _VRAM_ALPHA_EIGHTH_RES
             
         # N_squared = safe_mem / alpha
         # N = sqrt(N_squared)

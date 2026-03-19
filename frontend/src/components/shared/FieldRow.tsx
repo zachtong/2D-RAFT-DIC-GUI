@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 interface FieldRowProps {
-  label: string;
+  label: ReactNode;
   children: ReactNode;
 }
 

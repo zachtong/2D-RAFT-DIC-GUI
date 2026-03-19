@@ -15,6 +15,7 @@ from flask import Blueprint, jsonify, request
 from server.render_cache import RenderCache, auto_cache_size
 from server.serializers import png_response
 from server.session import session
+from server.validation import validate_positive, validate_positive_int
 
 arrows_bp = Blueprint("arrows", __name__)
 _render_cache = RenderCache(auto_cache_size())
@@ -32,11 +33,14 @@ def render_arrows(idx: int):
     if idx < 0 or idx >= len(session.displacement_results):
         return jsonify({"error": "Frame index out of range"}), 400
 
-    # Parse query parameters
+    # Parse query parameters with validation
     show_quiver = _parse_bool(request.args.get("show_quiver", "false"))
     show_streamlines = _parse_bool(request.args.get("show_streamlines", "false"))
-    spacing = request.args.get("spacing", 30, type=int)
-    scale = request.args.get("scale", 20, type=float)
+    try:
+        spacing = int(validate_positive_int(request.args.get("spacing", 30), "spacing"))
+        scale = float(validate_positive(request.args.get("scale", 20), "scale"))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     color = request.args.get("color", "white")
     line_width = request.args.get("line_width", 1.5, type=float)
     background = request.args.get("background", "reference")

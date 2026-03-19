@@ -5,6 +5,7 @@ import { RunControl } from "@/components/roi/RunControl";
 import { RoiCanvas } from "@/components/roi/RoiCanvas";
 import { RoiToolbar } from "@/components/roi/RoiToolbar";
 import { RoiImportDialog } from "@/components/roi/RoiImportDialog";
+import { OnboardingOverlay } from "@/components/shared/OnboardingOverlay";
 
 export function RoiPage() {
   return (
@@ -21,6 +22,7 @@ export function RoiPage() {
         <RoiToolbar />
       </div>
       <RoiImportDialog />
+      <OnboardingOverlay />
     </div>
   );
 }
