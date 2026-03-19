@@ -20,23 +20,26 @@ def _create_rgb_mask(path, h, w):
 
 
 class TestMaskDiscovery:
-    def test_match_by_filename(self, tmp_path):
+    def test_match_by_sorted_index(self, tmp_path):
+        """Masks are matched to images by sorted positional index."""
         from raft_dic_gui.mask_loader import discover_masks
         _create_mask_image(tmp_path / "frame_001.png", 64, 64)
         _create_mask_image(tmp_path / "frame_003.png", 64, 64)
         image_files = ["frame_001.tif", "frame_002.tif", "frame_003.tif"]
         result = discover_masks(str(tmp_path), image_files, (64, 64))
+        # mask[0] (frame_001.png) -> image[0], mask[1] (frame_003.png) -> image[1]
         assert 0 in result
-        assert 1 not in result
-        assert 2 in result
+        assert 1 in result
+        assert 2 not in result
         assert result[0].dtype == bool
 
-    def test_match_by_number(self, tmp_path):
+    def test_single_mask_maps_to_first_image(self, tmp_path):
+        """A single mask file always maps to image index 0 (sorted positional)."""
         from raft_dic_gui.mask_loader import discover_masks
         _create_mask_image(tmp_path / "mask_003.png", 64, 64)
         image_files = ["img_001.tif", "img_002.tif", "img_003.tif"]
         result = discover_masks(str(tmp_path), image_files, (64, 64))
-        assert 2 in result  # mask_003 -> frame 3 -> index 2
+        assert 0 in result  # single mask at sorted idx 0 -> image idx 0
 
     def test_filename_match_priority(self, tmp_path):
         """If a mask matches by filename, don't also try number matching."""
@@ -77,11 +80,14 @@ class TestMaskDiscovery:
         result = discover_masks("/nonexistent/path", ["img.tif"], (64, 64))
         assert len(result) == 0
 
-    def test_number_out_of_range(self, tmp_path):
+    def test_mask_beyond_image_count_still_maps_by_index(self, tmp_path):
+        """A mask file always maps by sorted index, regardless of its name."""
         from raft_dic_gui.mask_loader import discover_masks
         _create_mask_image(tmp_path / "mask_999.png", 64, 64)
         result = discover_masks(str(tmp_path), ["img_001.tif", "img_002.tif"], (64, 64))
-        assert len(result) == 0
+        # Single mask at sorted idx 0 -> image idx 0
+        assert len(result) == 1
+        assert 0 in result
 
     def test_mask_values_are_boolean(self, tmp_path):
         from raft_dic_gui.mask_loader import discover_masks

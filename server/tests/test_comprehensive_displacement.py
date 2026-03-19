@@ -596,10 +596,11 @@ class TestResolveMaskChain:
             20: (30.0, 0.0),  # large displacement
         })
 
+        # _resolve_mask looks up user_masks by ref_idx = ref_num - 1 = 19
         result = DICProcessor._resolve_mask(
             frame_num=25, list_idx=24, ref_num=20,
             roi_mask=roi_mask, kf_accumulated=kf_acc,
-            user_masks={24: user_mask},
+            user_masks={19: user_mask},
             xmin=10, ymin=10, xmax=50, ymax=50,
             auto_warp=True,
         )

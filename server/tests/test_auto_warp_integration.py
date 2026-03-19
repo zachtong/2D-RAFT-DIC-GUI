@@ -105,10 +105,11 @@ class TestAutoWarpMask:
         kf_accumulated[10][10:40, 10:40, 0] = 5.0
         kf_accumulated[10][10:40, 10:40, 1] = 0.0
 
+        # _resolve_mask looks up user_masks by ref_idx = ref_num - 1 = 9
         result = DICProcessor._resolve_mask(
             frame_num=15, list_idx=14, ref_num=10,
             roi_mask=roi_mask, kf_accumulated=kf_accumulated,
-            user_masks={14: user_mask},
+            user_masks={9: user_mask},
             xmin=10, ymin=10, xmax=40, ymax=40,
             auto_warp=True,
         )

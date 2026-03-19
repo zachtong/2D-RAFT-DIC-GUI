@@ -24,8 +24,10 @@ class TestValidateMasksFrame1:
         assert data["matched_count"] >= 1
 
     def test_reports_has_frame_1_false(self, client, loaded_images, tmp_path):
-        """When mask folder does NOT contain frame 1, has_frame_1=False."""
-        mask = np.ones((64, 64), dtype=np.uint8) * 255
+        """When mask folder has a mask with wrong dimensions, has_frame_1=False."""
+        # With index-based matching, any valid mask maps to idx 0 (frame 1).
+        # To get has_frame_1=False, the mask must fail to load (e.g., wrong size).
+        mask = np.ones((32, 32), dtype=np.uint8) * 255  # wrong dimensions
         cv2.imwrite(str(tmp_path / "frame_099.png"), mask)
 
         resp = client.post("/api/processing/validate-masks", json={
@@ -62,8 +64,10 @@ class TestValidateMasksFrame1:
         assert session.roi_mask.sum() == 40 * 40
 
     def test_apply_frame1_mask_no_frame1(self, client, loaded_images, tmp_path):
-        """Returns 404 when no Frame 1 mask in folder."""
-        mask = np.ones((64, 64), dtype=np.uint8) * 255
+        """Returns 404 when mask has wrong dimensions (no valid mask loaded)."""
+        # With index-based matching, any valid mask maps to idx 0 (frame 1).
+        # Use wrong dimensions so the mask is skipped during loading.
+        mask = np.ones((32, 32), dtype=np.uint8) * 255  # wrong dimensions
         cv2.imwrite(str(tmp_path / "frame_099.png"), mask)
 
         resp = client.post("/api/processing/apply-frame1-mask", json={
