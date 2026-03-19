@@ -20,3 +20,7 @@ test_data/
 # Frontend build artifacts
 frontend/dist/
 frontend/node_modules/
+
+# Reference and tools (local only)
+UI_reference/
+tools/

@@ -7,14 +7,20 @@ echo.
 echo Requires: Anaconda/Miniconda, NVIDIA GPU with CUDA
 echo.
 
-:: Check if conda is available
+:: Check if conda is available, auto-detect common install paths
 where conda >nul 2>&1
 if !errorlevel! neq 0 (
-    echo [ERROR] conda not found.
-    echo Please install Anaconda or Miniconda first:
-    echo   https://docs.anaconda.com/miniconda/
-    pause
-    exit /b 1
+    if exist "%USERPROFILE%\anaconda3\condabin\conda.bat" (
+        call "%USERPROFILE%\anaconda3\condabin\conda.bat" activate base
+    ) else if exist "%USERPROFILE%\miniconda3\condabin\conda.bat" (
+        call "%USERPROFILE%\miniconda3\condabin\conda.bat" activate base
+    ) else (
+        echo [ERROR] conda not found.
+        echo Please install Anaconda or Miniconda first:
+        echo   https://docs.anaconda.com/miniconda/
+        pause
+        exit /b 1
+    )
 )
 
 :: Check if environment already exists
