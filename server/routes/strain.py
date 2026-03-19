@@ -13,7 +13,7 @@ from server.render_cache import RenderCache, auto_cache_size
 from server.render_utils import render_composited_png, render_data_texture_png, render_overlay_png
 from server.serializers import data_texture_response, frame_data_to_json, png_response
 from server.session import session
-from server.validation import validate_choice, validate_non_negative, validate_odd_positive_int, validate_positive, validate_positive_int
+from server.validation import validate_choice, validate_non_negative, validate_odd_positive_int, validate_positive, validate_positive_int, validate_range
 
 strain_bp = Blueprint("strain", __name__)
 _render_cache = RenderCache(auto_cache_size())

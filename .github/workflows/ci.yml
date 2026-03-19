@@ -72,6 +72,7 @@ jobs:
             --cov=server \
             --cov-report=term \
             --cov-report=html:backend-coverage \
+            --cov-fail-under=75 \
             --tb=short \
             -q
 
