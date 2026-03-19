@@ -23,7 +23,6 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import matplotlib.collections as collections
-import matplotlib.cm as cm
 
 from .model import inference
 
@@ -490,7 +489,7 @@ def _create_deformed_displacement_image_fast(img_crop, u_full, v_full, deformed_
     def blend_component(comp, vmin, vmax):
         norm = (comp - vmin) / max(1e-8, (vmax - vmin))
         norm = np.clip(norm, 0.0, 1.0)
-        cmap = cm.get_cmap(current_colormap)
+        cmap = matplotlib.colormaps[current_colormap]
         rgba = cmap(norm)  # float 0-1
         rgb = (rgba[..., :3] * 255.0).astype(np.uint8)
         out = bg_rgb.copy()

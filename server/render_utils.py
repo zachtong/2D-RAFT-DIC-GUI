@@ -69,7 +69,7 @@ def render_overlay_png(
 
     Returns PNG bytes ready for HTTP response.
     """
-    import matplotlib.cm as cm
+    import matplotlib
 
     h, w = full_data.shape[:2]
     full_data, h, w = _viewport_downsample_data(full_data, h, w, vw, vh)
@@ -78,7 +78,7 @@ def render_overlay_png(
     valid_vals = full_data[mask]
     vmin, vmax = _auto_range(valid_vals, vmin, vmax)
 
-    cmap = cm.get_cmap(colormap)
+    cmap = matplotlib.colormaps[colormap]
     norm = _build_norm(vmin, vmax, log_scale)
     normalized = norm(np.nan_to_num(full_data, nan=0.0))
     colored = cmap(normalized)
@@ -139,9 +139,9 @@ def render_data_texture_png(
 
 def get_colormap_lut(name: str) -> bytes:
     """Return a 256×1 RGBA PNG encoding the colormap LUT."""
-    import matplotlib.cm as cm
+    import matplotlib
 
-    cmap = cm.get_cmap(name)
+    cmap = matplotlib.colormaps[name]
     lut = np.array([cmap(i / 255) for i in range(256)])
     lut_u8 = (lut * 255).astype(np.uint8).reshape(256, 1, 4)
 
@@ -166,7 +166,7 @@ def render_composited_png(
 
     Returns PNG bytes ready for HTTP response.
     """
-    import matplotlib.cm as cm
+    import matplotlib
     from server.viewport import downsample_for_viewport
 
     h, w = bg_img.shape[:2]
@@ -185,7 +185,7 @@ def render_composited_png(
         bg_pil = Image.fromarray(bg_img)
 
     # Colormap overlay
-    cmap = cm.get_cmap(colormap)
+    cmap = matplotlib.colormaps[colormap]
     norm = _build_norm(vmin, vmax, log_scale)
     normalized = norm(np.nan_to_num(full_data, nan=0.0))
     colored = cmap(normalized)

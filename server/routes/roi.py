@@ -196,7 +196,7 @@ def export_mask_binary():
         return jsonify({"error": "No ROI mask exists"}), 404
 
     mask_uint8 = session.roi_mask.astype(np.uint8) * 255
-    pil_img = Image.fromarray(mask_uint8, "L")
+    pil_img = Image.fromarray(mask_uint8)
     buf = io.BytesIO()
     pil_img.save(buf, format="PNG")
     buf.seek(0)
@@ -226,7 +226,7 @@ def get_mask():
     rgba[session.roi_mask, 2] = 247  # B (matches --primary)
     rgba[session.roi_mask, 3] = 80   # Alpha
 
-    pil_img = Image.fromarray(rgba, "RGBA")
+    pil_img = Image.fromarray(rgba)
     buf = io.BytesIO()
     pil_img.save(buf, format="PNG")
     buf.seek(0)

@@ -17,7 +17,7 @@ def ndarray_to_png_bytes(
 ) -> bytes:
     """Convert a 2D numpy array to image bytes using matplotlib colormap + PIL."""
     from PIL import Image
-    import matplotlib.cm as cm
+    import matplotlib
     import matplotlib.colors as mcolors
 
     finite = arr[np.isfinite(arr)]
@@ -28,12 +28,12 @@ def ndarray_to_png_bytes(
     if vmin >= vmax:
         vmax = vmin + 1e-10
 
-    cmap = cm.get_cmap(colormap)
+    cmap = matplotlib.colormaps[colormap]
     norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
     colored = cmap(norm(np.nan_to_num(arr, nan=0.0)))  # (H, W, 4) float [0,1]
     rgb = (colored[:, :, :3] * 255).astype(np.uint8)
 
-    pil_img = Image.fromarray(rgb, "RGB")
+    pil_img = Image.fromarray(rgb)
     buf = io.BytesIO()
     if jpeg:
         pil_img.save(buf, format="JPEG", quality=80)
