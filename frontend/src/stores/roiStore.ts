@@ -9,6 +9,11 @@ interface RoiState {
   currentPoints: [number, number][];
   maskUrl: string | null;
   showImportDialog: boolean;
+  showBatchImportDialog: boolean;
+
+  // Per-frame ROI editing
+  editingFrameIdx: number; // 0-based frame index being edited
+  framesWithRoi: number[]; // which frames have ROI
 
   setDrawingMode: (mode: DrawingMode) => void;
   setCutMode: (cut: boolean) => void;
@@ -17,6 +22,12 @@ interface RoiState {
   clearPoints: () => void;
   setMaskUrl: (url: string | null) => void;
   setShowImportDialog: (v: boolean) => void;
+  setShowBatchImportDialog: (v: boolean) => void;
+
+  // Per-frame actions
+  setEditingFrameIdx: (idx: number) => void;
+  setFramesWithRoi: (frames: number[]) => void;
+  refreshMaskUrl: () => void;
 }
 
 export const useRoiStore = create<RoiState>((set, get) => ({
@@ -25,6 +36,9 @@ export const useRoiStore = create<RoiState>((set, get) => ({
   currentPoints: [],
   maskUrl: null,
   showImportDialog: false,
+  showBatchImportDialog: false,
+  editingFrameIdx: 0,
+  framesWithRoi: [],
 
   setDrawingMode: (mode) => set({ drawingMode: mode, currentPoints: [] }),
   setCutMode: (cut) => set({ cutMode: cut }),
@@ -42,4 +56,16 @@ export const useRoiStore = create<RoiState>((set, get) => ({
   clearPoints: () => set({ currentPoints: [] }),
   setMaskUrl: (url) => set({ maskUrl: url }),
   setShowImportDialog: (v) => set({ showImportDialog: v }),
+  setShowBatchImportDialog: (v) => set({ showBatchImportDialog: v }),
+
+  setEditingFrameIdx: (idx) => {
+    set({ editingFrameIdx: idx, currentPoints: [], drawingMode: null });
+    // Update mask URL for the new frame
+    get().refreshMaskUrl();
+  },
+  setFramesWithRoi: (frames) => set({ framesWithRoi: frames }),
+  refreshMaskUrl: () => {
+    const idx = get().editingFrameIdx;
+    set({ maskUrl: `/api/roi/mask?frame_idx=${idx}&t=${Date.now()}` });
+  },
 }));

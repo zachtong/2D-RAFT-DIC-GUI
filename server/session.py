@@ -54,6 +54,10 @@ class AppSession:
     roi_rect: Optional[Tuple[int, int, int, int]] = None
     roi_confirmed: bool = False
 
+    # Per-frame ROI masks: 0-based frame index -> bool mask (H, W)
+    # per_frame_rois[0] is kept in sync with roi_mask (Frame 1)
+    per_frame_rois: Dict[int, np.ndarray] = field(default_factory=dict)
+
     # Envelope rect — dynamic bounding box of displacement data (may grow beyond roi_rect)
     envelope_rect: Optional[Tuple[int, int, int, int]] = None
 
@@ -155,6 +159,7 @@ class AppSession:
         self.roi_mask = None
         self.roi_rect = None
         self.roi_confirmed = False
+        self.per_frame_rois = {}
         self.envelope_rect = None
         self.processing_active = False
         self.stop_requested = False

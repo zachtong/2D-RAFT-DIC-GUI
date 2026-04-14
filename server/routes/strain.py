@@ -307,6 +307,7 @@ def _place_strain_in_full_image(
 
         disp = session.displacement_results[idx]
         U, V = disp[:, :, 0], disp[:, :, 1]
+        deformed_mask = session.per_frame_rois.get(idx + 1)
         return get_warped_full_data(
             data=strain_data, frame_idx=idx,
             U=U, V=V,
@@ -316,6 +317,7 @@ def _place_strain_in_full_image(
             roi_h=roi_h, roi_w=roi_w,
             cache=session.inverse_map_cache,
             vw=vw, vh=vh,
+            deformed_mask=deformed_mask,
         )
 
     full_data = np.full((h, w), np.nan)

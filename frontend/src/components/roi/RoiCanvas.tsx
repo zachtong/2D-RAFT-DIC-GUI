@@ -1,7 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { useRoiStore } from "@/stores/roiStore";
 import { useAppStore } from "@/stores/appStore";
-import { referenceImageUrl } from "@/api/images";
+import { referenceImageUrl, frameImageUrl } from "@/api/images";
 import { addPolygon, addRectangle, addCircle, confirmRoi } from "@/api/roi";
 import { ImageIcon } from "lucide-react";
 
@@ -22,6 +22,8 @@ export function RoiCanvas() {
   const clearPoints = useRoiStore((s) => s.clearPoints);
   const maskUrl = useRoiStore((s) => s.maskUrl);
   const setMaskUrl = useRoiStore((s) => s.setMaskUrl);
+  const editingFrameIdx = useRoiStore((s) => s.editingFrameIdx);
+  const refreshMaskUrl = useRoiStore((s) => s.refreshMaskUrl);
 
   // Drawing colors based on add/cut mode
   const strokeColor = cutMode ? "#ef4444" : "#3b82f6";
@@ -125,6 +127,15 @@ export function RoiCanvas() {
     [scale, offset]
   );
 
+  // After drawing a shape, refresh mask and confirm ROI (for frame 0)
+  const afterDraw = useCallback(async () => {
+    refreshMaskUrl();
+    if (editingFrameIdx === 0) {
+      await confirmRoi();
+      setRoiConfirmed(true);
+    }
+  }, [editingFrameIdx, refreshMaskUrl, setRoiConfirmed]);
+
   const handleClick = useCallback(
     async (e: React.MouseEvent) => {
       if (e.button !== 0 || !drawingMode || imageFiles.length === 0) return;
@@ -142,11 +153,9 @@ export function RoiCanvas() {
             await addRectangle(
               Math.min(x0, ix), Math.min(y0, iy),
               Math.max(x0, ix), Math.max(y0, iy),
-              mode
+              mode, editingFrameIdx,
             );
-            setMaskUrl(`/api/roi/mask?t=${Date.now()}`);
-            await confirmRoi();
-            setRoiConfirmed(true);
+            await afterDraw();
           } catch (err) {
             console.error("Failed to add rectangle:", err);
           }
@@ -160,10 +169,8 @@ export function RoiCanvas() {
           const [cx, cy] = currentPoints[0];
           const r = Math.sqrt((ix - cx) ** 2 + (iy - cy) ** 2);
           try {
-            await addCircle(cx, cy, r, mode);
-            setMaskUrl(`/api/roi/mask?t=${Date.now()}`);
-            await confirmRoi();
-            setRoiConfirmed(true);
+            await addCircle(cx, cy, r, mode, editingFrameIdx);
+            await afterDraw();
           } catch (err) {
             console.error("Failed to add circle:", err);
           }
@@ -172,24 +179,23 @@ export function RoiCanvas() {
         }
       }
     },
-    [drawingMode, cutMode, imageFiles.length, currentPoints, screenToImage, addPoint, clearPoints, setMaskUrl, setRoiConfirmed]
+    [drawingMode, cutMode, imageFiles.length, currentPoints, screenToImage,
+     addPoint, clearPoints, editingFrameIdx, afterDraw]
   );
 
   const handleDoubleClick = useCallback(async () => {
     if (drawingMode === "polygon" && currentPoints.length >= 3) {
       try {
         const mode = cutMode ? "cut" : "add";
-        await addPolygon(currentPoints, mode);
-        setMaskUrl(`/api/roi/mask?t=${Date.now()}`);
-        await confirmRoi();
-        setRoiConfirmed(true);
+        await addPolygon(currentPoints, mode, editingFrameIdx);
+        await afterDraw();
       } catch (err) {
         console.error("Failed to add polygon:", err);
       }
       clearPoints();
       setMousePos(null);
     }
-  }, [drawingMode, cutMode, currentPoints, clearPoints, setMaskUrl, setRoiConfirmed]);
+  }, [drawingMode, cutMode, currentPoints, clearPoints, editingFrameIdx, afterDraw]);
 
   // Convert image coords to screen for SVG
   const imgToScreen = (ix: number, iy: number) => ({
@@ -198,6 +204,11 @@ export function RoiCanvas() {
   });
 
   const hasImage = imageFiles.length > 0;
+
+  // Image source: frame 0 uses reference image, others use frame endpoint
+  const imageSrc = editingFrameIdx === 0
+    ? `${referenceImageUrl()}?v=${encodeURIComponent(imageFiles[0] ?? "")}`
+    : `${frameImageUrl(editingFrameIdx)}?v=${encodeURIComponent(imageFiles[editingFrameIdx] ?? "")}`;
 
   return (
     <div
@@ -214,11 +225,11 @@ export function RoiCanvas() {
     >
       {hasImage ? (
         <>
-          {/* Reference image */}
+          {/* Frame image */}
           <img
-            key={imageFiles[0] ?? "ref"}
-            src={`${referenceImageUrl()}?v=${encodeURIComponent(imageFiles[0] ?? "")}`}
-            alt="Reference"
+            key={`frame-${editingFrameIdx}-${imageFiles[editingFrameIdx] ?? "ref"}`}
+            src={imageSrc}
+            alt={editingFrameIdx === 0 ? "Reference" : `Frame ${editingFrameIdx + 1}`}
             draggable={false}
             className="absolute top-0 left-0 select-none max-w-none"
             style={{
@@ -240,6 +251,13 @@ export function RoiCanvas() {
                 transformOrigin: "0 0",
               }}
             />
+          )}
+
+          {/* Frame indicator badge */}
+          {editingFrameIdx > 0 && (
+            <div className="absolute top-2 left-2 px-2 py-1 rounded bg-[var(--accent)] text-[var(--accent-foreground)] text-[11px] font-medium z-10">
+              Editing Frame {editingFrameIdx + 1} ROI
+            </div>
           )}
 
           {/* SVG overlay for active drawing */}

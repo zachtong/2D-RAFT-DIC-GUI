@@ -5,6 +5,8 @@ import { RunControl } from "@/components/roi/RunControl";
 import { RoiCanvas } from "@/components/roi/RoiCanvas";
 import { RoiToolbar } from "@/components/roi/RoiToolbar";
 import { RoiImportDialog } from "@/components/roi/RoiImportDialog";
+import { BatchRoiImportDialog } from "@/components/roi/BatchRoiImportDialog";
+import { FrameRoiSelector } from "@/components/roi/FrameRoiSelector";
 import { OnboardingOverlay } from "@/components/shared/OnboardingOverlay";
 
 export function RoiPage() {
@@ -13,6 +15,7 @@ export function RoiPage() {
       <Sidebar>
         <div className="flex flex-col flex-1 overflow-y-auto">
           <PathSettings />
+          <FrameRoiSelector />
           <ProcessingParams />
         </div>
         <RunControl />
@@ -22,6 +25,7 @@ export function RoiPage() {
         <RoiToolbar />
       </div>
       <RoiImportDialog />
+      <BatchRoiImportDialog />
       <OnboardingOverlay />
     </div>
   );

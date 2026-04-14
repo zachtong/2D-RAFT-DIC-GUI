@@ -40,7 +40,7 @@ class DICProcessor:
     # ------------------------------------------------------------------
 
     def run(self, config: DICConfig, roi_mask: np.ndarray, roi_rect: tuple,
-            image_files: list = None):
+            image_files: list = None, user_masks: dict = None):
         """
         Execute the processing pipeline.
         :param config: DICConfig object with all parameters.
@@ -49,6 +49,9 @@ class DICProcessor:
         :param image_files: Pre-sorted list of image filenames.  When provided,
             the processor uses this order directly instead of re-scanning the
             directory (which would lose natural sort order).
+        :param user_masks: Optional dict of 0-based frame index -> bool mask.
+            When provided, these masks are used directly instead of
+            discover_masks() from mask_dir.
         :return: List of displacement fields (or paths to them).
         """
         img_dir = config.img_dir
@@ -115,15 +118,16 @@ class DICProcessor:
         # ----------------------------------------------------------
         # Discover per-frame user masks (if mask_dir configured)
         # ----------------------------------------------------------
-        user_masks = {}
-        if config.mask_dir:
-            from raft_dic_gui.mask_loader import discover_masks
-            ref_image_tmp = proc.load_and_convert_image(
-                os.path.join(img_dir, image_files[0])
-            )
-            image_shape = (ref_image_tmp.shape[0], ref_image_tmp.shape[1])
-            user_masks = discover_masks(config.mask_dir, image_files, image_shape)
-            del ref_image_tmp
+        if user_masks is None:
+            user_masks = {}
+            if config.mask_dir:
+                from raft_dic_gui.mask_loader import discover_masks
+                ref_image_tmp = proc.load_and_convert_image(
+                    os.path.join(img_dir, image_files[0])
+                )
+                image_shape = (ref_image_tmp.shape[0], ref_image_tmp.shape[1])
+                user_masks = discover_masks(config.mask_dir, image_files, image_shape)
+                del ref_image_tmp
 
         # ----------------------------------------------------------
         # State caches

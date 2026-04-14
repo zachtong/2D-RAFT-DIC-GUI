@@ -118,6 +118,7 @@ def compute_inverse_map(
     V: np.ndarray,
     roi_rect: Tuple[int, int, int, int],
     image_shape: Tuple[int, int],
+    deformed_frame_mask: Optional[np.ndarray] = None,
 ) -> InverseMapResult:
     """Compute the inverse mapping from deformed to reference coordinates.
 
@@ -133,6 +134,10 @@ def compute_inverse_map(
     U, V : (roi_h, roi_w) displacement fields (may contain NaN)
     roi_rect : (x0, y0, x1, y1) ROI bounding box in full-image coords
     image_shape : (H, W) of the full image
+    deformed_frame_mask : optional (img_H, img_W) bool array — user-provided
+        mask for the deformed frame.  When given, the validity boundary is
+        intersected with this mask so the deformed view respects user-defined
+        specimen geometry.
 
     Returns
     -------
@@ -291,6 +296,29 @@ def compute_inverse_map(
             (ref_col_interp >= 0) & (ref_col_interp <= roi_w - 1)
         )
 
+    # When a user-provided mask exists for the deformed frame, use it as the
+    # authoritative validity boundary (replaces the auto-derived contour).
+    # The user's mask represents ground-truth geometry; the contour is only an
+    # approximation.  Data-quality gating (valid_warped > 0.5 in
+    # warp_data_inverse) still filters pixels with no source displacement data.
+    if deformed_frame_mask is not None:
+        mask_crop = deformed_frame_mask[out_y0:out_y1, out_x0:out_x1]
+        if mask_crop.shape == validity.shape:
+            validity = mask_crop.copy()
+        elif mask_crop.size > 0:
+            # Handle potential shape mismatch from rounding in viewport scaling
+            import warnings
+            warnings.warn(
+                f"deformed_frame_mask crop shape {mask_crop.shape} != "
+                f"validity shape {validity.shape}; resizing mask"
+            )
+            mask_resized = cv2.resize(
+                mask_crop.astype(np.uint8),
+                (validity.shape[1], validity.shape[0]),
+                interpolation=cv2.INTER_NEAREST,
+            ).astype(bool)
+            validity = mask_resized
+
     return InverseMapResult(
         frame_idx=-1,  # caller sets this
         ref_row_coords=ref_row_interp,
@@ -410,6 +438,7 @@ def _warp_at_viewport_scale(
     needs_upsample: bool = False,
     roi_h: int = 0,
     roi_w: int = 0,
+    deformed_mask: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """Fast path: downsample everything to viewport resolution before warping.
 
@@ -470,10 +499,21 @@ def _warp_at_viewport_scale(
         U_ds = np.where(valid, U_r * inv_w * scale, np.nan).astype(np.float64)
         V_ds = np.where(valid, V_r * inv_w * scale, np.nan).astype(np.float64)
 
+    # Downsample deformed-frame mask if provided
+    ds_deformed_mask = None
+    if deformed_mask is not None:
+        ds_deformed_mask = cv2.resize(
+            deformed_mask.astype(np.uint8), (ds_w, ds_h),
+            interpolation=cv2.INTER_NEAREST,
+        ).astype(bool)
+
     # Compute inverse map at viewport resolution (no caching — it's fast;
     # _auto_K adapts to the downsampled ROI size automatically)
     ds_roi_rect = (ds_x0, ds_y0, ds_x1, ds_y1)
-    inv_map = compute_inverse_map(U_ds, V_ds, ds_roi_rect, (ds_h, ds_w))
+    inv_map = compute_inverse_map(
+        U_ds, V_ds, ds_roi_rect, (ds_h, ds_w),
+        deformed_frame_mask=ds_deformed_mask,
+    )
 
     return warp_data_inverse(data_ds, inv_map, (ds_h, ds_w))
 
@@ -491,6 +531,7 @@ def get_warped_full_data(
     roi_w: int = 0,
     vw: int = 0,
     vh: int = 0,
+    deformed_mask: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """Convenience function for render endpoints: upsample if needed, compute
     or retrieve cached inverse map, then warp data to deformed coordinates.
@@ -510,6 +551,7 @@ def get_warped_full_data(
     needs_upsample : if True, upsample data to (roi_h, roi_w) first
     roi_h, roi_w : target ROI dimensions (required if needs_upsample)
     vw, vh : viewport dimensions (0 = full resolution)
+    deformed_mask : optional (H, W) bool mask for the deformed frame
 
     Returns
     -------
@@ -525,16 +567,23 @@ def get_warped_full_data(
         return _warp_at_viewport_scale(
             data, U, V, roi_rect, image_shape, scale,
             needs_upsample, roi_h, roi_w,
+            deformed_mask=deformed_mask,
         )
 
     # Full-resolution path (for downloads and when viewport >= image)
     if needs_upsample and roi_h > 0 and roi_w > 0:
         data = upsample_strain_to_roi(data, roi_h, roi_w)
 
-    inv_map = cache.get(frame_idx)
+    # When a deformed mask is provided, skip cache (mask may change between
+    # requests for the same frame) and compute fresh.
+    inv_map = None if deformed_mask is not None else cache.get(frame_idx)
     if inv_map is None:
-        inv_map = compute_inverse_map(U, V, roi_rect, image_shape)
+        inv_map = compute_inverse_map(
+            U, V, roi_rect, image_shape,
+            deformed_frame_mask=deformed_mask,
+        )
         inv_map.frame_idx = frame_idx
-        cache.put(frame_idx, inv_map)
+        if deformed_mask is None:
+            cache.put(frame_idx, inv_map)
 
     return warp_data_inverse(data, inv_map, image_shape)

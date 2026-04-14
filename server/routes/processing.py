@@ -199,11 +199,15 @@ def run_processing():
                 check_stop_callback=check_stop,
             )
 
+            # Pass per-frame ROIs (if any) so controller uses them
+            # instead of re-discovering from mask_dir
+            per_frame = dict(session.per_frame_rois) if session.per_frame_rois else None
             results = processor.run(
                 session.config,
                 session.roi_mask,
                 session.roi_rect,
                 image_files=session.image_files,
+                user_masks=per_frame,
             )
 
             with session._lock:

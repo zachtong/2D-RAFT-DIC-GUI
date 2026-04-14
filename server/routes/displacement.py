@@ -163,6 +163,8 @@ def render_frame(idx: int):
         from server.deformed_warp import get_warped_full_data
         disp = disp_results[idx]
         U, V = disp[:, :, 0], disp[:, :, 1]
+        # User mask for the deformed frame (disp idx 0 = frame 2 = index 1)
+        deformed_mask = session.per_frame_rois.get(idx + 1)
         full_data = get_warped_full_data(
             data=disp_data, frame_idx=idx,
             U=U, V=V,
@@ -170,6 +172,7 @@ def render_frame(idx: int):
             image_shape=(h, w),
             cache=session.inverse_map_cache,
             vw=vw, vh=vh,
+            deformed_mask=deformed_mask,
         )
     else:
         full_data = np.full((h, w), np.nan)
@@ -266,12 +269,14 @@ def download_frame(idx):
         from server.deformed_warp import get_warped_full_data
         disp = disp_results[idx]
         U, V = disp[:, :, 0], disp[:, :, 1]
+        deformed_mask = session.per_frame_rois.get(idx + 1)
         full_data = get_warped_full_data(
             data=disp_data, frame_idx=idx,
             U=U, V=V,
             roi_rect=rect,
             image_shape=(h, w),
             cache=session.inverse_map_cache,
+            deformed_mask=deformed_mask,
         )
     else:
         full_data = np.full((h, w), np.nan)

@@ -10,6 +10,8 @@ export function RoiImportDialog() {
   const show = useRoiStore((s) => s.showImportDialog);
   const setShow = useRoiStore((s) => s.setShowImportDialog);
   const setMaskUrl = useRoiStore((s) => s.setMaskUrl);
+  const editingFrameIdx = useRoiStore((s) => s.editingFrameIdx);
+  const refreshMaskUrl = useRoiStore((s) => s.refreshMaskUrl);
   const imageWidth = useAppStore((s) => s.imageWidth);
   const imageHeight = useAppStore((s) => s.imageHeight);
   const { toast } = useToast();
@@ -63,16 +65,16 @@ export function RoiImportDialog() {
     async (filePath: string, minPx: number, sr: number) => {
       setImporting(true);
       try {
-        const result = await importMask(filePath, minPx, sr);
+        const result = await importMask(filePath, minPx, sr, editingFrameIdx);
         setAreaPx(result.area_px);
-        setMaskUrl(`/api/roi/mask?t=${Date.now()}`);
+        refreshMaskUrl();
       } catch (e: any) {
         toast("error", e?.response?.data?.error || "Import failed");
       } finally {
         setImporting(false);
       }
     },
-    [setMaskUrl, toast],
+    [editingFrameIdx, refreshMaskUrl, toast],
   );
 
   const handleFileClick = (fileName: string) => {
@@ -104,8 +106,12 @@ export function RoiImportDialog() {
 
   const handleDone = () => {
     if (areaPx > 0) {
-      toast("success", `Mask applied: ${areaPx.toLocaleString()} px`);
-      useAppStore.getState().setRoiConfirmed(true);
+      const frameLabel = editingFrameIdx === 0 ? "" : ` (Frame ${editingFrameIdx + 1})`;
+      toast("success", `Mask applied${frameLabel}: ${areaPx.toLocaleString()} px`);
+      // Only auto-confirm ROI for the reference frame (frame 0)
+      if (editingFrameIdx === 0) {
+        useAppStore.getState().setRoiConfirmed(true);
+      }
     }
     setShow(false);
   };

@@ -1,6 +1,6 @@
 import { useRoiStore, type ShapeMode } from "@/stores/roiStore";
 import { useAppStore } from "@/stores/appStore";
-import { clearRoi, invertMask, exportMask } from "@/api/roi";
+import { clearRoi, clearFrameRoi, invertMask, exportMask } from "@/api/roi";
 import {
   Pentagon,
   RectangleHorizontal,
@@ -8,6 +8,7 @@ import {
   Plus,
   Scissors,
   Upload,
+  FolderUp,
   Download,
   RotateCcw,
   Trash2,
@@ -98,6 +99,8 @@ function ToolGroup({
 export function RoiToolbar() {
   const clearPoints = useRoiStore((s) => s.clearPoints);
   const setMaskUrl = useRoiStore((s) => s.setMaskUrl);
+  const editingFrameIdx = useRoiStore((s) => s.editingFrameIdx);
+  const refreshMaskUrl = useRoiStore((s) => s.refreshMaskUrl);
   const setRoiConfirmed = useAppStore((s) => s.setRoiConfirmed);
   const imageFiles = useAppStore((s) => s.imageFiles);
   const maskUrl = useRoiStore((s) => s.maskUrl);
@@ -105,19 +108,28 @@ export function RoiToolbar() {
   const disabled = imageFiles.length === 0;
 
   const handleClear = async () => {
-    await clearRoi();
+    if (editingFrameIdx === 0) {
+      await clearRoi();
+      setMaskUrl(null);
+      setRoiConfirmed(false);
+    } else {
+      await clearFrameRoi(editingFrameIdx);
+      refreshMaskUrl();
+    }
     clearPoints();
-    setMaskUrl(null);
-    setRoiConfirmed(false);
   };
 
   const handleInvert = async () => {
-    const result = await invertMask();
-    if (result) setMaskUrl(`/api/roi/mask?t=${Date.now()}`);
+    const result = await invertMask(editingFrameIdx);
+    if (result) refreshMaskUrl();
   };
 
   const handleImport = () => {
     useRoiStore.getState().setShowImportDialog(true);
+  };
+
+  const handleBatchImport = () => {
+    useRoiStore.getState().setShowBatchImportDialog(true);
   };
 
   const handleSave = async () => {
@@ -160,9 +172,19 @@ export function RoiToolbar() {
           onClick={handleImport}
           disabled={disabled}
           className={actionBtnClass}
+          title="Import mask for current frame"
         >
           <Upload className="w-3 h-3" />
           Import
+        </button>
+        <button
+          onClick={handleBatchImport}
+          disabled={disabled}
+          className={actionBtnClass}
+          title="Batch import masks for multiple frames"
+        >
+          <FolderUp className="w-3 h-3" />
+          Batch
         </button>
         <button
           onClick={handleSave}

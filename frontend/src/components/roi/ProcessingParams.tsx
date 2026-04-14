@@ -6,9 +6,8 @@ import { SelectField } from "@/components/shared/SelectField";
 import { Toggle } from "@/components/shared/Toggle";
 import { SmallInput } from "@/components/shared/SmallInput";
 import { useAppStore } from "@/stores/appStore";
-import { configureProcessing, validateMasks, fetchTilingPreview } from "@/api/processing";
+import { configureProcessing, fetchTilingPreview } from "@/api/processing";
 import { KeyFrameTimeline } from "./KeyFrameTimeline";
-import { MaskSourceSelector } from "./MaskSourceSelector";
 import type { TilingPreview } from "@/types/api";
 import { ParamTooltip } from "@/components/shared/ParamTooltip";
 import {
@@ -25,10 +24,6 @@ const keyFrameModeOptions = [
   { value: "custom", label: "Custom" },
 ];
 
-const maskSourceOptions = [
-  { value: "auto", label: "Auto (warp ROI)" },
-  { value: "folder", label: "Custom (load folder)" },
-];
 
 // Tooltip content for computed parameters (uses PARAM_DESCRIPTIONS via ParamTooltip)
 import { PARAM_DESCRIPTIONS } from "@/lib/paramDescriptions";
@@ -41,17 +36,11 @@ export function ProcessingParams() {
   const keyFrames = useAppStore((s) => s.keyFrames);
   const keyFrameMode = useAppStore((s) => s.keyFrameMode);
   const keyFrameInterval = useAppStore((s) => s.keyFrameInterval);
-  const maskSource = useAppStore((s) => s.maskSource);
-  const maskDir = useAppStore((s) => s.maskDir);
-  const maskValidation = useAppStore((s) => s.maskValidation);
   const setKeyFrames = useAppStore((s) => s.setKeyFrames);
   const setKeyFrameMode = useAppStore((s) => s.setKeyFrameMode);
   const setKeyFrameInterval = useAppStore((s) => s.setKeyFrameInterval);
   const useMedianFilter = useAppStore((s) => s.useMedianFilter);
   const setUseMedianFilter = useAppStore((s) => s.setUseMedianFilter);
-  const setMaskSource = useAppStore((s) => s.setMaskSource);
-  const setMaskDir = useAppStore((s) => s.setMaskDir);
-  const setMaskValidation = useAppStore((s) => s.setMaskValidation);
 
   // New tiling-related selectors
   const modelMetadata = useAppStore((s) => s.modelMetadata);
@@ -201,33 +190,6 @@ export function ProcessingParams() {
   const handleMedianFilterChange = (checked: boolean) => {
     setUseMedianFilter(checked);
     configureProcessing({ use_median_filter: checked }).catch(() => {});
-  };
-
-  const handleMaskSourceChange = (source: "auto" | "folder") => {
-    setMaskSource(source);
-    setMaskValidation(null);
-    if (source === "auto") {
-      configureProcessing({ mask_dir: null }).catch(() => {});
-    } else {
-      configureProcessing({ mask_dir: maskDir || null }).catch(() => {});
-    }
-  };
-
-  const handleMaskDirChange = (dir: string) => {
-    setMaskDir(dir);
-    setMaskValidation(null);
-  };
-
-  const handleValidateMasks = async () => {
-    if (!maskDir) return;
-    try {
-      const result = await validateMasks(maskDir);
-      setMaskValidation(result);
-      // Sync to backend if valid
-      configureProcessing({ mask_dir: maskDir }).catch(() => {});
-    } catch {
-      setMaskValidation({ matched_count: 0, total_frames: totalFrames, masks_needed: Math.max(totalFrames - 1, 0), matched_frames: [], has_frame_1: false });
-    }
   };
 
   // Click-to-edit handlers
@@ -432,29 +394,6 @@ export function ProcessingParams() {
               totalFrames={totalFrames}
               keyFrames={keyFrames}
               onChange={handleKeyFramesChange}
-            />
-          )}
-
-          <FieldRow label="Mask">
-            <SelectField
-              value={maskSource}
-              options={maskSourceOptions}
-              onChange={(v) =>
-                handleMaskSourceChange(v as "auto" | "folder")
-              }
-            />
-          </FieldRow>
-
-          {maskSource === "folder" && (
-            <MaskSourceSelector
-              maskSource={maskSource}
-              maskDir={maskDir}
-              onSourceChange={handleMaskSourceChange}
-              onDirChange={handleMaskDirChange}
-              validationResult={maskValidation}
-              onValidate={handleValidateMasks}
-              keyFrames={keyFrames}
-              keyFrameMode={keyFrameMode}
             />
           )}
 
