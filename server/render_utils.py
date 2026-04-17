@@ -8,6 +8,38 @@ import numpy as np
 from PIL import Image
 
 
+def fill_mask_nan_gaps(data: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """Fill NaN gaps inside *mask* using nearest valid neighbor value.
+
+    In reference-background mode, displacement/strain data may have NaN pixels
+    inside frame 0's ROI mask due to coordinate rounding in
+    ``_apply_current_frame_mask``.  This function fills those gaps so the
+    visible ROI shape exactly matches the mask boundary.
+
+    Pixels outside the mask remain NaN (transparent).
+    """
+    has_value = np.isfinite(data) & mask
+    gap = mask & ~has_value
+
+    if not gap.any() or not has_value.any():
+        return data
+
+    from scipy.ndimage import distance_transform_edt
+
+    # distance_transform_edt(~has_value) gives, for every pixel, the distance
+    # to the nearest pixel where has_value is True.  return_indices gives the
+    # coordinates of that nearest pixel.
+    _, nearest_idx = distance_transform_edt(~has_value, return_indices=True)
+
+    result = data.copy()
+    gap_rows, gap_cols = np.where(gap)
+    src_rows = nearest_idx[0][gap_rows, gap_cols]
+    src_cols = nearest_idx[1][gap_rows, gap_cols]
+    result[gap_rows, gap_cols] = data[src_rows, src_cols]
+
+    return result
+
+
 def _auto_range(
     valid_vals: np.ndarray,
     vmin: Optional[float],

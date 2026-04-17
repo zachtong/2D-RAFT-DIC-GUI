@@ -10,7 +10,7 @@ from flask import Blueprint, jsonify, request
 from raft_dic_gui.strain import calculate_strain_field
 from server.app import socketio
 from server.render_cache import RenderCache, auto_cache_size
-from server.render_utils import render_composited_png, render_data_texture_png, render_overlay_png
+from server.render_utils import fill_mask_nan_gaps, render_composited_png, render_data_texture_png, render_overlay_png
 from server.serializers import data_texture_response, frame_data_to_json, png_response
 from server.session import session
 from server.validation import validate_choice, validate_non_negative, validate_odd_positive_int, validate_positive, validate_positive_int, validate_range
@@ -335,6 +335,13 @@ def _place_strain_in_full_image(
             full_data[y0:y1, x0:x1] = data_resized
         else:
             full_data[y0:y1, x0:x1] = strain_data
+
+    # Reference mode: fix ROI shape to frame 0's mask
+    ref_mask = session.per_frame_rois.get(0)
+    if ref_mask is not None and ref_mask.shape == full_data.shape:
+        full_data[~ref_mask] = np.nan
+        full_data = fill_mask_nan_gaps(full_data, ref_mask)
+
     return full_data
 
 

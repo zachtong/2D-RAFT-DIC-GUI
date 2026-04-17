@@ -14,6 +14,7 @@ from raft_dic_gui.velocity import (
 )
 from server.render_cache import RenderCache, auto_cache_size
 from server.render_utils import (
+    fill_mask_nan_gaps,
     get_colormap_lut,
     render_composited_png,
     render_data_texture_png,
@@ -183,6 +184,15 @@ def render_frame(idx: int):
             sw = min(dw, x1 - x0)
             full_data[y0:y0 + sh, x0:x0 + sw] = disp_data[:sh, :sw]
 
+        # Reference mode: fix ROI shape to frame 0's mask.
+        # _apply_current_frame_mask bakes coordinate-rounding NaN into stored
+        # results; fill those gaps with nearest valid values so the visible
+        # shape exactly matches frame 0's mask boundary.
+        ref_mask = session.per_frame_rois.get(0)
+        if ref_mask is not None and ref_mask.shape == full_data.shape:
+            full_data[~ref_mask] = np.nan
+            full_data = fill_mask_nan_gaps(full_data, ref_mask)
+
     if overlay_only:
         render_mode = request.args.get("render_mode", "colored")
         if render_mode == "data":
@@ -288,6 +298,12 @@ def download_frame(idx):
             full_data[y0:y0 + sh, x0:x0 + sw] = disp_data[:sh, :sw]
         else:
             full_data[:disp_data.shape[0], :disp_data.shape[1]] = disp_data
+
+        # Reference mode: fix ROI shape to frame 0's mask
+        ref_mask = session.per_frame_rois.get(0)
+        if ref_mask is not None and ref_mask.shape == full_data.shape:
+            full_data[~ref_mask] = np.nan
+            full_data = fill_mask_nan_gaps(full_data, ref_mask)
 
     # Render with matplotlib
     fig_w = w / dpi

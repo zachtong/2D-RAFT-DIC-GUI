@@ -50,6 +50,7 @@ class InverseMapResult:
     out_y0: int
     out_x1: int
     out_y1: int
+    has_user_mask: bool = False   # True when validity_mask comes from user mask
 
 
 def auto_inverse_cache_size() -> int:
@@ -221,6 +222,24 @@ def compute_inverse_map(
     out_y0 = max(0, int(np.floor(all_dy.min())))
     out_x1 = min(img_w, int(np.ceil(all_dx.max())) + 1)
     out_y1 = min(img_h, int(np.ceil(all_dy.max())) + 1)
+
+    # When a user mask is provided, expand the bounding box to include
+    # the full extent of the user mask.  The forward-mapped contour only
+    # covers the displacement-data footprint; the user mask may extend
+    # beyond it (e.g. when a bubble shrinks and new material appears).
+    if deformed_frame_mask is not None:
+        rows_any = np.any(deformed_frame_mask, axis=1)
+        cols_any = np.any(deformed_frame_mask, axis=0)
+        if rows_any.any():
+            mask_y0 = int(np.argmax(rows_any))
+            mask_y1 = len(rows_any) - int(np.argmax(rows_any[::-1]))
+            mask_x0 = int(np.argmax(cols_any))
+            mask_x1 = len(cols_any) - int(np.argmax(cols_any[::-1]))
+            out_x0 = min(out_x0, mask_x0)
+            out_y0 = min(out_y0, mask_y0)
+            out_x1 = max(out_x1, mask_x1)
+            out_y1 = max(out_y1, mask_y1)
+
     out_h = out_y1 - out_y0
     out_w = out_x1 - out_x0
 
@@ -326,7 +345,26 @@ def compute_inverse_map(
         validity_mask=validity,
         out_x0=out_x0, out_y0=out_y0,
         out_x1=out_x1, out_y1=out_y1,
+        has_user_mask=deformed_frame_mask is not None,
     )
+
+
+def _nearest_fill_nan(data: np.ndarray) -> np.ndarray:
+    """Fill NaN entries with the nearest finite neighbour (L2 distance).
+
+    Mirrors the pyALDIC scatter-interpolation semantics: once a user supplies
+    a per-frame ROI, every pixel inside that mask should receive *some* value,
+    even if the reference frame lacks data at the corresponding back-warped
+    location.  Nearest-neighbour extrapolation from adjacent valid reference
+    pixels is visually smooth and keeps the rendered ROI outline identical to
+    the user mask.
+    """
+    valid = np.isfinite(data)
+    if valid.all() or not valid.any():
+        return np.nan_to_num(data, nan=0.0).astype(np.float64)
+    from scipy.ndimage import distance_transform_edt
+    _, idx = distance_transform_edt(~valid, return_indices=True)
+    return data[tuple(idx)].astype(np.float64)
 
 
 def warp_data_inverse(
@@ -349,15 +387,24 @@ def warp_data_inverse(
     if inv_map.ref_row_coords.size == 0:
         return np.full(image_shape, np.nan)
 
-    # Clean NaN for interpolation
-    valid_src = ~np.isnan(data)
-    data_clean = np.nan_to_num(data, nan=0.0).astype(np.float64)
-    src_valid = valid_src.astype(np.float64)
-
     out_h = inv_map.out_y1 - inv_map.out_y0
     out_w = inv_map.out_x1 - inv_map.out_x0
 
-    # Interpolate data values
+    if inv_map.has_user_mask:
+        # User-mask semantics: the mask is the sole shape authority.  Pre-fill
+        # NaN on the reference side via nearest-neighbour so that per-frame ROI
+        # pixels whose back-warp lands in a reference NaN region (e.g. newly
+        # exposed specimen when a bubble shrinks below its reference size)
+        # still receive a plausible extrapolated value — matching pyALDIC's
+        # behaviour where rendering is driven by scatter values that can be
+        # extrapolated into those regions.
+        data_clean = _nearest_fill_nan(data)
+        src_valid = np.ones_like(data, dtype=np.float64)
+    else:
+        valid_src = ~np.isnan(data)
+        data_clean = np.nan_to_num(data, nan=0.0).astype(np.float64)
+        src_valid = valid_src.astype(np.float64)
+
     coords = np.array([
         inv_map.ref_row_coords.ravel(),
         inv_map.ref_col_coords.ravel(),
@@ -366,13 +413,18 @@ def warp_data_inverse(
         data_clean, coords, order=1, mode='constant', cval=0.0
     ).reshape(out_h, out_w)
 
-    # Interpolate validity mask
     valid_warped = map_coordinates(
         src_valid, coords, order=1, mode='constant', cval=0.0
     ).reshape(out_h, out_w)
 
-    # Combined validity
-    final_valid = (valid_warped > 0.5) & inv_map.validity_mask
+    has_data = valid_warped > 0.5
+    if inv_map.has_user_mask:
+        # Mask shape strictly follows the user-supplied per-frame ROI.
+        # Data-quality gating is disabled here because we pre-filled NaN on
+        # the reference side above, so every mask pixel has a defined value.
+        final_valid = inv_map.validity_mask
+    else:
+        final_valid = has_data & inv_map.validity_mask
 
     # Place into full image
     full = np.full(image_shape, np.nan)

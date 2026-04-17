@@ -549,7 +549,15 @@ class DICProcessor:
 
         For each valid pixel (x, y) with displacement (U, V), check whether
         cur_mask at the deformed position (round(y+V), round(x+U)) is True.
-        Pixels that land outside the specimen (e.g. in a crack) are set to NaN.
+        Pixels landing inside the image but outside the specimen (e.g. in a
+        crack, or inside a bubble hole) are set to NaN.
+
+        Pixels whose deformed position falls OUTSIDE the image bounds are
+        preserved — they represent material physically pushed out of view
+        (e.g. large bubble expansion, large strain near edges).  Discarding
+        them would punch holes in the reference-frame Delaunay coverage used
+        by deformed-view inverse mapping, producing a 5-10 px dead band around
+        the deformed image boundary.
         """
         H, W = disp_full.shape[:2]
         valid = ~np.isnan(disp_full[..., 0])
@@ -565,15 +573,13 @@ class DICProcessor:
         def_x = np.round(xx + U).astype(np.intp)
         def_y = np.round(yy + V).astype(np.intp)
 
-        # Bounds check
         in_bounds = (def_x >= 0) & (def_x < W) & (def_y >= 0) & (def_y < H)
 
-        # Check mask at deformed positions
-        in_specimen = np.zeros(len(yy), dtype=bool)
-        bm = in_bounds
-        in_specimen[bm] = cur_mask[def_y[bm], def_x[bm]]
+        # Default: pixel is kept (True).  OOB pixels stay True because their
+        # forward-mapped position being off-image is physical, not a defect.
+        in_specimen = np.ones(len(yy), dtype=bool)
+        in_specimen[in_bounds] = cur_mask[def_y[in_bounds], def_x[in_bounds]]
 
-        # Mask out pixels outside specimen
         outside = ~in_specimen
         if outside.any():
             disp_full[yy[outside], xx[outside], :] = np.nan
