@@ -175,7 +175,19 @@ echo [OK] CUDA !CUDA_MAJOR!.x >> "%LOGFILE%"
 :: ---- Step 4: Install PyTorch with CUDA ----
 echo [4/5] Installing PyTorch with CUDA support...
 
-if !CUDA_MAJOR! geq 12 (
+:: Detect if GPU needs newer CUDA wheels (Blackwell / RTX 50-series)
+set "NEED_CU128=0"
+
+:: Method 1: Check GPU name from nvidia-smi output for RTX 50-series
+for /f "tokens=*" %%G in ('nvidia-smi 2^>nul ^| findstr /i "RTX.50"') do set "NEED_CU128=1"
+
+:: Method 2: CUDA 13+ always needs cu128 (Blackwell-era driver)
+if !CUDA_MAJOR! geq 13 set "NEED_CU128=1"
+
+if !NEED_CU128! equ 1 (
+    set TORCH_INDEX=https://download.pytorch.org/whl/cu128
+    echo   Blackwell/RTX 50-series detected - using CUDA 12.8 wheels
+) else if !CUDA_MAJOR! geq 12 (
     set TORCH_INDEX=https://download.pytorch.org/whl/cu124
     echo   Using CUDA 12.4 wheels
 ) else (
