@@ -263,6 +263,8 @@ def export_animation_endpoint():
                 resize_factor=resize_factor,
                 progress_callback=progress_callback,
                 cancel_event=session.export_cancel,
+                per_frame_rois=session.per_frame_rois,
+                inverse_map_cache=session.inverse_map_cache,
             )
 
             session.export_active = False

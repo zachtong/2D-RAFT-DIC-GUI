@@ -62,6 +62,8 @@ def export_animation(
     resize_factor: float = 1.0,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
     cancel_event=None,
+    per_frame_rois: Optional[Dict[int, np.ndarray]] = None,
+    inverse_map_cache=None,
 ) -> str:
     """
     Export an animation of a single component across frames.
@@ -118,6 +120,12 @@ def export_animation(
         if vmax is None:
             vmax = global_max
 
+    # Share one inverse-map cache across frames to avoid recomputing the
+    # Delaunay triangulation each frame in deformed mode.
+    if inverse_map_cache is None:
+        from server.deformed_warp import InverseMapCache
+        inverse_map_cache = InverseMapCache(max_size=10)
+
     if fmt == "mp4":
         _export_mp4(
             abs_path, component, start, end,
@@ -128,6 +136,7 @@ def export_animation(
             fps, timestamp_overlay, include_colorbar, resize_factor,
             colorbar_label, colorbar_settings,
             progress_callback, cancel_event,
+            per_frame_rois, inverse_map_cache,
         )
     else:
         _export_gif(
@@ -139,6 +148,7 @@ def export_animation(
             fps, loop, timestamp_overlay, include_colorbar, resize_factor,
             colorbar_label, colorbar_settings,
             progress_callback, cancel_event,
+            per_frame_rois, inverse_map_cache,
         )
 
     logger.info("Animation saved to %s", abs_path)
@@ -169,6 +179,9 @@ def _render_frame_to_array(
     colorbar_label: str = "",
     colorbar_settings: Optional[Dict] = None,
     dpi: int = 80,
+    background: str = "reference",
+    per_frame_rois: Optional[Dict[int, np.ndarray]] = None,
+    inverse_map_cache=None,
 ) -> Optional[np.ndarray]:
     """Render one frame to an RGB uint8 numpy array."""
     data = _get_component_data(component, frame_idx, displacement_results, strain_results, data_fps)
@@ -184,6 +197,47 @@ def _render_frame_to_array(
         h, w = bg_image.shape[:2]
     else:
         h, w = data.shape
+
+    # Deformed-mode warp: project ref-space data into deformed coords so the
+    # overlay ROI follows per-frame masks (matches the interactive /render
+    # endpoint).  Without this step, ``data`` is placed at a fixed roi_rect
+    # extent and visually stays on the frame-0 ROI regardless of background.
+    warped_full = False
+    if (
+        background == "deformed"
+        and bg_image is not None
+        and roi_rect is not None
+        and frame_idx < len(displacement_results)
+    ):
+        try:
+            from server.deformed_warp import get_warped_full_data
+            disp = displacement_results[frame_idx]
+            if isinstance(disp, str):
+                disp = np.load(disp)
+            U = disp[..., 0]
+            V = disp[..., 1]
+            x0, y0, x1, y1 = roi_rect
+            roi_h_val, roi_w_val = y1 - y0, x1 - x0
+            sh, sw = data.shape
+            deformed_mask = None
+            if per_frame_rois is not None:
+                deformed_mask = per_frame_rois.get(frame_idx + 1)
+            data = get_warped_full_data(
+                data=data,
+                frame_idx=frame_idx,
+                U=U,
+                V=V,
+                roi_rect=roi_rect,
+                image_shape=(h, w),
+                cache=inverse_map_cache,
+                needs_upsample=(sh != roi_h_val or sw != roi_w_val),
+                roi_h=roi_h_val,
+                roi_w=roi_w_val,
+                deformed_mask=deformed_mask,
+            )
+            warped_full = True
+        except Exception as exc:
+            logger.warning("Deformed-mode warp failed at frame %d: %s", frame_idx, exc)
 
     # Apply resize
     fig_w = w * resize_factor / dpi
@@ -202,15 +256,21 @@ def _render_frame_to_array(
     # Data overlay
     masked_data = np.ma.array(data, mask=np.isnan(data))
 
-    # Extent for positioning data on background
+    # Extent for positioning data on background.  After deformed warp the
+    # data is already placed in full-image coordinates, so no extent offset
+    # is needed.  In reference mode (or when warp was skipped) the data is
+    # ROI-sized and must be anchored to roi_rect.
     extent = None
-    if roi_rect is not None and bg_image is not None:
+    if not warped_full and roi_rect is not None and bg_image is not None:
         xmin, ymin, xmax, ymax = roi_rect
         if resize_factor < 1.0:
             extent = [xmin * resize_factor, xmax * resize_factor,
                       ymax * resize_factor, ymin * resize_factor]
         else:
             extent = [xmin, xmax, ymax, ymin]
+    elif warped_full and resize_factor < 1.0:
+        extent = [0, int(w * resize_factor),
+                  int(h * resize_factor), 0]
 
     # Resize data if needed
     display_data = masked_data
@@ -358,6 +418,7 @@ def _export_gif(
     fps, loop, timestamp_overlay, include_colorbar, resize_factor,
     colorbar_label, colorbar_settings,
     progress_callback, cancel_event,
+    per_frame_rois=None, inverse_map_cache=None,
 ):
     total = end - start + 1
     duration_ms = int(1000 / fps)
@@ -368,7 +429,12 @@ def _export_gif(
             logger.info("Animation export cancelled at frame %d", frame_idx)
             return
 
-        bg = _get_background_image(frame_idx, background, image_loader, roi_rect)
+        # Deformed frame N on screen corresponds to image_files[frame_idx + 1]
+        # (frame 0 is the reference image).  Use the same offset as the
+        # interactive /render endpoint so the background matches the warped
+        # data.
+        bg_idx = (frame_idx + 1) if background == "deformed" else frame_idx
+        bg = _get_background_image(bg_idx, background, image_loader, roi_rect)
         rgb = _render_frame_to_array(
             component, frame_idx,
             displacement_results, strain_results,
@@ -376,6 +442,9 @@ def _export_gif(
             vmin, vmax, use_log_norm, physical_ratio, data_fps,
             include_colorbar, timestamp_overlay, resize_factor,
             colorbar_label, colorbar_settings,
+            background=background,
+            per_frame_rois=per_frame_rois,
+            inverse_map_cache=inverse_map_cache,
         )
         if rgb is not None:
             pil_frames.append(PILImage.fromarray(rgb))
@@ -410,6 +479,7 @@ def _export_mp4(
     fps, timestamp_overlay, include_colorbar, resize_factor,
     colorbar_label, colorbar_settings,
     progress_callback, cancel_event,
+    per_frame_rois=None, inverse_map_cache=None,
 ):
     total = end - start + 1
     writer = None
@@ -420,7 +490,8 @@ def _export_mp4(
                 logger.info("Animation export cancelled at frame %d", frame_idx)
                 return
 
-            bg = _get_background_image(frame_idx, background, image_loader, roi_rect)
+            bg_idx = (frame_idx + 1) if background == "deformed" else frame_idx
+            bg = _get_background_image(bg_idx, background, image_loader, roi_rect)
             rgb = _render_frame_to_array(
                 component, frame_idx,
                 displacement_results, strain_results,
@@ -428,6 +499,9 @@ def _export_mp4(
                 vmin, vmax, use_log_norm, physical_ratio, data_fps,
                 include_colorbar, timestamp_overlay, resize_factor,
                 colorbar_label, colorbar_settings,
+                background=background,
+                per_frame_rois=per_frame_rois,
+                inverse_map_cache=inverse_map_cache,
             )
             if rgb is None:
                 continue
