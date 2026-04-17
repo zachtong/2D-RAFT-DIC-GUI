@@ -1,7 +1,8 @@
 import { useEffect, useCallback, useRef } from "react";
 import { useRoiStore } from "@/stores/roiStore";
 import { useAppStore } from "@/stores/appStore";
-import { getFramesRoiStatus } from "@/api/roi";
+import { getFramesRoiStatus, clearAllFrameRois } from "@/api/roi";
+import { Trash2 } from "lucide-react";
 
 /**
  * pyALDIC-style frame list for per-frame ROI editing.
@@ -25,6 +26,7 @@ export function FrameRoiSelector() {
   const setEditingFrameIdx = useRoiStore((s) => s.setEditingFrameIdx);
   const framesWithRoi = useRoiStore((s) => s.framesWithRoi);
   const setFramesWithRoi = useRoiStore((s) => s.setFramesWithRoi);
+  const setMaskUrl = useRoiStore((s) => s.setMaskUrl);
 
   const listRef = useRef<HTMLDivElement>(null);
   const totalFrames = imageFiles.length;
@@ -104,8 +106,42 @@ export function FrameRoiSelector() {
               {needRoi}
             </span>
           )}
+          {withRoi > 0 && (
+            <button
+              className="p-0.5 rounded hover:bg-red-500/20 text-[var(--muted-foreground)] hover:text-red-500 transition-colors"
+              title="Clear all ROIs"
+              onClick={async () => {
+                await clearAllFrameRois();
+                setFramesWithRoi([]);
+                setMaskUrl(null);
+                setEditingFrameIdx(0);
+                useAppStore.getState().bumpRoiVersion();
+              }}
+            >
+              <Trash2 size={12} />
+            </button>
+          )}
         </span>
       </div>
+
+      {/* Frame scrub slider — quick jump across all frames */}
+      {totalFrames > 1 && (
+        <div className="flex items-center gap-2 px-2 py-1 border-b border-[var(--border)]/70">
+          <input
+            type="range"
+            min={0}
+            max={totalFrames - 1}
+            step={1}
+            value={editingFrameIdx}
+            onChange={(e) => setEditingFrameIdx(parseInt(e.target.value, 10))}
+            className="flex-1 h-1 accent-[var(--primary)] cursor-pointer"
+            aria-label="Frame scrub slider"
+          />
+          <span className="text-[10px] tabular-nums text-[var(--muted-foreground)] shrink-0 min-w-[52px] text-right">
+            {editingFrameIdx + 1} / {totalFrames}
+          </span>
+        </div>
+      )}
 
       {/* Column headers */}
       <div className="flex items-center px-2 py-0.5 text-[9px] text-[var(--muted-foreground)] uppercase tracking-wider border-b border-[var(--border)] bg-[var(--background)]">

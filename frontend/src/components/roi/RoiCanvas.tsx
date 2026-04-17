@@ -24,6 +24,7 @@ export function RoiCanvas() {
   const setMaskUrl = useRoiStore((s) => s.setMaskUrl);
   const editingFrameIdx = useRoiStore((s) => s.editingFrameIdx);
   const refreshMaskUrl = useRoiStore((s) => s.refreshMaskUrl);
+  const snapshotBeforeEdit = useRoiStore((s) => s.snapshotBeforeEdit);
 
   // Drawing colors based on add/cut mode
   const strokeColor = cutMode ? "#ef4444" : "#3b82f6";
@@ -150,6 +151,7 @@ export function RoiCanvas() {
         } else {
           const [x0, y0] = currentPoints[0];
           try {
+            await snapshotBeforeEdit(editingFrameIdx);
             await addRectangle(
               Math.min(x0, ix), Math.min(y0, iy),
               Math.max(x0, ix), Math.max(y0, iy),
@@ -169,6 +171,7 @@ export function RoiCanvas() {
           const [cx, cy] = currentPoints[0];
           const r = Math.sqrt((ix - cx) ** 2 + (iy - cy) ** 2);
           try {
+            await snapshotBeforeEdit(editingFrameIdx);
             await addCircle(cx, cy, r, mode, editingFrameIdx);
             await afterDraw();
           } catch (err) {
@@ -180,13 +183,14 @@ export function RoiCanvas() {
       }
     },
     [drawingMode, cutMode, imageFiles.length, currentPoints, screenToImage,
-     addPoint, clearPoints, editingFrameIdx, afterDraw]
+     addPoint, clearPoints, editingFrameIdx, afterDraw, snapshotBeforeEdit]
   );
 
   const handleDoubleClick = useCallback(async () => {
     if (drawingMode === "polygon" && currentPoints.length >= 3) {
       try {
         const mode = cutMode ? "cut" : "add";
+        await snapshotBeforeEdit(editingFrameIdx);
         await addPolygon(currentPoints, mode, editingFrameIdx);
         await afterDraw();
       } catch (err) {
@@ -195,7 +199,7 @@ export function RoiCanvas() {
       clearPoints();
       setMousePos(null);
     }
-  }, [drawingMode, cutMode, currentPoints, clearPoints, editingFrameIdx, afterDraw]);
+  }, [drawingMode, cutMode, currentPoints, clearPoints, editingFrameIdx, afterDraw, snapshotBeforeEdit]);
 
   // Convert image coords to screen for SVG
   const imgToScreen = (ix: number, iy: number) => ({

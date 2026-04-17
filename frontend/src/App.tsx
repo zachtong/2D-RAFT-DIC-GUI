@@ -3,7 +3,9 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ToastProvider } from "@/components/shared/Toast";
+import { ShortcutHelpOverlay } from "@/components/shared/ShortcutHelpOverlay";
 import { useSocket } from "@/hooks/useSocket";
+import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
 
 // Lazy load pages for code splitting (Recharts is heavy)
 const RoiPage = lazy(() =>
@@ -34,35 +36,39 @@ function PageFallback() {
 
 function AppInner() {
   useSocket();
+  const { helpOpen, setHelpOpen } = useGlobalShortcuts();
   return (
-    <Routes>
-      <Route element={<AppLayout />}>
-        <Route
-          path="/"
-          element={
-            <Suspense fallback={<PageFallback />}>
-              <RoiPage />
-            </Suspense>
-          }
-        />
-        <Route
-          path="/displacement"
-          element={
-            <Suspense fallback={<PageFallback />}>
-              <DisplacementPage />
-            </Suspense>
-          }
-        />
-        <Route
-          path="/post-processing"
-          element={
-            <Suspense fallback={<PageFallback />}>
-              <PostProcessingPage />
-            </Suspense>
-          }
-        />
-      </Route>
-    </Routes>
+    <>
+      <Routes>
+        <Route element={<AppLayout />}>
+          <Route
+            path="/"
+            element={
+              <Suspense fallback={<PageFallback />}>
+                <RoiPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/displacement"
+            element={
+              <Suspense fallback={<PageFallback />}>
+                <DisplacementPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/post-processing"
+            element={
+              <Suspense fallback={<PageFallback />}>
+                <PostProcessingPage />
+              </Suspense>
+            }
+          />
+        </Route>
+      </Routes>
+      <ShortcutHelpOverlay open={helpOpen} onClose={() => setHelpOpen(false)} />
+    </>
   );
 }
 

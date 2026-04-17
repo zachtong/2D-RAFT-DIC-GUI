@@ -89,8 +89,8 @@ describe("FramePlayback", () => {
     mockFrameNav({ numFrames: 10, currentFrame: 0 });
     render(<FramePlayback />);
 
-    // Frame counter shows 1-indexed: "/ 10"
-    expect(screen.getByText("/ 10")).toBeInTheDocument();
+    // Frame counter (slider label) shows 1-indexed "Frame 1 / 10"
+    expect(screen.getByText(/Frame\s+1\s*\/\s*10/)).toBeInTheDocument();
     // Speed label
     expect(screen.getByText("Speed")).toBeInTheDocument();
     // Go button
@@ -101,10 +101,11 @@ describe("FramePlayback", () => {
     mockFrameNav({ currentFrame: 4, numFrames: 20 });
     render(<FramePlayback />);
 
-    // Input shows currentFrame + 1 = 5
+    // The number input shows currentFrame + 1 = 5 (spinbutton role is the
+    // Goto <input type="number"> — the slider is type="range").
     const frameInput = screen.getByRole("spinbutton");
     expect(frameInput).toHaveValue(5);
-    expect(screen.getByText("/ 20")).toBeInTheDocument();
+    expect(screen.getByText(/Frame\s+5\s*\/\s*20/)).toBeInTheDocument();
   });
 
   it("calls first() when skip-back button clicked", async () => {

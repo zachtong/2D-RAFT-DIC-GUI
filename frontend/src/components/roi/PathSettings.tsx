@@ -21,6 +21,7 @@ export function PathSettings() {
   const selectedModel = useAppStore((s) => s.selectedModel);
   const setModel = useAppStore((s) => s.setModel);
   const modelMetadata = useAppStore((s) => s.modelMetadata);
+  const processingActive = useAppStore((s) => s.processingActive);
   const resetRoi = useRoiStore((s) => s.setMaskUrl);
   const clearDrawing = useRoiStore((s) => s.setDrawingMode);
 
@@ -67,7 +68,17 @@ export function PathSettings() {
       const modelList = await listModels();
       setModels(modelList.map((m) => ({ value: m.path, label: m.label })));
       if (modelList.length > 0 && !selectedModel) {
-        await handleModelSelect(modelList[0].path);
+        const first = modelList[0];
+        await handleModelSelect(first.path);
+        // Make the silent auto-selection visible to the user.
+        if (modelList.length > 1) {
+          toast(
+            "info",
+            `Using model: ${first.label} (${modelList.length - 1} other${modelList.length > 2 ? "s" : ""} available — change in the Model dropdown)`,
+          );
+        } else {
+          toast("info", `Using model: ${first.label}`);
+        }
       }
     } catch (e: any) {
       const msg = e.response?.data?.error ?? "Failed to load images — is the Flask server running?";
@@ -178,14 +189,29 @@ export function PathSettings() {
       )}
 
       {models.length > 0 && (
-        <FieldRow label="Model">
+        <FieldRow label={`Model${models.length > 1 ? ` (${models.length})` : ""}`}>
           <SelectField
             value={selectedModel}
             options={models}
             onChange={handleModelSelect}
             className="flex-1 min-w-0"
+            disabled={processingActive}
+            title={
+              processingActive
+                ? "Model locked while processing is running — cancel or finish the run first"
+                : undefined
+            }
           />
         </FieldRow>
+      )}
+
+      {selectedModel && (
+        <div className="text-[10px] text-[var(--muted-foreground)] -mt-1">
+          <span className="opacity-70">In use: </span>
+          <span className="font-mono text-[var(--foreground)]">
+            {models.find((m) => m.value === selectedModel)?.label ?? selectedModel}
+          </span>
+        </div>
       )}
 
       {modelMetadata && (

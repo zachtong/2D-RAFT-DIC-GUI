@@ -76,6 +76,10 @@ export async function clearFrameRoi(frameIdx: number): Promise<void> {
   await client.delete(`/roi/frame/${frameIdx}`);
 }
 
+export async function clearAllFrameRois(): Promise<void> {
+  await client.delete("/roi/frames/clear-all");
+}
+
 export interface FramesRoiStatus {
   total_frames: number;
   frames_with_roi: number[];
@@ -113,4 +117,34 @@ export async function exportMask(): Promise<void> {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+/** Fetch the current ROI mask for a frame as a Blob (used by undo history). */
+export async function fetchMaskBlob(frameIdx: number): Promise<Blob | null> {
+  try {
+    const resp = await client.get("/roi/mask/binary", {
+      params: { frame_idx: frameIdx },
+      responseType: "blob",
+    });
+    return resp.data as Blob;
+  } catch {
+    return null;
+  }
+}
+
+/** Replace a frame's ROI mask with an uploaded PNG (empty=true clears it). */
+export async function uploadMask(
+  frameIdx: number,
+  blob: Blob | null,
+): Promise<void> {
+  const form = new FormData();
+  form.append("frame_idx", String(frameIdx));
+  if (blob == null) {
+    form.append("empty", "1");
+  } else {
+    form.append("mask", blob, "mask.png");
+  }
+  await client.post("/roi/mask/upload", form, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
 }

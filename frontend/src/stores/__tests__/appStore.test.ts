@@ -334,18 +334,24 @@ describe("appStore", () => {
   });
 
   describe("setRoiConfirmed", () => {
-    it("should confirm ROI and increment version", () => {
+    it("should flip the confirmed flag without touching roiVersion", () => {
       const before = getState().roiVersion;
       getState().setRoiConfirmed(true);
       expect(getState().roiConfirmed).toBe(true);
-      expect(getState().roiVersion).toBe(before + 1);
-    });
-
-    it("should reset roiVersion to 0 when unconfirming", () => {
-      getState().setRoiConfirmed(true);
+      expect(getState().roiVersion).toBe(before);
       getState().setRoiConfirmed(false);
       expect(getState().roiConfirmed).toBe(false);
-      expect(getState().roiVersion).toBe(0);
+      expect(getState().roiVersion).toBe(before);
+    });
+  });
+
+  describe("bumpRoiVersion", () => {
+    it("increments roiVersion on every call", () => {
+      const before = getState().roiVersion;
+      getState().bumpRoiVersion();
+      expect(getState().roiVersion).toBe(before + 1);
+      getState().bumpRoiVersion();
+      expect(getState().roiVersion).toBe(before + 2);
     });
   });
 

@@ -112,6 +112,8 @@ export function RoiImportDialog() {
       if (editingFrameIdx === 0) {
         useAppStore.getState().setRoiConfirmed(true);
       }
+      // Mark any dependent results stale regardless of target frame.
+      useAppStore.getState().bumpRoiVersion();
     }
     setShow(false);
   };

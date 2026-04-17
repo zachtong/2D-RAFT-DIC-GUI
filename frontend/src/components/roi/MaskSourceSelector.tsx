@@ -40,6 +40,7 @@ export function MaskSourceSelector({
       await applyFrame1Mask(maskDir);
       useRoiStore.getState().setMaskUrl(`/api/roi/mask?t=${Date.now()}`);
       useAppStore.getState().setRoiConfirmed(true);
+      useAppStore.getState().bumpRoiVersion();
     } catch (err: any) {
       console.error("Apply frame-1 mask failed:", err);
     }

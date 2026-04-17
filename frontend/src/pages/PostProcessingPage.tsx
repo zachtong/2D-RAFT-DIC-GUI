@@ -9,6 +9,7 @@ import { PostProcessingView } from "@/components/postprocessing/PostProcessingVi
 import { FramePlayback } from "@/components/displacement/FramePlayback";
 import { TimeSeriesChart } from "@/components/postprocessing/TimeSeriesChart";
 import { ResizableSplitter } from "@/components/postprocessing/ResizableSplitter";
+import { ResultContextBanner } from "@/components/shared/ResultContextBanner";
 import { usePreRenderCache } from "@/hooks/usePreRenderCache";
 import { useAppStore } from "@/stores/appStore";
 
@@ -58,6 +59,7 @@ export function PostProcessingPage() {
         </div>
       </Sidebar>
       <div className="flex-1 flex flex-col overflow-hidden">
+        <ResultContextBanner />
         <div ref={splitContainerRef} className="flex-1 flex flex-col overflow-hidden">
           <div style={{ flex: `0 0 ${topRatio * 100}%` }} className="overflow-hidden flex flex-col">
             <PostProcessingView cache={cache} />

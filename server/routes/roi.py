@@ -261,6 +261,53 @@ def import_mask():
     return jsonify({"rect": session.roi_rect, "area_px": area, "frame_idx": frame_idx})
 
 
+@roi_bp.route("/mask/upload", methods=["POST"])
+def upload_mask():
+    """Replace a frame's ROI mask with an uploaded binary PNG.
+
+    Used by the frontend undo/redo stack: it snapshots the current mask
+    locally, then uploads the previous snapshot on Ctrl+Z.
+
+    Multipart fields:
+    - mask: binary PNG file (any size — nearest-resized to image shape)
+    - frame_idx: target frame (default 0)
+    - empty: if "1", clear the mask for this frame instead of reading mask
+    """
+    frame_idx = int(request.form.get("frame_idx", 0))
+    empty = request.form.get("empty", "0") == "1"
+
+    h, w = _image_hw()
+    if h == 0:
+        return jsonify({"error": "No images loaded"}), 400
+
+    if empty:
+        mask_bool = np.zeros((h, w), dtype=bool)
+    else:
+        file = request.files.get("mask")
+        if file is None:
+            return jsonify({"error": "Missing mask file"}), 400
+        buf = np.frombuffer(file.read(), np.uint8)
+        mask_img = cv2.imdecode(buf, cv2.IMREAD_GRAYSCALE)
+        if mask_img is None:
+            return jsonify({"error": "Failed to decode uploaded mask"}), 400
+        mask_img = cv2.resize(mask_img, (w, h), interpolation=cv2.INTER_NEAREST)
+        mask_bool = (mask_img > 127)
+
+    with session._lock:
+        _set_frame_mask(frame_idx, mask_bool)
+        if frame_idx == 0:
+            # Frame 0 is auto-confirmed when any ROI exists; empty mask
+            # un-confirms so downstream gating behaves correctly.
+            session.roi_confirmed = bool(mask_bool.any())
+
+    area = int(mask_bool.sum())
+    return jsonify({
+        "rect": session.roi_rect,
+        "area_px": area,
+        "frame_idx": frame_idx,
+    })
+
+
 @roi_bp.route("/invert", methods=["POST"])
 def invert_mask():
     """Invert the ROI mask for a given frame (default frame 0)."""
@@ -388,6 +435,17 @@ def clear_frame_roi(frame_idx: int):
     return jsonify({"ok": True})
 
 
+@roi_bp.route("/frames/clear-all", methods=["DELETE"])
+def clear_all_frame_rois():
+    """Clear ROI masks for ALL frames (including frame 0)."""
+    with session._lock:
+        session.roi_mask = None
+        session.roi_rect = None
+        session.roi_confirmed = False
+        session.per_frame_rois.clear()
+    return jsonify({"ok": True})
+
+
 @roi_bp.route("/frames/status", methods=["GET"])
 def frames_roi_status():
     """Return which frames have ROI masks."""
@@ -441,10 +499,8 @@ def batch_import_rois():
             numbers = re.findall(r"\d+", mask_file.stem)
             if not numbers:
                 continue
+            # Use last number in filename as 0-based frame index directly
             target_idx = int(numbers[-1])
-            # Treat as 1-based if > 0, convert to 0-based
-            if target_idx > 0:
-                target_idx -= 1
         else:  # sequential
             target_idx = file_idx
 

@@ -13,6 +13,8 @@ import {
   RotateCcw,
   Trash2,
   ChevronUp,
+  Undo2,
+  Redo2,
 } from "lucide-react";
 
 const SHAPES: {
@@ -101,6 +103,11 @@ export function RoiToolbar() {
   const setMaskUrl = useRoiStore((s) => s.setMaskUrl);
   const editingFrameIdx = useRoiStore((s) => s.editingFrameIdx);
   const refreshMaskUrl = useRoiStore((s) => s.refreshMaskUrl);
+  const snapshotBeforeEdit = useRoiStore((s) => s.snapshotBeforeEdit);
+  const undo = useRoiStore((s) => s.undo);
+  const redo = useRoiStore((s) => s.redo);
+  const undoLen = useRoiStore((s) => s.undoStack.length);
+  const redoLen = useRoiStore((s) => s.redoStack.length);
   const setRoiConfirmed = useAppStore((s) => s.setRoiConfirmed);
   const imageFiles = useAppStore((s) => s.imageFiles);
   const maskUrl = useRoiStore((s) => s.maskUrl);
@@ -108,6 +115,7 @@ export function RoiToolbar() {
   const disabled = imageFiles.length === 0;
 
   const handleClear = async () => {
+    await snapshotBeforeEdit(editingFrameIdx);
     if (editingFrameIdx === 0) {
       await clearRoi();
       setMaskUrl(null);
@@ -120,6 +128,7 @@ export function RoiToolbar() {
   };
 
   const handleInvert = async () => {
+    await snapshotBeforeEdit(editingFrameIdx);
     const result = await invertMask(editingFrameIdx);
     if (result) refreshMaskUrl();
   };
@@ -165,6 +174,34 @@ export function RoiToolbar() {
         />
 
         {/* Separator */}
+        <div className="w-px h-4 bg-[var(--border)] mx-1" />
+
+        {/* Undo / Redo */}
+        <button
+          onClick={() => undo()}
+          disabled={disabled || undoLen === 0}
+          className={actionBtnClass}
+          title="Undo last ROI change (Ctrl+Z)"
+        >
+          <Undo2 className="w-3 h-3" />
+          Undo
+          {undoLen > 0 && (
+            <span className="text-[8px] opacity-60 ml-0.5">{undoLen}</span>
+          )}
+        </button>
+        <button
+          onClick={() => redo()}
+          disabled={disabled || redoLen === 0}
+          className={actionBtnClass}
+          title="Redo (Ctrl+Shift+Z)"
+        >
+          <Redo2 className="w-3 h-3" />
+          Redo
+          {redoLen > 0 && (
+            <span className="text-[8px] opacity-60 ml-0.5">{redoLen}</span>
+          )}
+        </button>
+
         <div className="w-px h-4 bg-[var(--border)] mx-1" />
 
         {/* Action buttons */}

@@ -3,6 +3,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { VisualizationSettings } from "@/components/roi/VisualizationSettings";
 import { DisplacementView } from "@/components/displacement/DisplacementView";
 import { FramePlayback } from "@/components/displacement/FramePlayback";
+import { ResultContextBanner } from "@/components/shared/ResultContextBanner";
 import { usePreRenderCache } from "@/hooks/usePreRenderCache";
 import { useAppStore } from "@/stores/appStore";
 
@@ -59,6 +60,7 @@ export function DisplacementPage() {
         </div>
       </Sidebar>
       <div className="flex-1 flex flex-col overflow-hidden">
+        <ResultContextBanner />
         <DisplacementView cacheU={cacheU} cacheV={cacheV} />
         <FramePlayback
           preRenderCache={{

@@ -395,6 +395,38 @@ export function PostProcessingView({ cache }: PostProcessingViewProps) {
         onMouseUp={handlePanUp}
         onMouseLeave={handlePanUp}
       >
+        {/* Probe placement status banner — floats over the canvas while a
+            probe-placing mode is active so the user always knows what click
+            will do. */}
+        {placingMode && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 rounded-md bg-[var(--primary)] text-white text-[11px] shadow-lg pointer-events-none flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+            {(() => {
+              switch (placingMode) {
+                case "point":
+                  return "Click to place a point probe · Esc to cancel";
+                case "line":
+                  return placingFirst
+                    ? "Click to set the second endpoint · Esc to cancel"
+                    : "Click to set the first endpoint · Esc to cancel";
+                case "area-rect":
+                  return placingFirst
+                    ? "Click to set the opposite rectangle corner · Esc to cancel"
+                    : "Click to set the first rectangle corner · Esc to cancel";
+                case "area-circle":
+                  return placingFirst
+                    ? "Click to set the circle radius · Esc to cancel"
+                    : "Click to set the circle centre · Esc to cancel";
+                case "area-poly":
+                  return areaPolyPoints.length >= 3
+                    ? "Double-click or Enter to close polygon · Esc to cancel"
+                    : `Click to add polygon vertex (${areaPolyPoints.length} so far) · Esc to cancel`;
+                default:
+                  return "Click to place probe · Esc to cancel";
+              }
+            })()}
+          </div>
+        )}
         <div className="absolute inset-0 flex items-center justify-center">
           <div
             className="relative"

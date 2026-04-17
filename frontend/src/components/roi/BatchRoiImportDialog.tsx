@@ -77,6 +77,7 @@ export function BatchRoiImportDialog() {
         await confirmRoi();
         useAppStore.getState().setRoiConfirmed(true);
       }
+      useAppStore.getState().bumpRoiVersion();
 
       refreshMaskUrl();
 

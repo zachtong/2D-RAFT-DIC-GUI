@@ -72,6 +72,12 @@ interface AppState {
   // Result version — monotonically increases on each recomputation (busts caches)
   resultVersion: number;
 
+  // Provenance of the currently displayed results — used to detect staleness
+  // when the user edits the ROI or changes the model after a run.
+  lastRunRoiVersion: number;
+  lastRunModel: string;
+  lastRunAt: number | null;
+
   // Strain
   hasStrain: boolean;
   strainComputing: boolean;
@@ -121,6 +127,7 @@ interface AppState {
   setModel: (path: string, meta: ModelMetadata | null) => void;
   setMode: (mode: "accumulative" | "incremental") => void;
   setRoiConfirmed: (v: boolean) => void;
+  bumpRoiVersion: () => void;
   setProcessing: (active: boolean, progress?: number, current?: number, total?: number) => void;
   setProcessingPaused: (paused: boolean) => void;
   setResults: (numFrames: number) => void;
@@ -187,6 +194,9 @@ export const useAppStore = create<AppState>((set) => ({
   currentFrame: 0,
   referenceFrame: 0,
   resultVersion: 0,
+  lastRunRoiVersion: 0,
+  lastRunModel: "",
+  lastRunAt: null,
   hasStrain: false,
   strainComputing: false,
   strainProgress: 0,
@@ -260,6 +270,9 @@ export const useAppStore = create<AppState>((set) => ({
       numFrames: 0,
       currentFrame: 0,
       referenceFrame: 0,
+      lastRunRoiVersion: 0,
+      lastRunModel: "",
+      lastRunAt: null,
       hasStrain: false,
       strainComputing: false,
       strainProgress: 0,
@@ -289,10 +302,12 @@ export const useAppStore = create<AppState>((set) => ({
   },
   setModel: (path, meta) => set({ selectedModel: path, modelMetadata: meta }),
   setMode: (mode) => set({ mode }),
-  setRoiConfirmed: (v) => set((state) => ({
-    roiConfirmed: v,
-    roiVersion: v ? state.roiVersion + 1 : 0,
-  })),
+  // setRoiConfirmed only toggles the "confirmed" gate for Run.  Version
+  // bumping is handled by bumpRoiVersion, which every ROI mutation call
+  // site triggers — otherwise per-frame edits would silently leave the
+  // stale-result banner untriggered.
+  setRoiConfirmed: (v) => set({ roiConfirmed: v }),
+  bumpRoiVersion: () => set((s) => ({ roiVersion: s.roiVersion + 1 })),
   setProcessing: (active, progress = 0, current = 0, total = 0) =>
     set({
       processingActive: active,
@@ -303,7 +318,15 @@ export const useAppStore = create<AppState>((set) => ({
     }),
   setProcessingPaused: (paused) => set({ processingPaused: paused }),
   setResults: (numFrames) =>
-    set((s) => ({ hasResults: numFrames > 0, numFrames, currentFrame: 0, resultVersion: s.resultVersion + 1 })),
+    set((s) => ({
+      hasResults: numFrames > 0,
+      numFrames,
+      currentFrame: 0,
+      resultVersion: s.resultVersion + 1,
+      lastRunRoiVersion: s.roiVersion,
+      lastRunModel: s.selectedModel,
+      lastRunAt: Date.now(),
+    })),
   setCurrentFrame: (frame) => set({ currentFrame: frame }),
   setReferenceFrame: (frame) => set({ referenceFrame: frame }),
   setStrain: (has, components = []) =>
@@ -351,5 +374,10 @@ export const useAppStore = create<AppState>((set) => ({
       hasStrain: summary.num_strain_frames > 0,
       strainComponents: summary.strain_components,
       displayComponent: "u",
+      // Treat a restored session as fresh: whatever ROI/model we have now
+      // are the ones those results were computed from.
+      lastRunRoiVersion: s.roiVersion,
+      lastRunModel: s.selectedModel,
+      lastRunAt: Date.now(),
     })),
 }));
