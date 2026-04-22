@@ -47,13 +47,15 @@ RAFTcorr replaces the entire correlation pipeline with **RAFT** (Recurrent All-P
 | **2D / 3D / DVC** | ${\color{red}\textsf{2D only}}$ | ${\color{green}\textsf{2D + Stereo}}$ | ${\color{green}\textsf{2D + Stereo + DVC}}$ | ${\color{green}\textsf{2D + 3D}}$ | 2D (free) + 3D | ${\color{red}\textsf{2D only}}$ ³ |
 | **Strain** | Green-Lagrange | Robust (LSQ) | 2D + 3D surface | ${\color{green}\textsf{Comprehensive}}$ | ${\color{green}\textsf{Full}}$ | Green-Lagrange + eng. |
 | **Platform** | ${\color{red}\textsf{MATLAB}}$ | C++ (cross) | C++ (cross) | ${\color{red}\textsf{Windows}}$ | ${\color{red}\textsf{Windows}}$ | ${\color{green}\textsf{Browser (cross-platform)}}$ |
-| **Cost** | Free (MATLAB req.) | ${\color{green}\textsf{Free (BSD-3)}}$ | ${\color{green}\textsf{Free (MPL-2.0)}}$ | ${\color{red}\textsf{5K–150K+ USD}}$ | Free (2D) / paid (3D) | ${\color{green}\textsf{Free (MIT)}}$ |
-| **Open source** | ${\color{green}\textsf{Yes}}$ | ${\color{green}\textsf{Yes}}$ | ${\color{green}\textsf{Yes}}$ | ${\color{red}\textsf{No}}$ | ${\color{red}\textsf{No}}$ | ${\color{green}\textsf{Yes}}$ |
+| **Cost** | Free (MATLAB req.) | ${\color{green}\textsf{Free (BSD-3)}}$ | ${\color{green}\textsf{Free (MPL-2.0)}}$ | ${\color{red}\textsf{5K–150K+ USD}}$ | Free (2D) / paid (3D) | ${\color{green}\textsf{Free (UT Research License)}}$ ⁴ |
+| **Open source** | ${\color{green}\textsf{Yes}}$ | ${\color{green}\textsf{Yes}}$ | ${\color{green}\textsf{Yes}}$ | ${\color{red}\textsf{No}}$ | ${\color{red}\textsf{No}}$ | ${\color{green}\textsf{Source-available}}$ ⁵ |
 | **Development** | ${\color{red}\textsf{Dormant (~2019)}}$ | ${\color{green}\textsf{Active (v3.0)}}$ | ${\color{green}\textsf{Active (2025)}}$ | ${\color{green}\textsf{Active (v11)}}$ | ${\color{green}\textsf{Active (2025)}}$ | ${\color{green}\textsf{Active}}$ |
 
 <sup>¹ DIC-optimized RAFT models achieve ~0.03–0.08 px; standard IC-GN methods reach ~0.01 px. Deep learning DIC trades modest sub-pixel precision for order-of-magnitude gains in speed, robustness, and ease of use. Active research is closing this gap.</sup><br>
 <sup>² DICe offers a simplex (gradient-free) optimizer that improves robustness in low-contrast regions.</sup><br>
-<sup>³ Stereo 3D DIC support is planned for a future release.</sup>
+<sup>³ Stereo 3D DIC support is planned for a future release.</sup><br>
+<sup>⁴ Free for academic, research, and internal non-commercial use. Commercial distribution requires a separate license — contact licensing@discoveries.utexas.edu. See [LICENSE.md](LICENSE.md).</sup><br>
+<sup>⁵ Full source code is publicly available and modifiable for non-commercial use. The UT Research License restricts commercial distribution, so it is not OSI-approved "open source" in the strictest sense — it is best described as *source-available*.</sup>
 
 <details>
 <summary><b>vs. open-source DIC tools (Ncorr, DICe, OpenCorr, muDIC)</b></summary>
@@ -345,6 +347,10 @@ If RAFTcorr assists your research, please cite:
 
 ## License
 
-<!-- TODO: Update when license is finalized -->
+RAFTcorr is distributed under **The University of Texas at Austin Research License, Version 1.0**.
 
-See [LICENSE](LICENSE.md) for details.
+- **Free** for academic, research, experimental, personal, consulting, and internal research & development use.
+- **Commercial distribution is not permitted** under this license. For commercial use, please contact **licensing@discoveries.utexas.edu**.
+- Derivative works are allowed under the same license terms (see Section 3.2).
+
+See [LICENSE.md](LICENSE.md) for the full license text.

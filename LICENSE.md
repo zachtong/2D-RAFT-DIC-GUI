@@ -1,0 +1,117 @@
+# THE UNIVERSITY OF TEXAS AT AUSTIN RESEARCH LICENSE
+
+**VERSION 1.0, APRIL 2026**
+
+The University of Texas at Austin has developed certain software and documentation that it desires to make available to anyone for all purposes except Commercial Distribution, defined below. The accompanying Software and Documentation is made available to you under the terms of this The University of Texas at Austin Research License ("License"). By installing or using the Software, you are consenting to be bound by this License. If you do not agree to the terms and conditions of this License, do not install or use any part of the Software. The terms and conditions in this License not only apply to the Software, but also to any derivative works of the Software.
+
+## 1. DEFINITIONS
+
+**1.1** "Commercial Distribution" shall mean distribution of Software or Derivative Products by Licensee for direct or indirect financial, commercial or strategic gain or advantage, including without limitation:
+
+(a) bundling or integrating the Software with any hardware product or another software product, including Derivative Products, for transfer, sale or license to a third party (even if distributing the Software on separate media and not charging for the Software or Derivative Product);
+
+(b) providing users with a link to the Software, Derivative Products, or a copy of the Software for use with hardware or another software product purchased by that customer; or
+
+(c) providing software services based on or using Software or Derivative Products.
+
+**1.2** "Contribution" shall mean any work of authorship, including the original version of the Work and any modifications or additions to that Work or Derivative Works thereof, that is intentionally submitted to Licensor for inclusion in the Work by the copyright owner or by an individual or Legal Entity authorized to submit on behalf of the copyright owner. For the purposes of this definition, "submitted" means any form of electronic, verbal, or written communication sent to the Licensor or its representatives, including but not limited to communication on electronic mailing lists, source code control systems, and issue tracking systems that are managed by, or on behalf of, the Licensor for the purpose of discussing and improving the Work, but excluding communication that is conspicuously marked or otherwise designated in writing by the copyright owner as "Not a Contribution."
+
+**1.3** "Derivative Products" means any derivative works of the Software made by Licensee, and any computer software programs, and Documentation, developed by Licensee which are a modification of, enhancement to, derived from or based upon the Licensed Software or Documentation provided by Licensor for the Licensed Software, and any object code compiled from such computer software programs. Derivative Products include software written to perform substantially the same function, in substantially the same way, to achieve substantially the same result as Software.
+
+**1.4** "Licensor" shall mean The University of Texas at Austin, on behalf of the Board of Regents of the University of Texas System, an agency of the State of Texas, whose address is 3925 W. Braker Lane, Suite 1.9A (R3500), Austin, Texas 78759.
+
+**1.5** "Licensee" or "you" shall mean the person or entity that has agreed to the terms hereof and is exercising rights granted hereunder.
+
+**1.6** "Software" shall mean all files which are made available under this License in source code form, including any error corrections, bug fixes, patches, updates or other modifications that Licensor may in its sole discretion make available to Licensee from time to time, and any object code compiled from such source code.
+
+## 2. GRANT OF RIGHTS
+
+Subject to the terms and conditions hereunder, Licensor hereby grants to Licensee a worldwide, non-transferable, non-exclusive license for all purposes except Commercial Distribution. Example allowed uses include:
+
+(a) academic purposes, research, experimental use, personal use, consulting services, and internal research and development; and
+
+(b) use and modification of the Software to create Derivative Products, subject to Section 3.2.
+
+For Commercial Distribution, please contact **licensing@discoveries.utexas.edu**.
+
+## 3. RESTRICTIONS
+
+**3.1** Licensee may not:
+
+(a) Commercially Distribute Software or Derivative Products;
+
+(b) use the Software or Derivative Products for any use except as described in Section 2; or
+
+(c) remove any product identification, copyright, proprietary notices or labels from the Software and Documentation.
+
+This License confers no rights upon Licensee except those expressly granted herein.
+
+**3.2 Derivative Products.** Licensee hereby agrees that it will provide a copy of all Derivative Products to Licensor and that its use of the Derivative Products will be subject to all the same terms, conditions, restrictions and limitations on use imposed under this License.
+
+## 4. WARRANTIES
+
+**4.1 Disclaimer of Warranties.** TO THE EXTENT PERMITTED BY APPLICABLE LAW, THE SOFTWARE AND DOCUMENTATION ARE BEING PROVIDED ON AN "AS IS" BASIS WITHOUT ANY WARRANTIES OF ANY KIND RESPECTING THE SOFTWARE OR DOCUMENTATION, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTY OF DESIGN, MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, OR NON-INFRINGEMENT.
+
+**4.2 Limitation of Liability.** UNDER NO CIRCUMSTANCES UNLESS REQUIRED BY APPLICABLE LAW SHALL LICENSOR BE LIABLE FOR INCIDENTAL, SPECIAL, INDIRECT, DIRECT OR CONSEQUENTIAL DAMAGES OR LOSS OF PROFITS, INTERRUPTION OF BUSINESS, OR RELATED EXPENSES WHICH MAY ARISE AS A RESULT OF THIS LICENSE OR OUT OF THE USE OR ATTEMPT OF USE OF SOFTWARE OR DOCUMENTATION INCLUDING BUT NOT LIMITED TO THOSE RESULTING FROM DEFECTS IN SOFTWARE AND/OR DOCUMENTATION, OR LOSS OR INACCURACY OF DATA OF ANY KIND. THE FOREGOING EXCLUSIONS AND LIMITATIONS WILL APPLY TO ALL CLAIMS AND ACTIONS OF ANY KIND, WHETHER BASED ON CONTRACT, TORT (INCLUDING, WITHOUT LIMITATION, NEGLIGENCE), OR ANY OTHER GROUNDS.
+
+## 5. INDEMNIFICATION
+
+Licensee shall indemnify, defend and hold harmless Licensor, the University of Texas System, their Regents, and their officers, agents and employees from and against any claims, demands, or causes of action whatsoever caused by, or arising out of, or resulting from, the exercise or practice of the license granted hereunder by Licensee, its officers, employees, agents or representatives.
+
+## 6. TERMINATION
+
+If Licensee breaches this License, Licensee's right to use the Software and Documentation will terminate immediately without notice, but all provisions of this License except Section 2 will survive termination and continue in effect. Upon termination, Licensee must destroy all copies of the Software and Documentation.
+
+## 7. GOVERNING LAW; JURISDICTION AND VENUE
+
+The validity, interpretation, construction and performance of this License shall be governed by the laws of the State of Texas. The Texas state courts of Travis County, Texas (or, if there is exclusive federal jurisdiction, the United States District Court for the Western District of Texas) shall have exclusive jurisdiction and venue over any dispute arising out of this License, and Licensee consents to the jurisdiction of such courts. Application of the United Nations Convention on Contracts for the International Sale of Goods is expressly excluded.
+
+## 8. EXPORT CONTROLS
+
+This license is subject to all applicable export restrictions. Licensee must comply with all export and import laws and restrictions and regulations of any United States or foreign agency or authority relating to the Software and its use.
+
+## 9. U.S. GOVERNMENT END-USERS
+
+The Software is a "commercial item," as that term is defined in 48 C.F.R. 2.101, consisting of "commercial computer software" and "commercial computer software documentation," as such terms are used in 48 C.F.R. 12.212 (Sept. 1995) and 48 C.F.R. 227.7202 (June 1995). Consistent with 48 C.F.R. 12.212, 48 C.F.R. 27.405(b)(2) (June 1998) and 48 C.F.R. 227.7202, all U.S. Government End Users acquire the Software with only those rights as set forth herein.
+
+## 10. MISCELLANEOUS
+
+If any provision hereof shall be held illegal, invalid or unenforceable, in whole or in part, such provision shall be modified to the minimum extent necessary to make it legal, valid and enforceable, and the legality, validity and enforceability of all other provisions of this License shall not be affected thereby. Licensee may not assign this License in whole or in part, without Licensor's prior written consent. Any attempt to assign this License without such consent will be null and void. This License is the complete and exclusive statement between Licensee and Licensor relating to the subject matter hereof and supersedes all prior oral and written and all contemporaneous oral negotiations, commitments and understandings of the parties, if any. Any waiver by either party of any default or breach hereunder shall not constitute a waiver of any provision of this License or of any subsequent default or breach of the same or a different kind.
+
+**END OF LICENSE**
+
+---
+
+## APPENDIX: How to apply the License to your Software
+
+To apply the License to your work, attach the following boilerplate notice (after the DIVIDER), with the "YYYY" replaced with the current year. We also recommend that a file or class name and description of purpose be included on the same "printed page" as the copyright notice for easier identification within third-party archives.
+
+```
+------------------------- DIVIDER -------------------------
+
+Copyright 2026 The University of Texas at Austin.
+
+Licensed under The University of Texas at Austin Research License,
+Version 1.0 ("License"). You MAY NOT use this file except in
+compliance with the License.
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+AND THE UNIVERSITY OF TEXAS AT AUSTIN EXPRESSLY DISCLAIMS ANY AND
+ALL WARRANTIES CONCERNING THIS SOFTWARE AND DOCUMENTATION, INCLUDING
+ANY WARRANTIES OF MERCHANTABILITY, FITNESS FOR ANY PARTICULAR PURPOSE,
+NON-INFRINGEMENT AND WARRANTIES OF PERFORMANCE, AND ANY WARRANTY
+THAT MIGHT OTHERWISE ARISE FROM COURSE OF DEALING OR USAGE OF TRADE.
+NO WARRANTY IS EITHER EXPRESS OR IMPLIED WITH RESPECT TO THE USE OF
+THE SOFTWARE OR DOCUMENTATION.
+
+Under no circumstances shall The University of Texas at Austin be
+liable for incidental, special, indirect, direct or consequential
+damages or loss of profits, interruption of business, or related
+expenses which may arise from use of Software or Documentation,
+including but not limited to those resulting from defects in Software
+and/or Documentation, or loss or inaccuracy of data of any kind.
+
+See the License for the specific language governing permissions and
+limitations under this License.
+```
